@@ -1,0 +1,220 @@
+/* =========================================================================
+   Sinete Balcão
+   O balcão é sempre escuro. Não é gosto: é para o ecrã não cegar ninguém num
+   café às sete da manhã, para a imagem da câmara se destacar do cromado, e
+   para quem tem as duas apps instaladas nunca abrir a errada.
+   ========================================================================= */
+
+/* --- entrada -------------------------------------------------------------- */
+
+.entrada {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  padding: calc(var(--seguro-cima) + var(--e-6)) var(--e-6)
+           calc(var(--seguro-baixo) + var(--e-6));
+  background: var(--papel);
+}
+.entrada-topo { padding-bottom: var(--e-6); }
+.marca-balcao {
+  display: inline-flex; align-items: center; gap: var(--e-3);
+  font-size: 1.0625rem; letter-spacing: -.01em;
+}
+.marca-balcao b { font-weight: 800; }
+.marca-selo {
+  width: 34px; height: 34px; border-radius: var(--r-2);
+  background: var(--marca);
+  display: grid; place-items: center;
+  box-shadow: 0 4px 14px var(--marca-aro);
+}
+.marca-selo::after {
+  content: ""; width: 15px; height: 15px; border-radius: 3px;
+  background: var(--marca-texto);
+  clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%);
+}
+.entrada-meio { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.entrada-meio h1 { font-size: clamp(2rem, 8vw, 2.6rem); letter-spacing: -.04em; }
+.entrada-meio p {
+  margin-top: var(--e-4);
+  font-size: 1.0625rem; color: var(--tinta-2); line-height: 1.55; max-width: 32ch;
+}
+.entrada-acoes { display: flex; flex-direction: column; gap: var(--e-3); }
+.entrada-nota { text-align: center; font-size: .8125rem; color: var(--tinta-3); }
+
+/* --- o programa em cima --------------------------------------------------- */
+
+.programa-atual {
+  display: flex; align-items: center; gap: var(--e-3);
+  margin-bottom: var(--e-4); padding: var(--e-3) var(--e-4);
+  background: var(--papel-2); border: 1px solid var(--linha);
+  border-radius: var(--r-3);
+}
+.programa-selo {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: var(--r-2);
+  background: var(--marca-fundo); color: var(--marca);
+}
+.programa-texto { min-width: 0; }
+.programa-texto b { display: block; font-size: .9375rem; }
+.programa-texto span {
+  display: block; font-size: .8125rem; color: var(--tinta-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- o visor da câmara ---------------------------------------------------- */
+
+.visor {
+  position: relative;
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--r-5); overflow: hidden;
+  background: #000;
+  box-shadow: var(--sombra-2);
+}
+.visor-video { width: 100%; height: 100%; object-fit: cover; }
+.visor[data-ativo="nao"] .visor-video { display: none; }
+
+/* A mira: quatro cantos. Sem caixa fechada — a caixa faz as pessoas pensarem
+   que o código tem de caber exactamente lá dentro, e não tem. */
+.visor-mira {
+  position: absolute; inset: 18%;
+  pointer-events: none;
+}
+.visor-mira span {
+  position: absolute; width: 34px; height: 34px;
+  border: 3px solid rgba(255, 255, 255, .92);
+}
+.visor-mira span:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; border-radius: 10px 0 0 0; }
+.visor-mira span:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; border-radius: 0 10px 0 0; }
+.visor-mira span:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; border-radius: 0 0 0 10px; }
+.visor-mira span:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; border-radius: 0 0 10px 0; }
+.visor[data-ativo="nao"] .visor-mira { display: none; }
+
+.visor-estado {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: var(--e-5);
+  background: linear-gradient(transparent, rgba(0, 0, 0, .72));
+  color: #fff; text-align: center;
+  font-size: .9375rem; font-weight: 600; line-height: 1.4;
+}
+.visor[data-ativo="nao"] .visor-estado {
+  inset: 0; display: grid; place-items: center;
+  background: var(--papel-2); color: var(--tinta-2);
+}
+
+.manual { margin-top: var(--e-4); }
+.campo-numero {
+  font-family: var(--letra-mono); font-size: 1.5rem !important;
+  letter-spacing: .28em; text-align: center; text-transform: uppercase;
+}
+
+/* --- quantia de pontos ---------------------------------------------------- */
+
+.quantia { margin-top: var(--e-5); }
+.quantia-rotulo {
+  display: block; margin-bottom: var(--e-2);
+  font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--tinta-3);
+}
+.quantia-botoes { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--e-2); }
+.quantia-botao {
+  min-height: 52px; border-radius: var(--r-3);
+  background: var(--papel-2); border: 1.5px solid var(--linha);
+  font-size: 1.0625rem; font-weight: 700;
+  transition: all var(--t-2) ease;
+}
+.quantia-botao[data-ativo="sim"] {
+  background: var(--marca); color: var(--marca-texto); border-color: var(--marca);
+}
+
+/* --- o resultado ---------------------------------------------------------- */
+
+.resultado {
+  position: fixed; inset: 0; z-index: 120;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(6, 5, 10, .72);
+  backdrop-filter: blur(6px);
+  animation: aparecer var(--t-2) ease both;
+}
+.resultado-caixa {
+  width: 100%; max-width: var(--coluna);
+  max-height: 92dvh; overflow-y: auto;
+  padding: var(--e-6) var(--e-5) calc(var(--e-6) + var(--seguro-baixo));
+  background: var(--papel);
+  border-radius: var(--r-5) var(--r-5) 0 0;
+  text-align: center;
+  animation: subir var(--t-3) var(--suave) both;
+}
+.resultado-marca {
+  display: grid; place-items: center;
+  width: 68px; height: 68px; margin: 0 auto var(--e-4);
+  border-radius: var(--r-max);
+  background: var(--bom-fundo); color: var(--bom);
+  animation: bater 520ms var(--mola) both;
+}
+@keyframes bater {
+  0% { transform: scale(.3); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.resultado-marca-premio { background: var(--marca-fundo); color: var(--marca); }
+.resultado-marca-mau { background: var(--mau-fundo); color: var(--mau); }
+.resultado-titulo { font-size: 1.5rem; letter-spacing: -.03em; }
+.resultado-sub {
+  margin-top: var(--e-2); font-size: 1rem; color: var(--tinta-2);
+  max-width: 32ch; margin-inline: auto;
+}
+.resultado-cartao { margin-top: var(--e-5); text-align: left; }
+.resultado-cartao .cartao-corpo { padding: var(--e-4); }
+.resultado-acoes {
+  display: flex; flex-direction: column; gap: var(--e-2);
+  margin-top: var(--e-5);
+}
+
+/* --- números -------------------------------------------------------------- */
+
+.numeros { display: grid; grid-template-columns: 1fr 1fr; gap: var(--e-3); }
+.numero { padding: var(--e-4); }
+.numero-icone { display: block; color: var(--tinta-3); margin-bottom: var(--e-2); }
+.numero b {
+  display: block; font-size: 1.875rem; font-weight: 800;
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1;
+}
+.numero-rotulo {
+  display: block; margin-top: 4px;
+  font-size: .75rem; color: var(--tinta-3); font-weight: 600;
+}
+
+/* --- paleta e selos ------------------------------------------------------- */
+
+.paleta { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--e-2); }
+.paleta-cor {
+  aspect-ratio: 1; border-radius: var(--r-2);
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  transition: transform var(--t-1) var(--mola);
+}
+.paleta-cor[data-ativo="sim"] {
+  border-color: var(--tinta);
+  transform: scale(1.06);
+}
+
+.selos {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--e-2);
+  max-height: 176px; overflow-y: auto;
+  padding: var(--e-2);
+  background: var(--papel-2); border: 1px solid var(--linha);
+  border-radius: var(--r-3);
+}
+.selo-opcao {
+  aspect-ratio: 1; display: grid; place-items: center;
+  border-radius: var(--r-2);
+  color: var(--tinta-2);
+  border: 1.5px solid transparent;
+  transition: all var(--t-2) ease;
+}
+.selo-opcao[data-ativo="sim"] {
+  background: var(--marca-fundo); color: var(--marca); border-color: var(--marca);
+}
+
+.mono { font-family: var(--letra-mono); letter-spacing: .08em; }
+
+#previa { margin-bottom: var(--e-3); }

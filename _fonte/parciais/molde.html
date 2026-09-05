@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITULO}}</title>
+<meta name="description" content="{{RESUMO}}">
+<link rel="canonical" href="{{CANONICO}}">
+<meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E0D12" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{TITULO}}">
+<meta property="og:description" content="{{RESUMO}}">
+<meta property="og:url" content="{{CANONICO}}">
+<meta property="og:image" content="https://{{DOMINIO}}/icones/social.png">
+<meta property="og:locale" content="pt_PT">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="{{BASE}}/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{BASE}}/icones/apple-touch-icon.png">
+<link rel="stylesheet" href="{{BASE}}/estilos/nucleo.css?v={{VERSAO}}">
+<!-- O cartão (e os carimbos) são a mesma peça que a app usa. -->
+<link rel="stylesheet" href="{{BASE}}/estilos/app.css?v={{VERSAO}}">
+<link rel="stylesheet" href="{{BASE}}/estilos/site.css?v={{VERSAO}}">
+</head>
+<body class="{{CLASSE}}">
+<a class="saltar" href="#principal">Saltar para o conteúdo</a>
+{{CABECALHO}}
+<main id="principal" tabindex="-1">
+{{CORPO}}
+</main>
+{{RODAPE}}
+</body>
+</html>

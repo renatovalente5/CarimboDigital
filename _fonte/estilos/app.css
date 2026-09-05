@@ -1,0 +1,701 @@
+/* =========================================================================
+   Sinete — app
+   O que é próprio das duas aplicações: o cartão, os carimbos, o código,
+   a barra de baixo. O site de apresentação não carrega nada disto.
+   ========================================================================= */
+
+/* Uma app instalada não faz «bounce» nem seleciona texto ao arrastar. */
+body.app {
+  min-height: 100dvh;
+  padding-bottom: calc(var(--barra) + var(--seguro-baixo));
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.app input, body.app textarea, body.app .selecionavel {
+  user-select: text; -webkit-user-select: text;
+}
+
+/* =========================================================================
+   Cabeçalho do ecrã
+   ========================================================================= */
+
+.topo {
+  position: sticky; top: 0; z-index: 20;
+  padding-top: var(--seguro-cima);
+  background: color-mix(in srgb, var(--papel) 82%, transparent);
+  backdrop-filter: saturate(1.8) blur(20px);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--t-2) ease;
+}
+.topo[data-rolado="sim"] { border-bottom-color: var(--linha); }
+.topo-linha {
+  display: flex; align-items: center; gap: var(--e-3);
+  min-height: 56px;
+  max-width: var(--coluna); margin-inline: auto;
+  padding-inline: var(--e-5);
+}
+.topo-titulo { font-size: 1.0625rem; font-weight: 700; letter-spacing: -.02em; }
+.topo-espaco { flex: 1; }
+.topo-acao {
+  display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: var(--r-max);
+  color: var(--tinta-2);
+  transition: background-color var(--t-1) ease, transform var(--t-1) var(--mola);
+}
+.topo-acao:active { transform: scale(.9); background: var(--papel-3); }
+
+/* Título grande à maneira do iOS: encolhe para a barra ao rolar. */
+.titulo-grande {
+  padding: var(--e-2) 0 var(--e-5);
+  font-size: 2rem; font-weight: 800; letter-spacing: -.035em;
+}
+
+/* =========================================================================
+   Barra de navegação inferior
+   ========================================================================= */
+
+.barra {
+  position: fixed; inset: auto 0 0 0; z-index: 40;
+  display: flex; justify-content: center;
+  padding-bottom: var(--seguro-baixo);
+  background: color-mix(in srgb, var(--papel) 86%, transparent);
+  backdrop-filter: saturate(1.8) blur(20px);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
+  border-top: 1px solid var(--linha);
+}
+.barra-interior {
+  display: flex; width: 100%; max-width: var(--coluna);
+}
+.barra-item {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  min-height: var(--barra);
+  color: var(--tinta-3);
+  font-size: .6875rem; font-weight: 600; letter-spacing: .01em;
+  transition: color var(--t-2) ease;
+}
+.barra-item svg { width: 24px; height: 24px; }
+.barra-item[aria-current="page"] { color: var(--marca); }
+.barra-item:active svg { transform: scale(.88); transition: transform var(--t-1) var(--mola); }
+
+/* =========================================================================
+   O CARTÃO
+   O comerciante escolhe --m (a cor). --m-txt é calculado em JS a partir da
+   luminância, nunca escolhido à mão: é o que garante que o texto se lê seja
+   qual for a cor que o dono do café achar bonita.
+   ========================================================================= */
+
+.cartao {
+  --m: #17161C;
+  --m-txt: #FFFFFF;
+  --m-veu: rgba(255, 255, 255, .16);   /* superfícies por cima da cor       */
+  --m-veu-forte: rgba(255, 255, 255, .30);
+
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--m);
+  color: var(--m-txt);
+  border-radius: var(--r-5);
+  overflow: hidden;
+  box-shadow: var(--sombra-2);
+  text-align: left;
+  isolation: isolate;
+  transition: transform var(--t-2) var(--mola), box-shadow var(--t-2) ease;
+}
+.cartao[data-claro="sim"] {
+  --m-veu: rgba(0, 0, 0, .10);
+  --m-veu-forte: rgba(0, 0, 0, .20);
+}
+/* Um cartão claro precisa de aro, senão desaparece no papel. */
+.cartao[data-claro="sim"]::after {
+  content: ""; position: absolute; inset: 0; z-index: 3;
+  border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+}
+button.cartao:active, a.cartao:active { transform: scale(.985); }
+
+/* A fotografia de fundo, quando o comerciante põe uma. */
+.cartao-fundo {
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  opacity: .5;
+}
+.cartao-fundo + .cartao-corpo { position: relative; z-index: 2; }
+.cartao:has(.cartao-fundo)::before {
+  content: ""; position: absolute; inset: 0; z-index: 1;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--m) 55%, transparent) 0%,
+    color-mix(in srgb, var(--m) 88%, transparent) 100%);
+}
+
+.cartao-corpo { position: relative; z-index: 2; padding: var(--e-5); }
+
+.cartao-topo {
+  display: flex; align-items: flex-start; gap: var(--e-3);
+  margin-bottom: var(--e-5);
+}
+.cartao-marca { min-width: 0; flex: 1; }
+.cartao-nome {
+  font-size: 1.0625rem; font-weight: 800; letter-spacing: -.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cartao-tipo {
+  margin-top: 2px;
+  font-size: .75rem; font-weight: 600; opacity: .72;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cartao-logo {
+  flex: 0 0 auto; width: 40px; height: 40px;
+  border-radius: var(--r-2); object-fit: cover;
+  background: var(--m-veu);
+}
+.cartao-id {
+  flex: 0 0 auto; text-align: right;
+}
+.cartao-id b {
+  display: block;
+  font-family: var(--letra-mono);
+  font-size: .8125rem; font-weight: 700; letter-spacing: .08em;
+}
+.cartao-id span {
+  display: block; font-size: .5625rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; opacity: .6;
+}
+
+.cartao-rodape {
+  display: flex; align-items: flex-end; gap: var(--e-3);
+  margin-top: var(--e-5);
+}
+.cartao-rodape > div { min-width: 0; flex: 1; }
+.cartao-rotulo {
+  font-size: .5625rem; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; opacity: .62;
+}
+.cartao-premio {
+  margin-top: 1px;
+  font-size: 1rem; font-weight: 700; letter-spacing: -.015em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Selo «pronto a resgatar» — o momento que faz a app valer a pena. */
+.cartao-selo {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px var(--e-3);
+  border-radius: var(--r-max);
+  background: var(--m-txt); color: var(--m);
+  font-size: .6875rem; font-weight: 800;
+  letter-spacing: .02em;
+}
+.cartao-selo svg { width: 13px; height: 13px; }
+
+/* =========================================================================
+   Os carimbos
+   ========================================================================= */
+
+.carimbos {
+  display: grid;
+  gap: var(--e-2);
+  /* A peça tem um tecto. Sem ele, um cartão de nove carimbos em três colunas
+     dava círculos de cem pixéis e o cartão ficava com o dobro da altura dos
+     outros na lista. */
+  grid-template-columns: repeat(var(--colunas, 5), minmax(0, var(--peca, 52px)));
+  justify-content: center;
+}
+
+.carimbo {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid; place-items: center;
+  border-radius: var(--r-max);
+}
+/* Vazio: o círculo tracejado do cartão de papel. */
+.carimbo[data-estado="vazio"] {
+  border: 1.5px dashed var(--m-veu-forte);
+}
+/* Cheio: a tinta assente. A rotação mínima é de propósito — um carimbo
+   à mão nunca fica direito, e é isso que o faz parecer real. */
+.carimbo[data-estado="cheio"] {
+  background: var(--m-veu);
+  border: 1.5px solid transparent;
+  transform: rotate(var(--inclina, 0deg));
+}
+.carimbo[data-estado="cheio"] svg {
+  width: 58%; height: 58%; color: var(--m-txt);
+}
+.carimbo[data-estado="vazio"] svg { width: 44%; height: 44%; opacity: .3; }
+
+/* O carimbo que acabou de ser dado: a pancada. */
+@keyframes carimbar {
+  0%   { transform: scale(2.1) rotate(var(--inclina, 0deg)); opacity: 0; }
+  55%  { transform: scale(.86) rotate(var(--inclina, 0deg)); opacity: 1; }
+  78%  { transform: scale(1.06) rotate(var(--inclina, 0deg)); }
+  100% { transform: scale(1)    rotate(var(--inclina, 0deg)); }
+}
+.carimbo[data-novo="sim"] { animation: carimbar 620ms var(--mola) both; }
+
+/* A auréola de tinta a espalhar-se por baixo. */
+@keyframes tinta {
+  0%   { transform: scale(.2); opacity: .55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.carimbo[data-novo="sim"]::before {
+  content: ""; position: absolute; inset: 0;
+  border-radius: inherit; background: var(--m-txt);
+  animation: tinta 700ms ease-out both;
+}
+
+/* Um cartão de muitos carimbos (12+) usa peças mais pequenas. */
+.carimbos[data-denso="sim"] { gap: 6px; }
+
+/* =========================================================================
+   Pontos e marcos
+   ========================================================================= */
+
+.pontos-valor {
+  display: flex; align-items: baseline; justify-content: center; gap: 4px;
+  font-family: var(--letra-num);
+}
+.pontos-valor b {
+  font-size: clamp(2.75rem, 14vw, 3.5rem);
+  font-weight: 800; letter-spacing: -.045em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.pontos-valor span { font-size: 1.0625rem; font-weight: 700; opacity: .7; }
+
+.trilho {
+  position: relative;
+  height: 6px;
+  /* Os números dos marcos ficam por baixo, não por cima: em cima chocavam
+     com o total em corpo grande, e um «430» a tapar o «400» é exactamente a
+     informação que não se pode perder. */
+  margin: var(--e-7) 0 var(--e-8);
+  background: var(--m-veu); border-radius: var(--r-max);
+}
+.trilho-cheio {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--m-txt); border-radius: var(--r-max);
+  transition: width var(--t-4) var(--suave);
+}
+.marco {
+  position: absolute; top: 50%;
+  translate: -50% -50%;
+  display: grid; place-items: center;
+}
+.marco-ponto {
+  width: 12px; height: 12px; border-radius: var(--r-max);
+  background: var(--m-veu-forte);
+  box-shadow: 0 0 0 3px var(--m);
+  transition: background-color var(--t-3) ease;
+}
+.marco[data-atingido="sim"] .marco-ponto { background: var(--m-txt); }
+/* Um marco já atingido mostra o prémio em vez do ponto. */
+.marco[data-atingido="sim"][data-premio="sim"] .marco-ponto {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  background: var(--m-txt); color: var(--m);
+}
+.marco[data-atingido="sim"][data-premio="sim"] .marco-ponto svg { width: 16px; height: 16px; }
+.marco-valor {
+  position: absolute; top: calc(100% + 10px);
+  font-size: .6875rem; font-weight: 700; opacity: .7;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* O primeiro e o último encostam às pontas para não saírem do cartão. */
+.marco:first-of-type .marco-valor { transform: translateX(-25%); }
+.marco:last-of-type  .marco-valor { transform: translateX(25%); }
+
+/* =========================================================================
+   O código — o momento em que se mostra o telemóvel ao balcão
+   ========================================================================= */
+
+.codigo-folha {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column;
+  /* Branco sempre, mesmo no modo escuro: a câmara do balcão lê melhor um QR
+     preto sobre branco, e o ecrã fica mais brilhante. Não é decoração. */
+  background: #FFFFFF; color: #17161C;
+  padding: max(var(--seguro-cima), var(--e-5)) var(--e-5)
+           max(var(--seguro-baixo), var(--e-5));
+  animation: subir var(--t-3) var(--suave) both;
+}
+@keyframes subir {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.codigo-topo {
+  display: flex; align-items: center; gap: var(--e-3);
+  margin-bottom: var(--e-6);
+}
+.codigo-fechar {
+  display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: var(--r-max);
+  background: #F2F0EB; color: #17161C;
+}
+.codigo-meio {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--e-5);
+}
+.codigo-qr {
+  width: min(72vw, 320px); aspect-ratio: 1;
+  padding: var(--e-4);
+  background: #FFFFFF;
+  border-radius: var(--r-4);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.07);
+}
+.codigo-qr svg { width: 100%; height: 100%; }
+.codigo-id {
+  font-family: var(--letra-mono);
+  font-size: 1.75rem; font-weight: 700; letter-spacing: .22em;
+  text-indent: .22em;               /* compensa o espaço final do tracking */
+}
+.codigo-dica { font-size: .9375rem; color: #5B5966; text-align: center; }
+
+/* O anel que conta o tempo de vida do código. */
+.codigo-anel { width: 32px; height: 32px; transform: rotate(-90deg); }
+.codigo-anel circle { fill: none; stroke-width: 3; }
+.codigo-anel .fundo { stroke: #E7E4DD; }
+.codigo-anel .frente {
+  stroke: #5A31E8; stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear;
+}
+.codigo-tempo {
+  display: flex; align-items: center; gap: var(--e-2);
+  font-size: .8125rem; font-weight: 600; color: #5B5966;
+}
+
+/* =========================================================================
+   Listas
+   ========================================================================= */
+
+.lista { display: flex; flex-direction: column; gap: var(--e-3); }
+
+.linha {
+  display: flex; align-items: center; gap: var(--e-4);
+  width: 100%;
+  padding: var(--e-4);
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-3);
+  text-align: left;
+  transition: transform var(--t-1) var(--mola);
+}
+button.linha:active, a.linha:active { transform: scale(.985); }
+.linha-icone {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: var(--r-2);
+  background: var(--papel-3); color: var(--tinta-2);
+}
+.linha-icone svg { width: 20px; height: 20px; }
+.linha-texto { flex: 1; min-width: 0; }
+.linha-texto b { display: block; font-size: .9375rem; font-weight: 650; }
+.linha-texto span { display: block; font-size: .8125rem; color: var(--tinta-3); }
+.linha-fim { flex: 0 0 auto; color: var(--tinta-3); font-size: .8125rem; }
+
+/* =========================================================================
+   Estados vazios
+   ========================================================================= */
+
+.vazio {
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--e-4); padding: var(--e-10) var(--e-5);
+  text-align: center;
+}
+.vazio-desenho { width: 96px; height: 96px; color: var(--tinta-3); opacity: .5; }
+.vazio h3 { font-size: 1.125rem; }
+.vazio p { color: var(--tinta-2); max-width: 30ch; font-size: .9375rem; }
+
+/* =========================================================================
+   Aviso flutuante
+   ========================================================================= */
+
+.aviso {
+  position: fixed; z-index: 200;
+  left: 50%; translate: -50% 0;
+  bottom: calc(var(--barra) + var(--seguro-baixo) + var(--e-4));
+  display: flex; align-items: center; gap: var(--e-3);
+  max-width: calc(100vw - var(--e-8));
+  padding: var(--e-3) var(--e-5);
+  background: var(--tinta); color: var(--papel);
+  border-radius: var(--r-max);
+  box-shadow: var(--sombra-3);
+  font-size: .875rem; font-weight: 600;
+  animation: aviso-entra var(--t-3) var(--mola) both;
+}
+@keyframes aviso-entra {
+  from { opacity: 0; transform: translateY(16px) scale(.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.aviso[data-saida="sim"] { animation: aviso-sai var(--t-2) ease-in both; }
+@keyframes aviso-sai {
+  to { opacity: 0; transform: translateY(10px) scale(.96); }
+}
+.aviso svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.aviso-bom svg { color: #4ED39A; }
+.aviso-mau svg { color: #FF8B8B; }
+
+/* =========================================================================
+   Painel deslizante (folha)
+   ========================================================================= */
+
+.painel {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.painel-veu {
+  position: absolute; inset: 0;
+  background: rgba(10, 9, 14, .48);
+  backdrop-filter: blur(3px);
+  animation: aparecer var(--t-2) ease both;
+}
+@keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+.painel-folha {
+  position: relative;
+  width: 100%; max-width: var(--coluna);
+  max-height: 88dvh; overflow-y: auto;
+  padding: var(--e-3) var(--e-5) calc(var(--e-6) + var(--seguro-baixo));
+  background: var(--papel);
+  border-radius: var(--r-5) var(--r-5) 0 0;
+  box-shadow: var(--sombra-3);
+  animation: subir var(--t-3) var(--suave) both;
+}
+.painel-pega {
+  width: 40px; height: 4px; margin: 0 auto var(--e-5);
+  background: var(--linha-forte); border-radius: var(--r-max);
+}
+
+/* =========================================================================
+   Carregamento
+   ========================================================================= */
+
+@keyframes brilho { to { background-position-x: -200%; } }
+.esqueleto {
+  background: linear-gradient(90deg,
+    var(--papel-3) 0%, color-mix(in srgb, var(--papel-3) 55%, var(--papel-2)) 50%,
+    var(--papel-3) 100%);
+  background-size: 200% 100%;
+  animation: brilho 1.4s linear infinite;
+  border-radius: var(--r-3);
+}
+
+/* =========================================================================
+   Confetes — só quando um cartão se completa. Uma vez, e nunca em loop.
+   ========================================================================= */
+
+.confetes { position: fixed; inset: 0; z-index: 150; pointer-events: none; overflow: hidden; }
+.confete {
+  position: absolute; top: -12px;
+  width: 8px; height: 14px; border-radius: 2px;
+  animation: cair var(--dur, 2.4s) linear var(--atraso, 0s) both;
+}
+@keyframes cair {
+  0%   { transform: translateY(-10vh) rotate(0deg);   opacity: 1; }
+  100% { transform: translateY(105vh) rotate(680deg); opacity: .9; }
+}
+
+/* =========================================================================
+   Peças da app do cliente
+   ========================================================================= */
+
+.pilha { display: flex; flex-direction: column; gap: var(--e-4); }
+
+.seccao { margin-top: var(--e-7); }
+.seccao-titulo {
+  margin-bottom: var(--e-3);
+  font-size: .75rem; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--tinta-3);
+}
+
+.subtexto {
+  margin: calc(var(--e-2) * -1) 0 var(--e-5);
+  color: var(--tinta-2); font-size: .9375rem;
+}
+
+.caixa-texto { padding: var(--e-5); }
+.caixa-texto p + p { margin-top: var(--e-3); }
+.caixa-texto p { font-size: .9375rem; color: var(--tinta-2); line-height: 1.55; }
+.caixa-texto b { color: var(--tinta); }
+.miudo { font-size: .8125rem !important; color: var(--tinta-3) !important; }
+
+.ligacao { color: var(--marca); font-weight: 650; text-decoration: underline;
+           text-underline-offset: 2px; }
+
+/* A faixa que anuncia um prémio à espera. */
+.faixa-premio {
+  display: flex; align-items: flex-start; gap: var(--e-3);
+  margin-bottom: var(--e-5); padding: var(--e-4);
+  background: var(--marca-fundo); color: var(--marca);
+  border-radius: var(--r-3);
+  font-size: .875rem; line-height: 1.45;
+}
+.faixa-premio svg { flex: 0 0 auto; margin-top: 1px; }
+.faixa-premio b { color: var(--marca); }
+
+.adicionar { border-style: dashed; background: transparent; }
+
+.voltar {
+  margin: 0 0 var(--e-3) calc(var(--e-4) * -1);
+  min-height: 40px; padding-inline: var(--e-4);
+  font-size: .9375rem;
+}
+
+.cartao-grande .cartao-corpo { padding: var(--e-6); }
+.cartao-descobrir .cartao-corpo { padding: var(--e-5); }
+.cartao-selo-tipo {
+  display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: var(--r-2);
+  background: var(--m-veu);
+}
+.cartao-descobrir .cartao-selo { border: 0; cursor: pointer; }
+
+.linha-premio { border-color: var(--marca-aro); }
+.linha-icone-marca { background: var(--marca-fundo); color: var(--marca); }
+.linha-perigo .linha-icone { background: var(--mau-fundo); color: var(--mau); }
+.linha-perigo b { color: var(--mau); }
+
+.cartao-identidade {
+  padding: var(--e-5);
+  text-align: center;
+}
+.cartao-identidade .cartao-rotulo { color: var(--tinta-3); }
+.identidade-numero {
+  margin: var(--e-2) 0 var(--e-4);
+  font-family: var(--letra-mono);
+  font-size: 2rem; font-weight: 700; letter-spacing: .2em;
+  text-indent: .2em;
+}
+
+.rodape-app {
+  margin: var(--e-8) 0 var(--e-4);
+  text-align: center; font-size: .8125rem; color: var(--tinta-3);
+}
+
+/* O botão do meio da barra: o código está sempre a um toque. */
+.barra-centro { position: relative; }
+.barra-bolha {
+  display: grid; place-items: center;
+  width: 46px; height: 46px; margin-top: -14px;
+  border-radius: var(--r-max);
+  background: var(--marca); color: var(--marca-texto);
+  box-shadow: 0 4px 12px var(--marca-aro);
+  transition: transform var(--t-1) var(--mola);
+}
+.barra-centro:active .barra-bolha { transform: scale(.9); }
+.barra-centro { color: var(--tinta-2); }
+.barra-centro[aria-current="page"] { color: var(--marca); }
+
+/* =========================================================================
+   Primeira abertura
+   ========================================================================= */
+
+.bv {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  padding: calc(var(--seguro-cima) + var(--e-6)) var(--e-6)
+           calc(var(--seguro-baixo) + var(--e-6));
+  background: var(--papel);
+}
+.bv-palco {
+  flex: 1;
+  display: grid; place-items: center;
+  min-height: 0;
+  perspective: 1200px;
+}
+.bv-cartoes {
+  position: relative;
+  width: min(74vw, 286px);
+  height: min(46vh, 300px);
+}
+/* Os cartões encostam ao fundo e crescem para cima: assim os de trás
+   espreitam pela borda de cima, como um baralho pousado na mesa.
+   A conta do desvio não é arbitrária — um cartão reduzido a 94 % perde cerca
+   de 20 px de altura, por isso tem de subir mais do que isso para se ver. */
+.bv-cartao {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  transform-origin: 50% 100%;
+  transition: transform var(--t-4) var(--mola);
+  will-change: transform;
+}
+.bv-cartao .cartao-corpo { padding: var(--e-5); }
+.bv-cartoes[data-passo="0"] .bv-cartao {
+  transform: translateY(calc(var(--i) * -26px)) scale(calc(1 - var(--i) * .05))
+             rotate(calc(var(--i) * -2deg));
+}
+.bv-cartoes[data-passo="1"] .bv-cartao {
+  transform: translateY(calc(var(--i) * -24px)) translateX(calc(var(--i) * 9px))
+             scale(calc(1 - var(--i) * .05)) rotate(calc(var(--i) * 3.5deg));
+}
+.bv-cartoes[data-passo="2"] .bv-cartao {
+  transform: translateY(calc(var(--i) * -28px)) translateX(calc(var(--i) * -7px))
+             scale(calc(1 - var(--i) * .06)) rotate(calc(var(--i) * -3.5deg));
+}
+.bv-cartao:nth-child(1) { z-index: 3; }
+.bv-cartao:nth-child(2) { z-index: 2; }
+.bv-cartao:nth-child(3) { z-index: 1; }
+
+.bv-texto { padding: var(--e-6) 0 var(--e-5); }
+.bv-texto h1 { font-size: clamp(1.9rem, 7.5vw, 2.4rem); letter-spacing: -.035em; }
+.bv-texto p {
+  margin-top: var(--e-3);
+  font-size: 1rem; color: var(--tinta-2); line-height: 1.55; max-width: 34ch;
+}
+.bv-acoes { display: flex; flex-direction: column; gap: var(--e-3); }
+.bv-pontos { display: flex; gap: 6px; justify-content: center; margin-bottom: var(--e-2); }
+.bv-ponto {
+  width: 6px; height: 6px; border-radius: var(--r-max);
+  background: var(--linha-forte);
+  transition: width var(--t-3) var(--mola), background-color var(--t-3) ease;
+}
+.bv-ponto[data-ativo="sim"] { width: 20px; background: var(--marca); }
+
+
+/* =========================================================================
+   Cartão completo — o momento que a app existe para dar
+   ========================================================================= */
+
+.pronto {
+  display: flex; align-items: center; gap: var(--e-4);
+  padding: var(--e-5);
+  background: var(--m-txt); color: var(--m);
+  border-radius: var(--r-3);
+}
+.pronto-icone {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 44px; height: 44px; border-radius: var(--r-max);
+  background: color-mix(in srgb, var(--m) 12%, transparent);
+}
+.pronto-texto { min-width: 0; flex: 1; }
+.pronto-texto b { display: block; font-size: 1.0625rem; font-weight: 800; letter-spacing: -.02em; }
+.pronto-texto span { display: block; margin-top: 1px; font-size: .8125rem; opacity: .72; }
+
+/* A linha discreta que diz que já se começou o cartão seguinte. */
+.recomeco {
+  display: flex; align-items: center; gap: var(--e-2);
+  margin-top: var(--e-3);
+  font-size: .75rem; font-weight: 600; opacity: .7;
+}
+.recomeco-pontos { display: flex; gap: 3px; }
+.recomeco-ponto {
+  width: 6px; height: 6px; border-radius: var(--r-max);
+  background: var(--m-veu-forte);
+}
+.recomeco-ponto[data-cheio="sim"] { background: var(--m-txt); }
+
+/* No detalhe do cartão as peças podem crescer. */
+.cartao-grande .carimbos { --peca: 60px; }
+
+.codigo-anel-caixa { flex: 0 0 auto; display: grid; place-items: center; width: 32px; height: 32px; }
+
+/* O campo do código de entrada: seis algarismos, bem espaçados, para se
+   conferir de relance com o email ao lado. */
+.campo-codigo {
+  font-family: var(--letra-mono);
+  font-size: 1.75rem !important;
+  letter-spacing: .38em; text-indent: .38em;
+  text-align: center; font-weight: 700;
+}

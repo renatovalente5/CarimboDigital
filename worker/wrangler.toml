@@ -1,0 +1,29 @@
+name = "sinete-api"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Os segredos NÃO vão aqui — este repositório é público. Põem-se com:
+#   npx wrangler secret put CHAVE_MESTRA
+#   npx wrangler secret put RESEND_API_KEY      (opcional)
+#
+# Para gerar a chave-mestra:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+
+[vars]
+SITIO = "https://sinete.pt"
+# Vírgulas a separar. Vazio = aceita qualquer origem (só para desenvolver).
+ORIGENS = "https://sinete.pt"
+EMAIL_REMETENTE = "Sinete <ola@sinete.pt>"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sinete"
+# Preenche-se depois de correr `npx wrangler d1 create sinete`.
+database_id = "PREENCHER"
+
+[observability]
+enabled = true
+
+# Limpeza diária: códigos usados, sessões e ligações expiradas.
+[triggers]
+crons = ["17 4 * * *"]

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sinete — os meus cartões</title>
+<meta name="description" content="Todos os teus cartões de fidelidade num só sítio. Mostra o código, o balcão carimba.">
+<meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E0D12" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Sinete">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="{{BASE}}/app/manifest.webmanifest">
+<link rel="icon" href="{{BASE}}/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{BASE}}/icones/apple-touch-icon.png">
+<link rel="stylesheet" href="{{BASE}}/estilos/nucleo.css?v={{VERSAO}}">
+<link rel="stylesheet" href="{{BASE}}/estilos/app.css?v={{VERSAO}}">
+<script>window.SINETE_CONFIG = {{CONFIG}};</script>
+</head>
+<body class="app">
+
+<a class="saltar" href="#principal">Saltar para o conteúdo</a>
+
+<!-- Primeira abertura ---------------------------------------------------- -->
+<div id="boas-vindas" class="bv" hidden>
+  <div class="bv-palco">
+    <div class="bv-cartoes" aria-hidden="true"></div>
+  </div>
+  <div class="bv-texto">
+    <h1 id="bv-titulo">Os cartões de sempre.<br>Sem o papel.</h1>
+    <p id="bv-corpo">Aquele cartão do café que está sempre em casa quando é preciso —
+      agora está aqui, e nunca se perde.</p>
+  </div>
+  <div class="bv-acoes">
+    <div class="bv-pontos" role="tablist" aria-label="Passos"></div>
+    <button class="btn btn-cheio btn-grande btn-bloco" id="bv-seguinte">Continuar</button>
+    <button class="btn btn-fantasma btn-bloco btn-pequeno" id="bv-saltar">Já tenho conta noutro telemóvel</button>
+  </div>
+</div>
+
+<!-- A aplicação ---------------------------------------------------------- -->
+<div id="aplicacao" hidden>
+
+  <header class="topo" id="topo">
+    <div class="topo-linha">
+      <span class="topo-titulo" id="topo-titulo">Sinete</span>
+      <span class="topo-espaco"></span>
+      <button class="topo-acao" id="botao-tema" aria-label="Mudar entre claro e escuro"></button>
+    </div>
+  </header>
+
+  <main id="principal" class="coluna" tabindex="-1"></main>
+
+  <nav class="barra" aria-label="Navegação principal">
+    <div class="barra-interior" id="barra"></div>
+  </nav>
+</div>
+
+<noscript>
+  <div class="coluna" style="padding-block:56px">
+    <h1>É preciso o JavaScript</h1>
+    <p style="margin-top:12px;color:var(--tinta-2)">O Sinete é uma aplicação: sem JavaScript
+      não consegue mostrar o código nem guardar os cartões.</p>
+  </div>
+</noscript>
+
+<script type="module" src="{{BASE}}/app/app.js?v={{VERSAO}}"></script>
+</body>
+</html>

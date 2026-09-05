@@ -1,0 +1,20 @@
+{
+  "nome": "Sinete",
+  "dominio": "sinete.pt",
+  "descricao": "Todos os teus cartões de fidelidade num só sítio. Mostras o código, o balcão carimba.",
+  "api": "",
+  "_api": "Endereço do Worker, por exemplo https://api.sinete.pt. Vazio = modo de demonstração, tudo dentro do browser.",
+  "contacto": "ola@sinete.pt",
+  "cor": "#5A31E8",
+  "producao": false,
+  "_producao": "Põe true quando o site for mesmo para o ar. A auditoria passa a exigir os dados da entidade abaixo, e as páginas legais deixam de mostrar o aviso de rascunho.",
+  "entidade": {
+    "nome": "",
+    "forma": "",
+    "nif": "",
+    "morada": "",
+    "email": "ola@sinete.pt",
+    "responsavel_dados": ""
+  },
+  "_entidade": "Quem responde legalmente pelo serviço. Obrigatório pelo DL 7/2004 (art. 10) e pelo RGPD (art. 13). Sem isto o site não pode ser publicado como serviço a sério."
+}

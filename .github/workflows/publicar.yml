@@ -1,0 +1,99 @@
+name: Publicar
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Não cancela uma publicação a meio: o GitHub Pages não gosta de artefactos
+# interrompidos e pode ficar com o site em estado inconsistente.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  provar:
+    name: Provar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar o que prova o gerador de QR
+        # Só para os testes. O site em si não tem dependências nenhumas.
+        run: python3 -m pip install --quiet segno opencv-python-headless numpy
+
+      # Um QR com um módulo trocado ainda parece um QR e não lê. Isto
+      # descodifica todas as matrizes com um leitor independente, escrito
+      # noutra linguagem, e confere as síndromes de Reed-Solomon.
+      - name: Provar o gerador de códigos QR
+        run: node scripts/verificar-qr.mjs
+
+      # A base de dados local do wrangler, e a bateria toda contra ela:
+      # códigos repetidos, expirados, forjados, arrefecimento, prémios,
+      # anulações e o apagar da conta.
+      - name: Preparar a base de dados de teste
+        working-directory: worker
+        run: |
+          npx --yes wrangler d1 execute sinete --local --file=esquema.sql
+          npx --yes wrangler d1 execute sinete --local --file=semear.sql
+
+      - name: Levantar o Worker
+        working-directory: worker
+        run: |
+          node -e "console.log('CHAVE_MESTRA=' + require('crypto').randomBytes(32).toString('base64url'))" > .dev.vars
+          echo "ORIGENS=" >> .dev.vars
+          npx --yes wrangler dev --local --port 8787 > /tmp/wrangler.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:8787/v1/saude >/dev/null && exit 0
+            sleep 2
+          done
+          echo "O Worker não arrancou:"; cat /tmp/wrangler.log; exit 1
+
+      - name: Bateria do Worker
+        run: node worker/testes.mjs
+
+  construir:
+    name: Construir
+    needs: provar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Não há `npm ci` porque não há package.json: o gerador é Node puro.
+      # É de propósito — é o que faz este site continuar a publicar daqui a
+      # dois anos sem ninguém lhe tocar.
+      - name: Gerar
+        run: node scripts/gerar.mjs
+
+      # O travão. Segue ligações, confere o prefixo dos caminhos, os
+      # manifestos, o casco offline, os dados legais e procura segredos.
+      # Se falhar não se publica — mais vale ficar no ar a versão anterior.
+      - name: Auditar
+        run: node scripts/auditar.mjs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+  publicar:
+    name: Publicar
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.publicacao.outputs.page_url }}
+    steps:
+      - id: publicacao
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,306 @@
+/* =========================================================================
+   Sinete — núcleo
+   Sistema visual partilhado pelo site, pela app do cliente e pelo balcão.
+
+   A metáfora é «tinta e papel»: o cartão de papel que se guarda na carteira
+   e o carimbo de borracha que lhe deixa a marca. Daí o fundo levemente
+   quente (papel, não branco de ecrã) e o roxo de tinta de carimbo — que é
+   mesmo a cor da anilina dos carimbos antigos, não uma escolha de moda.
+
+   Regra que atravessa tudo: a app é um invólucro neutro. A cor que salta à
+   vista tem de ser a do comerciante, não a nossa. O cromado recolhe.
+   ========================================================================= */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- papel e tinta ---------------------------------------------------- */
+  --papel:        #FBFAF7;   /* fundo da página: papel, com um grão de calor */
+  --papel-2:      #FFFFFF;   /* superfície elevada: cartões, folhas          */
+  --papel-3:      #F2F0EB;   /* recuo: barras, campos, estados inertes       */
+  --tinta:        #17161C;   /* texto principal                              */
+  --tinta-2:      #5B5966;   /* texto secundário                             */
+  --tinta-3:      #93909C;   /* texto terciário, legendas                    */
+  --linha:        rgba(23, 22, 28, .10);
+  --linha-forte:  rgba(23, 22, 28, .18);
+
+  /* --- a marca ---------------------------------------------------------- */
+  --marca:        #5A31E8;
+  --marca-fundo:  #EFEAFE;
+  --marca-aro:    rgba(90, 49, 232, .28);
+  --marca-texto:  #FFFFFF;   /* o que se lê por cima de --marca             */
+
+  /* --- semântica -------------------------------------------------------- */
+  --bom:          #0F7A52;
+  --bom-fundo:    #E4F5EC;
+  --atencao:      #A65A06;
+  --atencao-fundo:#FCF0DF;
+  --mau:          #B92B2B;
+  --mau-fundo:    #FBEAEA;
+
+  /* --- sombras: baixas e largas, como papel pousado --------------------- */
+  --sombra-1: 0 1px 2px rgba(23, 22, 28, .05), 0 1px 1px rgba(23, 22, 28, .04);
+  --sombra-2: 0 2px 4px rgba(23, 22, 28, .05), 0 6px 16px rgba(23, 22, 28, .07);
+  --sombra-3: 0 8px 20px rgba(23, 22, 28, .10), 0 24px 48px rgba(23, 22, 28, .10);
+
+  /* --- raios ------------------------------------------------------------ */
+  --r-1: 8px;  --r-2: 12px; --r-3: 16px;
+  --r-4: 22px; --r-5: 28px; --r-max: 999px;
+
+  /* --- espaço (escala de 4) --------------------------------------------- */
+  --e-1: 4px;  --e-2: 8px;  --e-3: 12px; --e-4: 16px;
+  --e-5: 20px; --e-6: 24px; --e-7: 32px; --e-8: 40px;
+  --e-9: 56px; --e-10: 72px; --e-11: 96px;
+
+  /* --- letra ------------------------------------------------------------ */
+  --letra: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+           "Helvetica Neue", Arial, sans-serif;
+  --letra-num: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, sans-serif;
+  --letra-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* --- movimento -------------------------------------------------------- */
+  --mola:   cubic-bezier(.2, .9, .25, 1.12);  /* a pancada do carimbo       */
+  --suave:  cubic-bezier(.32, .72, 0, 1);     /* painéis a deslizar         */
+  --t-1: 120ms; --t-2: 200ms; --t-3: 320ms; --t-4: 480ms;
+
+  /* --- medidas ---------------------------------------------------------- */
+  --coluna: 480px;        /* a app vive numa coluna de telemóvel            */
+  --coluna-larga: 1120px; /* o site e o painel do balcão respiram mais      */
+  --barra: 64px;          /* altura da barra de navegação inferior          */
+  --seguro-baixo: env(safe-area-inset-bottom, 0px);
+  --seguro-cima:  env(safe-area-inset-top, 0px);
+}
+
+/* O modo escuro é o mesmo sistema com os papéis trocados. A marca clareia:
+   #5A31E8 sobre preto não passa no contraste, #8B6DFF passa. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --papel:        #0E0D12;
+    --papel-2:      #17161C;
+    --papel-3:      #201F27;
+    --tinta:        #F4F2F7;
+    --tinta-2:      #A9A6B4;
+    --tinta-3:      #75727F;
+    --linha:        rgba(255, 255, 255, .10);
+    --linha-forte:  rgba(255, 255, 255, .20);
+    --marca:        #8B6DFF;
+    --marca-fundo:  #221B3C;
+    --marca-aro:    rgba(139, 109, 255, .34);
+    --marca-texto:  #0E0D12;
+    --bom:          #4ED39A; --bom-fundo:     #10261D;
+    --atencao:      #F0B366; --atencao-fundo: #2A1E0E;
+    --mau:          #FF8B8B; --mau-fundo:     #2C1416;
+    --sombra-1: 0 1px 2px rgba(0, 0, 0, .40);
+    --sombra-2: 0 2px 4px rgba(0, 0, 0, .40), 0 6px 16px rgba(0, 0, 0, .44);
+    --sombra-3: 0 8px 20px rgba(0, 0, 0, .48), 0 24px 48px rgba(0, 0, 0, .52);
+  }
+}
+
+/* Escolha explícita do utilizador — tem de ganhar nos dois sentidos. */
+:root[data-tema="escuro"] {
+  --papel: #0E0D12; --papel-2: #17161C; --papel-3: #201F27;
+  --tinta: #F4F2F7; --tinta-2: #A9A6B4; --tinta-3: #75727F;
+  --linha: rgba(255,255,255,.10); --linha-forte: rgba(255,255,255,.20);
+  --marca: #8B6DFF; --marca-fundo: #221B3C; --marca-aro: rgba(139,109,255,.34);
+  --marca-texto: #0E0D12;
+  --bom: #4ED39A; --bom-fundo: #10261D;
+  --atencao: #F0B366; --atencao-fundo: #2A1E0E;
+  --mau: #FF8B8B; --mau-fundo: #2C1416;
+  --sombra-1: 0 1px 2px rgba(0,0,0,.40);
+  --sombra-2: 0 2px 4px rgba(0,0,0,.40), 0 6px 16px rgba(0,0,0,.44);
+  --sombra-3: 0 8px 20px rgba(0,0,0,.48), 0 24px 48px rgba(0,0,0,.52);
+}
+
+/* =========================================================================
+   Reposição
+   ========================================================================= */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--papel);
+  color: var(--tinta);
+  font-family: var(--letra);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Sem realce azul ao tocar: numa app instalada denuncia logo o browser. */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: -.02em; line-height: 1.16; }
+h1 { font-size: clamp(1.75rem, 5.5vw, 2.5rem); letter-spacing: -.032em; }
+h2 { font-size: clamp(1.35rem, 4vw, 1.75rem); letter-spacing: -.026em; }
+h3 { font-size: 1.125rem; }
+p  { margin: 0; }
+
+img, svg, video, canvas { display: block; max-width: 100%; }
+img { height: auto; }
+
+a { color: inherit; text-decoration: none; }
+
+button, input, select, textarea {
+  font: inherit; color: inherit; margin: 0;
+}
+button { background: none; border: 0; cursor: pointer; }
+
+/* O atributo `hidden` tem de ganhar a qualquer `display` declarado depois —
+   sem isto os filtros «não funcionam» e perde-se meia hora à procura. */
+[hidden] { display: none !important; }
+
+/* =========================================================================
+   Foco visível
+   Só aparece a quem navega por teclado, mas quando aparece vê-se mesmo.
+   ========================================================================= */
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--marca);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
+/* =========================================================================
+   Movimento reduzido
+   NÃO se põe `animation-duration: .01ms` em tudo: uma animação infinita
+   passada a 0,01 ms transforma-se num estroboscópio. Cancela-se mesmo.
+   ========================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =========================================================================
+   Primitivos
+   ========================================================================= */
+
+.coluna {
+  width: 100%;
+  max-width: var(--coluna);
+  margin-inline: auto;
+  padding-inline: var(--e-5);
+}
+.coluna-larga { max-width: var(--coluna-larga); }
+
+/* Só para leitores de ecrã. */
+.sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Salta para o conteúdo — primeira paragem do teclado em cada página. */
+.saltar {
+  position: absolute; left: var(--e-4); top: -100px; z-index: 999;
+  background: var(--tinta); color: var(--papel);
+  padding: var(--e-3) var(--e-5); border-radius: var(--r-2);
+  transition: top var(--t-2) var(--suave);
+}
+.saltar:focus { top: calc(var(--seguro-cima) + var(--e-4)); }
+
+/* --- botões ------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--e-2);
+  min-height: 48px;            /* WCAG 2.2 alvo mínimo, com folga */
+  padding: 0 var(--e-6);
+  border-radius: var(--r-max);
+  font-weight: 650;
+  font-size: .975rem;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  transition: transform var(--t-1) var(--mola),
+              background-color var(--t-2) ease,
+              opacity var(--t-2) ease;
+  user-select: none;
+}
+.btn:active { transform: scale(.965); }
+.btn[disabled], .btn[aria-disabled="true"] {
+  opacity: .45; pointer-events: none;
+}
+
+.btn-cheio    { background: var(--marca); color: var(--marca-texto); }
+.btn-contorno { border: 1.5px solid var(--linha-forte); color: var(--tinta); }
+.btn-suave    { background: var(--papel-3); color: var(--tinta); }
+.btn-fantasma { color: var(--tinta-2); }
+.btn-perigo   { background: var(--mau-fundo); color: var(--mau); }
+
+.btn-bloco { width: 100%; }
+.btn-grande { min-height: 56px; font-size: 1.05rem; padding-inline: var(--e-7); }
+.btn-pequeno { min-height: 40px; font-size: .875rem; padding-inline: var(--e-4); }
+
+/* --- cartão de superfície ----------------------------------------------- */
+
+.folha {
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-4);
+  box-shadow: var(--sombra-1);
+}
+
+/* --- etiquetas ---------------------------------------------------------- */
+
+.etiqueta {
+  display: inline-flex; align-items: center; gap: var(--e-1);
+  padding: 3px var(--e-2);
+  border-radius: var(--r-max);
+  font-size: .72rem; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+  background: var(--papel-3); color: var(--tinta-2);
+}
+.etiqueta-bom     { background: var(--bom-fundo);     color: var(--bom); }
+.etiqueta-atencao { background: var(--atencao-fundo); color: var(--atencao); }
+.etiqueta-mau     { background: var(--mau-fundo);     color: var(--mau); }
+.etiqueta-marca   { background: var(--marca-fundo);   color: var(--marca); }
+
+/* --- campos ------------------------------------------------------------- */
+
+.campo { display: block; margin-bottom: var(--e-4); }
+.campo > span {
+  display: block; margin-bottom: var(--e-2);
+  font-size: .8rem; font-weight: 650; color: var(--tinta-2);
+  letter-spacing: .01em;
+}
+.campo input, .campo select, .campo textarea {
+  width: 100%; min-height: 48px;
+  padding: var(--e-3) var(--e-4);
+  background: var(--papel-2);
+  border: 1.5px solid var(--linha);
+  border-radius: var(--r-3);
+  transition: border-color var(--t-2) ease, box-shadow var(--t-2) ease;
+  /* 16px evita o zoom automático do Safari ao focar um campo. */
+  font-size: 16px;
+}
+.campo textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+.campo input:focus, .campo select:focus, .campo textarea:focus {
+  border-color: var(--marca);
+  box-shadow: 0 0 0 4px var(--marca-aro);
+  outline: none;
+}
+.campo-nota { margin-top: var(--e-2); font-size: .8rem; color: var(--tinta-3); }
+.campo-erro { margin-top: var(--e-2); font-size: .8rem; color: var(--mau); font-weight: 600; }
+
+/* --- separador ---------------------------------------------------------- */
+
+.risca { height: 1px; background: var(--linha); border: 0; margin: var(--e-6) 0; }
+
+/* Picotado — a linha de rasgar de um cupão de papel. */
+.picotado {
+  height: 0; border: 0;
+  border-top: 2px dashed var(--linha-forte);
+  margin: var(--e-5) 0;
+}

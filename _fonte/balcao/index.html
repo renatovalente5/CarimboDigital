@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sinete Balcão</title>
+<meta name="description" content="Carimba os cartões dos teus clientes com a câmara do telemóvel.">
+<meta name="theme-color" content="#0E0D12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Balcão">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="{{BASE}}/balcao/manifest.webmanifest">
+<link rel="icon" href="{{BASE}}/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{BASE}}/icones/apple-touch-icon.png">
+<link rel="stylesheet" href="{{BASE}}/estilos/nucleo.css?v={{VERSAO}}">
+<link rel="stylesheet" href="{{BASE}}/estilos/app.css?v={{VERSAO}}">
+<link rel="stylesheet" href="{{BASE}}/estilos/balcao.css?v={{VERSAO}}">
+<script>window.SINETE_CONFIG = {{CONFIG}};</script>
+</head>
+<body class="app balcao">
+<a class="saltar" href="#principal">Saltar para o conteúdo</a>
+
+<div id="entrada" class="entrada" hidden>
+  <div class="entrada-topo">
+    <div class="marca-balcao">
+      <span class="marca-selo" aria-hidden="true"></span>
+      <span><b>Sinete</b> Balcão</span>
+    </div>
+  </div>
+  <div class="entrada-meio">
+    <h1>O carimbo<br>agora é a câmara.</h1>
+    <p>O cliente mostra o código, tu apontas o telemóvel. Um segundo, e está carimbado.</p>
+  </div>
+  <div class="entrada-acoes">
+    <button class="btn btn-cheio btn-grande btn-bloco" id="entrar-demo">Experimentar agora</button>
+    <p class="entrada-nota">Sem instalar nada, sem cartão de crédito, sem mensalidade.</p>
+  </div>
+</div>
+
+<div id="aplicacao" hidden>
+  <header class="topo" id="topo">
+    <div class="topo-linha">
+      <span class="topo-titulo" id="topo-titulo">Balcão</span>
+      <span class="topo-espaco"></span>
+      <button class="topo-acao" id="botao-negocio" aria-label="O meu negócio"></button>
+    </div>
+  </header>
+  <main id="principal" class="coluna" tabindex="-1"></main>
+  <nav class="barra" aria-label="Navegação do balcão">
+    <div class="barra-interior" id="barra"></div>
+  </nav>
+</div>
+
+<noscript>
+  <div class="coluna" style="padding-block:56px">
+    <h1>É preciso o JavaScript</h1>
+    <p style="margin-top:12px;color:var(--tinta-2)">O balcão precisa da câmara e de JavaScript para funcionar.</p>
+  </div>
+</noscript>
+
+<script type="module" src="{{BASE}}/balcao/balcao.js?v={{VERSAO}}"></script>
+</body>
+</html>
