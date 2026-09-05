@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Sinete — auditoria do que se vai publicar
+   Carimbo Digital — auditoria do que se vai publicar
 
    Corre depois de gerar e antes de publicar. Se falhar, não se publica: fica
    no ar a versão anterior, que é sempre melhor do que uma versão nova
@@ -18,7 +18,7 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
 const SAIDA = join(RAIZ, '_site');
 const config = JSON.parse(readFileSync(join(RAIZ, '_fonte', 'config.json'), 'utf8'));
-const BASE = existsSync(join(RAIZ, 'CNAME')) ? '' : '/Sinete';
+const BASE = existsSync(join(RAIZ, 'CNAME')) ? '' : '/CarimboDigital';
 
 let erros = 0, avisos = 0;
 const falhar = (m) => { console.error(`  ✗ ${m}`); erros++; };
@@ -91,7 +91,7 @@ console.log('\nLigações');
 }
 
 /* --- 3. o prefixo dos caminhos ------------------------------------------ */
-/* Sem domínio próprio o site vive em /Sinete/. Uma ligação que comece por
+/* Sem domínio próprio o site vive em /CarimboDigital/. Uma ligação que comece por
    "/estilos/" funciona em casa e parte no GitHub Pages — e só se dá por isso
    depois de publicar. */
 console.log('\nPrefixo');
@@ -173,8 +173,13 @@ console.log('\nService workers');
    mesma, e o site ficou meses sem os dados que a lei obriga. */
 console.log('\nDados legais');
 {
+  /* A `forma` jurídica é opcional de propósito: uma pessoa singular não tem
+     nenhuma, e exigi-la só levava a que alguém inventasse uma. As chaves que
+     começam por `_` são comentários no JSON, não campos. */
+  const OPCIONAIS = new Set(['forma']);
   const emFalta = [];
   for (const [chave, valor] of Object.entries(config.entidade || {})) {
+    if (chave.startsWith('_') || OPCIONAIS.has(chave)) continue;
     if (!String(valor || '').trim()) emFalta.push(chave);
   }
   const paginasLegais = paginas.filter((p) => /privacidade|termos/.test(p));

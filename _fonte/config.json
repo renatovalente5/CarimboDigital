@@ -1,20 +1,21 @@
 {
-  "nome": "Sinete",
-  "dominio": "sinete.pt",
+  "nome": "Carimbo Digital",
+  "dominio": "carimbodigital.pt",
   "descricao": "Todos os teus cartões de fidelidade num só sítio. Mostras o código, o balcão carimba.",
   "api": "",
-  "_api": "Endereço do Worker, por exemplo https://api.sinete.pt. Vazio = modo de demonstração, tudo dentro do browser.",
-  "contacto": "ola@sinete.pt",
+  "_api": "Endereço do Worker, por exemplo https://api.carimbodigital.pt. Vazio = modo de demonstração, tudo dentro do browser.",
+  "contacto": "renato.l.valente@gmail.com",
   "cor": "#5A31E8",
-  "producao": false,
+  "producao": true,
   "_producao": "Põe true quando o site for mesmo para o ar. A auditoria passa a exigir os dados da entidade abaixo, e as páginas legais deixam de mostrar o aviso de rascunho.",
   "entidade": {
-    "nome": "",
+    "nome": "Renato Lima Valente",
     "forma": "",
-    "nif": "",
-    "morada": "",
-    "email": "ola@sinete.pt",
-    "responsavel_dados": ""
+    "_forma": "Vazio = pessoa singular. Se um dia registares actividade nas Finanças, põe aqui «Empresário em nome individual».",
+    "nif": "273363620",
+    "morada": "Rua José Moreira n.º 99, 4.º esq., 3700-047 São João da Madeira",
+    "email": "renato.l.valente@gmail.com",
+    "responsavel_dados": "Renato Lima Valente"
   },
   "_entidade": "Quem responde legalmente pelo serviço. Obrigatório pelo DL 7/2004 (art. 10) e pelo RGPD (art. 13). Sem isto o site não pode ser publicado como serviço a sério."
 }

@@ -1,4 +1,4 @@
-# Sinete — plano
+# Carimbo Digital — plano
 
 O que se decidiu, porquê, e o que falta. Escrito a partir de uma investigação
 com 12 frentes (mercado, concorrência, wallets, alojamento gratuito,
@@ -249,9 +249,9 @@ Verificado contra os textos originais.
 
 ### Antes de mostrar a alguém
 
-1. **Comprar o domínio.** `sinete.pt` e `sinete.app` estavam livres. As contas
+1. **Comprar o domínio.** `carimbodigital.pt` e `carimbodigital.pt` estavam livres. As contas
    dos clientes são guardadas por origem: mudar de
-   `renatovalente5.github.io/Sinete` para `sinete.pt` apaga todas as que já
+   `renatovalente5.github.io/CarimboDigital` para `carimbodigital.pt` apaga todas as que já
    existirem. Com dois utilizadores não custa nada; com duzentos, custa os
    duzentos.
 2. **Preencher `entidade` no `_fonte/config.json`** e pôr `producao: true`.
@@ -289,17 +289,20 @@ Verificado contra os textos originais.
 
 ## 10. O nome
 
-`Sinete` — o anel de selar, o objecto que deixa a marca. Do latim *signum*.
+`Carimbo Digital` — o anel de selar, o objecto que deixa a marca. Do latim *signum*.
 
-Seis letras, três sílabas abertas, sem acento e sem ambiguidade ao telefone.
-Nomeia o objecto e não a marca que ele deixa, o que o torna sugestivo em vez
-de descritivo — a classe de nome que é registável, ao contrário de «Carimbo»
-ou «Selo».
+Duas palavras, descritivo, e sem ambiguidade nenhuma ao telefone. Quem o
+ouve sabe imediatamente o que é — o que num mercado onde ninguém conhece a
+categoria vale mais do que um nome bonito por explicar.
 
-O nome que se ia usando era **Carimbi**, e foi abandonado com razão:
-`karimbou.com` é um produto vivo chamado **Karimbo**, cartão de fidelidade
-digital, em português — e `carimbi.com` é uma aplicação brasileira que
-transforma fotografias em «stamps». Duas colisões no mesmo campo semântico e
-no mesmo mercado de língua.
+Pelo caminho passou por **Carimbi** (abandonado: `karimbou.com` é um produto
+vivo chamado *Karimbo*, cartão de fidelidade digital em português, e
+`carimbi.com` é uma app brasileira de «stamps» — duas colisões no mesmo campo
+semântico) e por **Sinete** (bom nome, mas obscuro).
 
-**Tagline:** *Cada visita deixa a sua marca.*
+Sendo o nome descritivo, o trabalho de distinção passa todo para a marca
+gráfica e para a cor. Daí o símbolo ser um pedaço do produto — três casas
+carimbadas e uma por carimbar — e não um desenho de um carimbo, que seria
+dizer duas vezes a mesma coisa.
+
+**Tagline:** *O cartão de carimbos. Sem o papel.*

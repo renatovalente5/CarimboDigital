@@ -47,8 +47,8 @@ jobs:
       - name: Preparar a base de dados de teste
         working-directory: worker
         run: |
-          npx --yes wrangler d1 execute sinete --local --file=esquema.sql
-          npx --yes wrangler d1 execute sinete --local --file=semear.sql
+          npx --yes wrangler d1 execute carimbodigital --local --file=esquema.sql
+          npx --yes wrangler d1 execute carimbodigital --local --file=semear.sql
 
       - name: Levantar o Worker
         working-directory: worker

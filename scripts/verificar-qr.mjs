@@ -27,7 +27,7 @@ const TEXTOS = [
   'A',
   'AB',
   'HELLO WORLD',
-  'https://sinete.pt/c/EA4BFM',
+  'https://carimbodigital.pt/c/EA4BFM',
   'CB1.EA4BFM.000123.9f2a41c7',
   'CB1.7QK4ZM.004096.3b8e0d1a5f6c2b7e',
   'Bom dia! Isto é um teste com acentuação: ção, ã, ê, ü, ñ.',

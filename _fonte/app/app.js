@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — aplicação do cliente
+   Carimbo Digital — aplicação do cliente
    ========================================================================= */
 
 import {
@@ -222,7 +222,7 @@ function ecraCarteira(principal) {
     el('span', { class: 'linha-icone', html: icone('mais', { tamanho: 20 }) }),
     el('span', { class: 'linha-texto' },
       el('b', { texto: 'Juntar outro cartão' }),
-      el('span', { texto: 'Ver os sítios que já usam o Sinete' })),
+      el('span', { texto: 'Ver os sítios que já usam o Carimbo Digital' })),
     el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
 }
 
@@ -360,7 +360,7 @@ function linhaMovimento(m, programa) {
 async function ecraDescobrir(principal) {
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Descobrir' }));
   principal.append(el('p', { class: 'subtexto', texto:
-    'Sítios que já usam o Sinete. Junta o cartão agora ou espera pelo primeiro carimbo.' }));
+    'Sítios que já usam o Carimbo Digital. Junta o cartão agora ou espera pelo primeiro carimbo.' }));
 
   const negocios = await api.descobrir();
   const meus = new Set(estado.cartoes.map((c) => c.programa.id));
@@ -403,8 +403,8 @@ async function ecraDescobrir(principal) {
   principal.append(lista);
 
   principal.append(el('div', { class: 'folha caixa-texto', style: 'margin-top:24px' },
-    el('p', { html: '<b>Tens um negócio?</b> O Sinete é gratuito para quem carimba. '
-      + `Cria o teu cartão em <a href="${base()}/balcao/" class="ligacao">sinete.pt/balcao</a>.` })));
+    el('p', { html: '<b>Tens um negócio?</b> O Carimbo Digital é gratuito para quem carimba. '
+      + `Cria o teu cartão em <a href="${base()}/balcao/" class="ligacao">carimbodigital.pt/balcao</a>.` })));
 }
 
 /* =========================================================================
@@ -506,7 +506,7 @@ function ecraPerfil(principal) {
       el('span', { class: 'linha-icone', html: icone('descarregar', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { texto: 'Descarregar os meus dados' }),
-        el('span', { texto: 'Tudo o que o Sinete tem sobre ti, num ficheiro' })),
+        el('span', { texto: 'Tudo o que o Carimbo Digital tem sobre ti, num ficheiro' })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
     el('a', { class: 'linha', href: `${base()}/privacidade/` },
       el('span', { class: 'linha-icone', html: icone('info', { tamanho: 20 }) }),
@@ -524,7 +524,7 @@ function ecraPerfil(principal) {
     el('h2', { class: 'seccao-titulo', texto: 'Os meus dados' }), dados));
 
   principal.append(el('p', { class: 'rodape-app', html:
-    `Sinete · <a class="ligacao" href="${base()}/termos/">Termos</a> · `
+    `Carimbo Digital · <a class="ligacao" href="${base()}/termos/">Termos</a> · `
     + `<a class="ligacao" href="${base()}/privacidade/">Privacidade</a>`
     + (MODO === 'demo' ? ' · <b>modo de demonstração</b>' : '') }));
 
@@ -627,7 +627,7 @@ async function exportarDados() {
   const dados = await api.exportar(estado.cliente.id);
   const texto = JSON.stringify(dados, null, 2);
   const url = URL.createObjectURL(new Blob([texto], { type: 'application/json' }));
-  const a = el('a', { href: url, download: 'sinete-os-meus-dados.json' });
+  const a = el('a', { href: url, download: 'carimbo-digital-os-meus-dados.json' });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   avisar('Ficheiro descarregado.', 'bom');
@@ -759,7 +759,7 @@ function fecharPainel() {
    ========================================================================= */
 
 const ECRAS = {
-  carteira:  { titulo: 'Sinete',    icone: 'carteira', rotulo: 'Carteira',  render: ecraCarteira },
+  carteira:  { titulo: 'Carimbo Digital',    icone: 'carteira', rotulo: 'Carteira',  render: ecraCarteira },
   descobrir: { titulo: 'Descobrir',  icone: 'bussola',  rotulo: 'Descobrir', render: ecraDescobrir },
   codigo:    { titulo: 'Código',     icone: 'qr',       rotulo: 'Código',    centro: true },
   premios:   { titulo: 'Prémios',    icone: 'presente', rotulo: 'Prémios',   render: ecraPremios },

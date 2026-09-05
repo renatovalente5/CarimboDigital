@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
 const SAIDA = join(RAIZ, '_site');
-const BASE = existsSync(join(RAIZ, 'CNAME')) ? '' : '/Sinete';
+const BASE = existsSync(join(RAIZ, 'CNAME')) ? '' : '/CarimboDigital';
 const PORTA = Number(process.env.PORTA || 4321);
 
 const TIPOS = {
@@ -51,7 +51,7 @@ createServer(async (pedido, resposta) => {
     } else { resposta.writeHead(404); resposta.end('404'); }
   }
 }).listen(PORTA, () => {
-  console.log(`Sinete em http://localhost:${PORTA}${BASE}/`);
+  console.log(`Carimbo Digital em http://localhost:${PORTA}${BASE}/`);
   console.log(`  app do cliente : http://localhost:${PORTA}${BASE}/app/`);
   console.log(`  balcão         : http://localhost:${PORTA}${BASE}/balcao/`);
 });

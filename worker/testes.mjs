@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Sinete — bateria do Worker
+   Carimbo Digital — bateria do Worker
 
    Corre contra um `wrangler dev --local` já a andar. Não testa só o caminho
    feliz: a maior parte destes casos é gente a tentar carimbar-se a si
@@ -44,7 +44,7 @@ async function pedir(caminho, { metodo = 'GET', corpo, sessao } = {}) {
 }
 
 function sql(instrucao) {
-  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'sinete',
+  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
     '--local', '--command', instrucao], { cwd: AQUI, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 }
 
@@ -167,7 +167,13 @@ grupo('Defesas');
   certo(r.estado === 403 && r.dados.codigo === 'assinatura',
     'um código assinado com outro segredo é recusado', JSON.stringify(r.dados));
 
-  const trocado = codigoPara(cliente.publico, segredo).replace(/.$/, 'f');
+  /* Troca-se o último dígito por outro qualquer, mas garantidamente
+     diferente: substituir sempre por 'f' não mudava nada nas vezes em que o
+     dígito já era 'f', e o teste passava a falhar de vez em quando sem razão
+     aparente. */
+  const original = codigoPara(cliente.publico, segredo);
+  const ultimo = original.slice(-1);
+  const trocado = original.slice(0, -1) + (ultimo === 'f' ? '0' : 'f');
   const r2 = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
     corpo: { codigo: trocado, programaId: 'p1' } });
   certo(r2.estado === 403 || r2.dados.codigo === 'assinatura',

@@ -1,12 +1,13 @@
-# Sinete
+# Carimbo Digital
 
 **O cartão de carimbos, sem o papel.**
 Todos os cartões de fidelidade num só sítio. O cliente mostra um código, o
 balcão aponta a câmara, o carimbo aparece nos dois telemóveis.
 
-> *Sinete* (do latim *signum*) é o anel de selar — o objecto que deixa a
-> marca. Daí o nome e daí a marca gráfica: um disco de lacre com a impressão
-> gravada.
+> A marca é um pedaço do próprio produto: três casas carimbadas e uma por
+> carimbar, com o mesmo tracejado que a app usa nas casas vazias.
+
+**Domínio:** `carimbodigital.pt` (comprado; à espera de atribuição).
 
 ---
 
@@ -42,7 +43,7 @@ Tudo isto corre a **0 €/mês**. O único custo é o domínio.
 
 ```bash
 node scripts/gerar.mjs     # constrói para _site/
-node scripts/servir.mjs    # http://localhost:4321/Sinete/
+node scripts/servir.mjs    # http://localhost:4321/CarimboDigital/
 ```
 
 Sem mais nada, a app corre em **modo de demonstração**: implementa as regras
@@ -53,8 +54,8 @@ Para correr com a API a sério:
 
 ```bash
 cd worker
-npx wrangler d1 execute sinete --local --file=esquema.sql
-npx wrangler d1 execute sinete --local --file=semear.sql
+npx wrangler d1 execute carimbodigital --local --file=esquema.sql
+npx wrangler d1 execute carimbodigital --local --file=semear.sql
 node -e "console.log('CHAVE_MESTRA=' + require('crypto').randomBytes(32).toString('base64url'))" > .dev.vars
 npx wrangler dev --local
 ```
@@ -78,14 +79,14 @@ O CI corre os três. Se algum falhar, não se publica.
 
 Empurrar para `main` chega. O workflow prova, constrói, audita e publica.
 
-Enquanto não houver domínio próprio, o site vive em `/Sinete/` e o gerador
+Enquanto não houver domínio próprio, o site vive em `/CarimboDigital/` e o gerador
 mete esse prefixo em todos os caminhos sozinho. **Assim que o domínio
 existir**, cria um ficheiro `CNAME` na raiz com o domínio lá dentro: o
 prefixo desaparece e tudo passa a apontar para a raiz.
 
 > **Compra o domínio antes de dar o link a alguém.** As contas dos clientes
 > são guardadas por origem (`localStorage` + `IndexedDB`). Mudar de
-> `renatovalente5.github.io/Sinete` para `sinete.pt` apaga todas as contas
+> `renatovalente5.github.io/CarimboDigital` para `carimbodigital.pt` apaga todas as contas
 > criadas até lá. Com dois utilizadores não custa nada; com duzentos, custa
 > os duzentos.
 
@@ -93,9 +94,9 @@ prefixo desaparece e tudo passa a apontar para a raiz.
 
 ```bash
 cd worker
-npx wrangler d1 create sinete --location=weur   # ver a nota sobre a Europa
+npx wrangler d1 create carimbodigital --location=weur   # ver a nota sobre a Europa
 # copia o database_id para o wrangler.toml
-npx wrangler d1 execute sinete --remote --file=esquema.sql
+npx wrangler d1 execute carimbodigital --remote --file=esquema.sql
 npx wrangler secret put CHAVE_MESTRA            # 32 bytes em base64url
 npx wrangler secret put RESEND_API_KEY          # opcional, para os emails
 npx wrangler deploy
@@ -106,7 +107,7 @@ site.
 
 **A jurisdição escolhe-se na criação e não se muda depois.** `--location=weur`
 põe a base de dados na Europa Ocidental. Para a garantia jurídica de
-residência europeia usa-se `npx wrangler d1 create sinete --jurisdiction eu` —
+residência europeia usa-se `npx wrangler d1 create carimbodigital --jurisdiction eu` —
 mas isso é irreversível, por isso decide-se antes.
 
 ## Contas grátis
@@ -158,6 +159,20 @@ scripts/         gerar, servir, auditar, icones, verificar-qr
 worker/          a API: esquema.sql, src/index.js, testes.mjs
 _site/           o que se publica (gerado)
 ```
+
+## Marca
+
+| | |
+|---|---|
+| Tinta (primária) | `#5A31E8` |
+| Papel (fundo) | `#FBFAF7` |
+| Tinta escura (texto) | `#17161C` |
+| Logótipo | `_fonte/imagens/marca.svg` |
+| Ícones | `node scripts/icones.mjs` (regenera tudo a partir do símbolo) |
+
+O nome escreve-se sempre em duas espessuras: **Carimbo** pesado, *Digital*
+leve e mais claro. A classe `.marca-palavra` faz isso. Nunca em maiúsculas
+todas, nunca com o símbolo esticado.
 
 ## Licença
 

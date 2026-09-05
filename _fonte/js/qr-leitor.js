@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — leitor de códigos QR
+   Carimbo Digital — leitor de códigos QR
 
    Porque é que isto existe: o `BarcodeDetector` do browser resolve tudo no
    Chrome do Android, mas não existe no Safari. Sem isto, um balcão com

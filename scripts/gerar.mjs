@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Sinete — gerador do site
+   Carimbo Digital — gerador do site
 
    Node puro, sem dependências. É de propósito: isto tem de continuar a
    publicar daqui a três anos sem ninguém correr um `npm install`.
@@ -29,7 +29,7 @@ const config = JSON.parse(readFileSync(join(FONTE, 'config.json'), 'utf8'));
    raiz; sem ele, fica em /<nome-do-repositório>/. Derivar em vez de escrever
    à mão evita o clássico site publicado com todas as ligações partidas. */
 const CNAME = join(RAIZ, 'CNAME');
-const BASE = existsSync(CNAME) ? '' : '/Sinete';
+const BASE = existsSync(CNAME) ? '' : '/CarimboDigital';
 
 /* A versão é o resumo do conteúdo de tudo o que o browser guarda em cache.
    Muda quando o código muda, e só então. */
@@ -73,7 +73,11 @@ const SUBSTITUICOES = {
      marcador visível — nunca como texto plausível mas falso, que é o pior
      dos dois mundos numa página legal. */
   '{{ENT_NOME}}': config.entidade?.nome || 'POR PREENCHER',
-  '{{ENT_FORMA}}': config.entidade?.forma || 'POR PREENCHER',
+  /* Uma pessoa singular não tem forma jurídica. Em vez de escrever
+     «POR PREENCHER» numa página legal — ou pior, inventar uma — a marca
+     desaparece: o texto lê-se bem com ela e sem ela. */
+  '{{ENT_FORMA}}': config.entidade?.forma
+    ? ` (${config.entidade.forma})` : '',
   '{{ENT_NIF}}': config.entidade?.nif || 'POR PREENCHER',
   '{{ENT_MORADA}}': config.entidade?.morada || 'POR PREENCHER',
   '{{ENT_EMAIL}}': config.entidade?.email || config.contacto,
@@ -174,7 +178,7 @@ for (const ficheiro of paginas) {
 
 /* --- manifesto ----------------------------------------------------------- */
 escrever(join(SAIDA, 'app', 'manifest.webmanifest'), JSON.stringify({
-  name: 'Sinete', short_name: 'Sinete',
+  name: 'Carimbo Digital', short_name: 'Carimbo',
   description: config.descricao,
   start_url: `${BASE}/app/`, scope: `${BASE}/app/`,
   display: 'standalone', display_override: ['standalone', 'minimal-ui'],
@@ -195,7 +199,7 @@ escrever(join(SAIDA, 'app', 'manifest.webmanifest'), JSON.stringify({
 }, null, 2));
 
 escrever(join(SAIDA, 'balcao', 'manifest.webmanifest'), JSON.stringify({
-  name: 'Sinete Balcão', short_name: 'Balcão',
+  name: 'Carimbo Digital Balcão', short_name: 'Balcão',
   description: 'Carimba os cartões dos teus clientes.',
   start_url: `${BASE}/balcao/`, scope: `${BASE}/balcao/`,
   display: 'standalone', orientation: 'portrait',
@@ -242,8 +246,8 @@ for (const app of ['app', 'balcao']) {
       : [`${BASE}/js/qr-leitor.js?v=${VERSAO}`]),
   ];
 
-  escrever(join(SAIDA, app, 'sw.js'), `/* Sinete ${app} — service worker (versão ${VERSAO}) */
-const CACHE = 'sinete-${app}-${VERSAO}';
+  escrever(join(SAIDA, app, 'sw.js'), `/* Carimbo Digital ${app} — service worker (versão ${VERSAO}) */
+const CACHE = 'carimbo-${app}-${VERSAO}';
 const CASCO = ${JSON.stringify(casco, null, 2)};
 
 self.addEventListener('install', (ev) => {
@@ -261,7 +265,7 @@ self.addEventListener('install', (ev) => {
 self.addEventListener('activate', (ev) => {
   ev.waitUntil((async () => {
     for (const nome of await caches.keys()) {
-      if (nome.startsWith('sinete-${app}-') && nome !== CACHE) await caches.delete(nome);
+      if (nome.startsWith('carimbo-${app}-') && nome !== CACHE) await caches.delete(nome);
     }
     await self.clients.claim();
   })());
@@ -337,5 +341,5 @@ if (existsSync(join(SAIDA, 'index.html'))) {
   escrever(join(SAIDA, '404.html'), molde);
 }
 
-console.log(`Sinete gerado. versão ${VERSAO}, base "${BASE || '/'}", `
+console.log(`Carimbo Digital gerado. versão ${VERSAO}, base "${BASE || '/'}", `
   + `${rotas.length} páginas, ${listar(SAIDA).length} ficheiros.`);

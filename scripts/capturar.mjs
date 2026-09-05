@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Sinete — capturas de ecrã
+   Carimbo Digital — capturas de ecrã
 
    Abre o Chrome sem interface, conduz a app até ao ecrã que se quer e tira a
    fotografia. Fala com o Chrome pelo protocolo de depuração (CDP), que é só
    WebSocket e JSON — o Node 22 já traz as duas coisas, por isso continua a
    não haver dependências.
 
+   Um alvo só, navegado de ecrã em ecrã. Criar um alvo por ecrã parece mais
+   limpo, mas em modo headless o `Page.captureScreenshot` fotografa a
+   superfície composta: com vários alvos abertos saem capturas byte a byte
+   iguais entre ecrãs do mesmo tamanho, e parece que as páginas estão erradas.
+
    Uso:  node scripts/capturar.mjs [endereço-base]
-         (por omissão, o servidor local)
    ========================================================================= */
 
 import { spawn } from 'node:child_process';
@@ -19,9 +23,9 @@ import { tmpdir } from 'node:os';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const DESTINO = join(AQUI, '..', '_dev', 'capturas');
-const PERFIL = join(tmpdir(), 'sinete-capturas');
+const PERFIL = join(tmpdir(), 'carimbodigital-capturas');
 const PORTA = 9333;
-const BASE = process.argv[2] || 'http://localhost:4321/Sinete';
+const BASE = process.argv[2] || 'http://localhost:4321/CarimboDigital';
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -48,84 +52,103 @@ function ligar(url) {
       }
     };
     ws.onerror = reject;
-    ws.onopen = () => resolve({
-      ws,
-      enviar(metodo, params = {}, sessionId) {
-        const id = seguinte++;
-        return new Promise((ok, mal) => {
-          pendentes.set(id, { ok, mal });
-          ws.send(JSON.stringify({ id, method: metodo, params, sessionId }));
-        });
-      },
+    ws.onopen = () => resolve((metodo, params = {}, sessionId) => {
+      const id = seguinte++;
+      return new Promise((ok, mal) => {
+        pendentes.set(id, { ok, mal });
+        ws.send(JSON.stringify({ id, method: metodo, params, sessionId }));
+      });
     });
   });
 }
 
 /* --- os ecrãs a fotografar ----------------------------------------------- */
 
+const LIMPAR = `
+  localStorage.clear();
+  await new Promise(res => { const d = indexedDB.deleteDatabase('carimbo');
+    d.onsuccess = d.onerror = d.onblocked = res; });
+  for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+  for (const k of await caches.keys()) await caches.delete(k);
+`;
+
+const ABRIR_APP = `
+  const b = document.querySelector('#bv-seguinte');
+  if (b) { for (let i = 0; i < 3; i++) { b.click(); await new Promise(r=>setTimeout(r,260)); } }
+  await new Promise(r=>setTimeout(r,1500));
+`;
+
 const ECRAS = [
-  { nome: '1-site', url: '/', largura: 1280, altura: 900, espera: 1200 },
-  { nome: '2-site-telemovel', url: '/', largura: 402, altura: 874, espera: 1200 },
-  { nome: '3-negocios', url: '/negocios/', largura: 1280, altura: 900, espera: 1200 },
+  { nome: '1-site', url: '/', largura: 1280, altura: 900 },
+  { nome: '2-site-telemovel', url: '/', largura: 402, altura: 874 },
+  { nome: '3-negocios', url: '/negocios/', largura: 1280, altura: 900 },
+
+  { nome: '4-abertura', url: '/app/', largura: 402, altura: 874, limpar: true },
+  { nome: '5-carteira', url: '/app/', largura: 402, altura: 874, limpar: true, guiao: ABRIR_APP },
   {
-    nome: '4-abertura', url: '/app/', largura: 402, altura: 874, espera: 1600,
-    limpar: true,
-  },
-  {
-    nome: '5-carteira', url: '/app/', largura: 402, altura: 874, espera: 1600,
-    limpar: true,
-    guiao: `const b = document.querySelector('#bv-seguinte');
-            for (let i = 0; i < 3; i++) { b.click(); await new Promise(r=>setTimeout(r,260)); }
-            await new Promise(r=>setTimeout(r,1500));`,
-  },
-  {
-    nome: '6-codigo', url: '/app/', largura: 402, altura: 874, espera: 1600,
-    guiao: `document.querySelectorAll('.barra-item')[2].click();
+    nome: '6-codigo', url: '/app/', largura: 402, altura: 874,
+    guiao: `${ABRIR_APP}
+            document.querySelectorAll('.barra-item')[2].click();
             await new Promise(r=>setTimeout(r,900));`,
   },
   {
-    nome: '7-cartao', url: '/app/', largura: 402, altura: 1180, espera: 1600,
-    guiao: `const c = [...document.querySelectorAll('#principal .cartao')]
-                       .find(x => x.textContent.includes('Café Torrado'));
-            c.click(); await new Promise(r=>setTimeout(r,1100));`,
+    nome: '7-cartao', url: '/app/', largura: 402, altura: 1180,
+    guiao: `${ABRIR_APP}
+            const c = [...document.querySelectorAll('#principal .cartao')]
+                        .find(x => x.textContent.includes('Café Torrado'));
+            if (c) { c.click(); await new Promise(r=>setTimeout(r,1100)); }`,
   },
   {
-    nome: '8-descobrir', url: '/app/', largura: 402, altura: 874, espera: 1600,
-    guiao: `document.querySelectorAll('.barra-item')[1].click();
+    nome: '8-descobrir', url: '/app/', largura: 402, altura: 874,
+    guiao: `${ABRIR_APP}
+            document.querySelectorAll('.barra-item')[1].click();
             await new Promise(r=>setTimeout(r,900));`,
   },
   {
-    nome: '9-balcao-entrada', url: '/balcao/', largura: 402, altura: 874, espera: 1500,
-    limpar: true,
+    nome: '9-premios', url: '/app/', largura: 402, altura: 874,
+    guiao: `${ABRIR_APP}
+            document.querySelectorAll('.barra-item')[3].click();
+            await new Promise(r=>setTimeout(r,900));`,
   },
+
+  { nome: '10-balcao-entrada', url: '/balcao/', largura: 402, altura: 874, limpar: true },
   {
-    nome: '10-balcao-carimbado', url: '/balcao/', largura: 402, altura: 874, espera: 1600,
-    guiao: `/* O balcão sozinho não tem clientes — quem os cria é a app do
-               cliente. Para a captura, cria-se um pela mesma camada de dados. */
-            const { api } = await import('../js/api.js');
+    nome: '11-balcao-carimbado', url: '/balcao/', largura: 402, altura: 874, limpar: true,
+    /* O balcão sozinho não tem clientes — quem os cria é a app do cliente.
+       Para a captura, cria-se um pela mesma camada de dados. */
+    guiao: `const { api } = await import('../js/api.js');
             const r = await api.registarCliente();
             await api.semear(r.cliente.id);
             document.querySelector('#entrar-demo')?.click();
-            await new Promise(res=>setTimeout(res,1600));
-            const publico = r.cliente.publico;
-            if (publico) {
-              document.querySelector('#botao-manual').click();
-              await new Promise(res=>setTimeout(res,320));
-              document.querySelector('#campo-numero').value = publico;
-              document.querySelector('.painel-folha .btn-cheio').click();
-              await new Promise(res=>setTimeout(res,1200));
-            }`,
+            await new Promise(res=>setTimeout(res,1700));
+            document.querySelector('#botao-manual').click();
+            await new Promise(res=>setTimeout(res,340));
+            document.querySelector('#campo-numero').value = r.cliente.publico;
+            document.querySelector('.painel-folha .btn-cheio').click();
+            await new Promise(res=>setTimeout(res,1300));`,
   },
   {
-    nome: '11-balcao-cartao', url: '/balcao/', largura: 402, altura: 1180, espera: 1600,
-    guiao: `document.querySelectorAll('.barra-item')[3].click();
-            await new Promise(r=>setTimeout(r,900));`,
+    nome: '12-balcao-hoje', url: '/balcao/', largura: 402, altura: 1000,
+    guiao: `document.querySelector('#entrar-demo')?.click();
+            await new Promise(res=>setTimeout(res,1500));
+            document.querySelectorAll('.barra-item')[1].click();
+            await new Promise(res=>setTimeout(res,900));`,
+  },
+  {
+    nome: '13-balcao-cartao', url: '/balcao/', largura: 402, altura: 1240,
+    guiao: `document.querySelector('#entrar-demo')?.click();
+            await new Promise(res=>setTimeout(res,1500));
+            document.querySelectorAll('.barra-item')[3].click();
+            await new Promise(res=>setTimeout(res,900));`,
   },
 ];
 
 /* --- a correr ------------------------------------------------------------ */
 
 rmSync(PERFIL, { recursive: true, force: true });
+/* A pasta é limpa de propósito: se um ecrã for renomeado, o ficheiro antigo
+   fica lá e passa a parecer uma captura desta volta. */
+rmSync(DESTINO, { recursive: true, force: true });
 mkdirSync(DESTINO, { recursive: true });
 
 const chrome = spawn(CHROME, [
@@ -140,60 +163,81 @@ let navegador = null;
 for (let i = 0; i < 40 && !navegador; i++) {
   await esperar(400);
   try {
-    const r = await fetch(`http://127.0.0.1:${PORTA}/json/version`);
-    navegador = await r.json();
+    navegador = await (await fetch(`http://127.0.0.1:${PORTA}/json/version`)).json();
   } catch { /* ainda a arrancar */ }
 }
 if (!navegador) { chrome.kill(); console.error('O Chrome não arrancou.'); process.exit(1); }
 
-const { enviar } = await ligar(navegador.webSocketDebuggerUrl);
+const enviar = await ligar(navegador.webSocketDebuggerUrl);
 
+const { targetId } = await enviar('Target.createTarget', { url: 'about:blank' });
+const { sessionId } = await enviar('Target.attachToTarget', { targetId, flatten: true });
+await enviar('Page.enable', {}, sessionId);
+await enviar('Runtime.enable', {}, sessionId);
+
+/** Espera que a página acabe de carregar, ou desiste ao fim de `tecto`. */
+async function esperarCarregada(tecto = 6000) {
+  const limite = Date.now() + tecto;
+  for (;;) {
+    const r = await enviar('Runtime.evaluate', {
+      expression: 'document.readyState', returnByValue: true,
+    }, sessionId).catch(() => null);
+    if (r?.result?.value === 'complete') return true;
+    if (Date.now() > limite) return false;
+    await esperar(150);
+  }
+}
+
+let maus = 0;
 for (const ecra of ECRAS) {
-  const { targetId } = await enviar('Target.createTarget', { url: 'about:blank' });
-  const { sessionId } = await enviar('Target.attachToTarget', { targetId, flatten: true });
-
-  await enviar('Page.enable', {}, sessionId);
-  await enviar('Runtime.enable', {}, sessionId);
   await enviar('Emulation.setDeviceMetricsOverride', {
     width: ecra.largura, height: ecra.altura,
     deviceScaleFactor: 2, mobile: ecra.largura < 700,
   }, sessionId);
 
-  await enviar('Page.navigate', { url: BASE + ecra.url }, sessionId);
-  await esperar(ecra.espera);
-
+  /* Limpa-se ANTES de navegar para a página que interessa: limpar depois
+     obriga a um `location.reload()`, e a partir daí não se sabe em que
+     estado a página está quando se dispara. */
   if (ecra.limpar) {
+    await enviar('Page.navigate', { url: BASE + ecra.url }, sessionId);
+    await esperarCarregada();
     await enviar('Runtime.evaluate', {
-      expression: `(async () => {
-        localStorage.clear();
-        await new Promise(res => { const d = indexedDB.deleteDatabase('sinete');
-          d.onsuccess = d.onerror = d.onblocked = res; });
-        location.reload();
-      })()`,
-      awaitPromise: true,
+      expression: `(async () => { ${LIMPAR} })()`, awaitPromise: true,
     }, sessionId).catch(() => {});
-    await esperar(ecra.espera);
   }
+
+  await enviar('Page.navigate', { url: BASE + ecra.url }, sessionId);
+  await esperarCarregada();
+  await esperar(1100);
 
   if (ecra.guiao) {
     await enviar('Runtime.evaluate', {
-      expression: `(async () => { ${ecra.guiao} })()`,
-      awaitPromise: true,
+      expression: `(async () => { ${ecra.guiao} })()`, awaitPromise: true,
     }, sessionId).catch((e) => console.warn(`  (guião de ${ecra.nome}: ${e.message})`));
-    await esperar(400);
+    await esperar(450);
   }
+
+  /* Confirma-se onde é que se está antes de disparar. Uma captura da página
+     errada é pior do que nenhuma — parece que o produto está avariado. */
+  const onde = await enviar('Runtime.evaluate', {
+    expression: 'location.pathname', returnByValue: true,
+  }, sessionId).catch(() => null);
+  const caminho = onde?.result?.value || '';
+  const esperado = new URL(BASE + ecra.url).pathname;
+  const certo = caminho === esperado;
+  if (!certo) maus++;
 
   const { data } = await enviar('Page.captureScreenshot', { format: 'png' }, sessionId);
   writeFileSync(join(DESTINO, `${ecra.nome}.png`), Buffer.from(data, 'base64'));
-  console.log(`  ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}`);
-
-  await enviar('Target.closeTarget', { targetId });
+  console.log(`  ${certo ? ' ' : '✗'} ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}`
+    + (certo ? '' : `  (está em ${caminho}, esperava ${esperado})`));
 }
 
+await enviar('Target.closeTarget', { targetId }).catch(() => {});
 chrome.kill();
 /* O Chrome ainda está a fechar ficheiros quando chegamos aqui; apagar o
-   perfil à força rebenta com ENOTEMPTY e não vale a pena — é uma pasta
-   temporária que o sistema limpa sozinho. */
+   perfil à força rebenta com ENOTEMPTY e não vale a pena. */
 try { rmSync(PERFIL, { recursive: true, force: true }); } catch { /* fica */ }
-console.log(`\n${ECRAS.length} capturas em _dev/capturas/.`);
-process.exit(0);
+
+console.log(`\n${ECRAS.length - maus}/${ECRAS.length} capturas na página certa, em _dev/capturas/.`);
+process.exit(maus ? 1 : 0);

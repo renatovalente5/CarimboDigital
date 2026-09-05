@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — site de apresentação
+   Carimbo Digital — site de apresentação
    Só o site carrega isto. As duas apps não lhe tocam.
    ========================================================================= */
 
@@ -23,9 +23,10 @@
 }
 .marca {
   display: inline-flex; align-items: center; gap: var(--e-3);
-  font-size: 1.125rem; font-weight: 800; letter-spacing: -.03em;
+  font-size: 1.125rem; letter-spacing: -.03em;
 }
-.marca svg { width: 30px; height: 30px; }
+.marca svg { width: 32px; height: 32px; flex: 0 0 auto; }
+.marca .marca-palavra { font-size: 1.125rem; }
 .cabecalho-espaco { flex: 1; }
 .cabecalho-ligacoes { display: none; gap: var(--e-6); }
 .cabecalho-ligacoes a {

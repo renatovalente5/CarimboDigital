@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete Balcão — a aplicação de quem carimba
+   Carimbo Digital Balcão — a aplicação de quem carimba
 
    A regra que manda em tudo o resto: ao balcão há fila. Cada ecrã tem de
    funcionar com um polegar, à primeira, com o telemóvel numa mão e o café na
@@ -346,7 +346,7 @@ function fecharResultado() {
 
 function mostrarErro(e) {
   const explicacoes = {
-    formato: ['Não é um código Sinete', 'Este código é de outra coisa qualquer.'],
+    formato: ['Não é um código Carimbo Digital', 'Este código é de outra coisa qualquer.'],
     'sem-cliente': ['Cartão desconhecido', 'Pede ao cliente para abrir a app outra vez.'],
     expirado: ['Código expirado', 'O código muda a cada 15 segundos. Pede para mostrar de novo.'],
     repetido: ['Código já usado', 'Este código já foi carimbado. Pede o seguinte.'],

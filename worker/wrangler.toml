@@ -1,4 +1,4 @@
-name = "sinete-api"
+name = "carimbodigital-api"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
@@ -10,15 +10,15 @@ compatibility_date = "2026-08-01"
 #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 [vars]
-SITIO = "https://sinete.pt"
+SITIO = "https://carimbodigital.pt"
 # Vírgulas a separar. Vazio = aceita qualquer origem (só para desenvolver).
-ORIGENS = "https://sinete.pt"
-EMAIL_REMETENTE = "Sinete <ola@sinete.pt>"
+ORIGENS = "https://carimbodigital.pt"
+EMAIL_REMETENTE = "Carimbo Digital <ola@carimbodigital.pt>"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "sinete"
-# Preenche-se depois de correr `npx wrangler d1 create sinete`.
+database_name = "carimbodigital"
+# Preenche-se depois de correr `npx wrangler d1 create carimbodigital`.
 database_id = "PREENCHER"
 
 [observability]

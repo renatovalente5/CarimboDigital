@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — núcleo de JavaScript
+   Carimbo Digital — núcleo de JavaScript
    Ferramentas partilhadas pelas duas aplicações. Sem dependências.
    ========================================================================= */
 
@@ -206,19 +206,19 @@ export const NOMES_ICONES = Object.keys(TRACO);
    ========================================================================= */
 
 export function guardar(chave, valor) {
-  try { localStorage.setItem('sinete:' + chave, JSON.stringify(valor)); return true; }
+  try { localStorage.setItem('carimbo:' + chave, JSON.stringify(valor)); return true; }
   catch { return false; }
 }
 
 export function ler(chave, omissao = null) {
   try {
-    const v = localStorage.getItem('sinete:' + chave);
+    const v = localStorage.getItem('carimbo:' + chave);
     return v === null ? omissao : JSON.parse(v);
   } catch { return omissao; }
 }
 
 export function apagar(chave) {
-  try { localStorage.removeItem('sinete:' + chave); } catch { /* paciência */ }
+  try { localStorage.removeItem('carimbo:' + chave); } catch { /* paciência */ }
 }
 
 /* =========================================================================
@@ -343,7 +343,7 @@ export function seguro(texto) {
    Guardá-lo em base64 no localStorage não dava nenhuma das duas.
    ========================================================================= */
 
-const COFRE = 'sinete';
+const COFRE = 'carimbo';
 const GAVETA = 'chaves';
 
 function abrirCofre() {

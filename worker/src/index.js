@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — Worker da Cloudflare
+   Carimbo Digital — Worker da Cloudflare
 
    É o único servidor que este projecto tem. Faz três coisas:
      · guarda os cartões (D1, que é SQLite)
@@ -37,7 +37,7 @@ function cabecalhosCORS(pedido, env) {
   const origem = pedido.headers.get('origin') || '';
   const lista = origensPermitidas(env);
   /* Sem lista configurada aceita-se tudo — é o que serve para desenvolver.
-     Em produção põe-se ORIGENS=https://sinete.pt e fecha-se a porta. */
+     Em produção põe-se ORIGENS=https://carimbodigital.pt e fecha-se a porta. */
   const permitida = lista.length === 0 || lista.includes(origem);
   return {
     'access-control-allow-origin': permitida ? (origem || '*') : lista[0],
@@ -274,7 +274,7 @@ async function carimbar(env, pedido, operador) {
     publico = partes[1];
     janela = Number(partes[2]);
   } else {
-    throw new Falha('Este código não é de um cartão Sinete.', { codigo: 'formato' });
+    throw new Falha('Este código não é de um cartão Carimbo Digital.', { codigo: 'formato' });
   }
 
   const cliente = await env.DB.prepare(
@@ -440,7 +440,7 @@ async function enviarEmail(env, { para, assunto, texto }) {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      from: env.EMAIL_REMETENTE || 'Sinete <ola@sinete.pt>',
+      from: env.EMAIL_REMETENTE || 'Carimbo Digital <ola@carimbodigital.pt>',
       to: [para], subject: assunto, text: texto,
     }),
   });
@@ -610,11 +610,11 @@ rota('POST', '/v1/cliente/email', async (env, pedido) => {
 
   const r = await enviarEmail(env, {
     para: email,
-    assunto: `${codigo} — o teu código Sinete`,
+    assunto: `${codigo} — o teu código Carimbo Digital`,
     texto: `Olá!\n\nO teu código é:\n\n    ${codigo}\n\n`
       + `Escreve-o na app para guardares os teus cartões.\n`
       + `Vale ${ENTRADA_MINUTOS} minutos e só serve uma vez.\n\n`
-      + `Se não foste tu, ignora este email — não acontece nada.\n\nSinete`,
+      + `Se não foste tu, ignora este email — não acontece nada.\n\nCarimbo Digital`,
   });
   return { enviado: r.enviado };
 });
@@ -694,10 +694,10 @@ rota('POST', '/v1/balcao/entrar', async (env, pedido) => {
            new Date(Date.now() + ENTRADA_MINUTOS * 60000).toISOString()).run();
     await enviarEmail(env, {
       para: email,
-      assunto: `${codigo} — entrar no Sinete Balcão`,
+      assunto: `${codigo} — entrar no Carimbo Digital Balcão`,
       texto: `O teu código é:\n\n    ${codigo}\n\n`
         + `Escreve-o no telemóvel do balcão. Vale ${ENTRADA_MINUTOS} minutos `
-        + `e só serve uma vez.\n\nSinete`,
+        + `e só serve uma vez.\n\nCarimbo Digital`,
     });
   }
   return { enviado: true };

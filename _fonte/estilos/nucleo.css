@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — núcleo
+   Carimbo Digital — núcleo
    Sistema visual partilhado pelo site, pela app do cliente e pelo balcão.
 
    A metáfora é «tinta e papel»: o cartão de papel que se guarda na carteira
@@ -303,4 +303,33 @@ button { background: none; border: 0; cursor: pointer; }
   height: 0; border: 0;
   border-top: 2px dashed var(--linha-forte);
   margin: var(--e-5) 0;
+}
+
+/* =========================================================================
+   O logótipo
+   Duas palavras, duas espessuras: «Carimbo» carrega o nome, «Digital»
+   qualifica-o e recolhe. Escritas com a letra do sistema, de propósito — a
+   marca tem de aparecer no primeiro fotograma, e um tipo de letra por
+   descarregar aparece no segundo.
+   ========================================================================= */
+
+.marca-palavra {
+  display: inline-flex; align-items: baseline; gap: .3em;
+  font-size: 1.0625rem; letter-spacing: -.028em; line-height: 1;
+  white-space: nowrap;
+}
+.marca-palavra b { font-weight: 800; }
+.marca-palavra i {
+  font-style: normal; font-weight: 500;
+  color: var(--tinta-2);
+  letter-spacing: -.012em;
+}
+/* «Balcão», no fim, é uma etiqueta e não parte do nome. */
+.marca-palavra em {
+  font-style: normal; font-weight: 700;
+  font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--marca);
+  padding: 3px 7px; border-radius: var(--r-max);
+  background: var(--marca-fundo);
+  align-self: center;
 }

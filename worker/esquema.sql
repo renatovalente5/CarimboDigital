@@ -1,5 +1,5 @@
 -- =========================================================================
--- Sinete — esquema da base de dados (Cloudflare D1, que é SQLite)
+-- Carimbo Digital — esquema da base de dados (Cloudflare D1, que é SQLite)
 --
 -- Princípio que atravessa tudo: guardar o menos possível. Não há nome, nem
 -- telefone, nem morada do cliente. Um cartão de fidelidade precisa de saber

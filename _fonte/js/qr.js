@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — gerador de códigos QR
+   Carimbo Digital — gerador de códigos QR
    Escrito de raiz: modo byte, níveis L/M/Q/H, versões 1 a 40, com escolha
    automática da máscara pela penalização da norma (ISO/IEC 18004).
 

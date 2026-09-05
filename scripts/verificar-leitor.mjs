@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Sinete — prova do leitor de códigos QR
+   Carimbo Digital — prova do leitor de códigos QR
 
    Gera códigos com o nosso gerador, desenha-os numa imagem e estraga-os como
    uma câmara de balcão os estragaria: torto, de lado, desfocado, com grão,
@@ -125,7 +125,7 @@ function estragar(imagem, { grao = 0, luz = 0, contraste = 1, semente = 7 }) {
 const TEXTOS = [
   'C1.EA4BFM.119237859.037185d8d536a29f',   // o código real da app
   'C1.7QK4ZM.004096.3b8e0d1a5f6c2b7e',
-  'https://sinete.pt/j/o-meu-cafe',
+  'https://carimbodigital.pt/j/o-meu-cafe',
   'M1.WD7AWK',
   'A',
   'Bom dia! ção ã ê ü — teste com acentos.',

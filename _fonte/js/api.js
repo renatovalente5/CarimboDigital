@@ -1,5 +1,5 @@
 /* =========================================================================
-   Sinete — camada de dados
+   Carimbo Digital — camada de dados
 
    Dois condutores por trás da mesma interface:
 
@@ -353,7 +353,7 @@ function criarDemo() {
         publico = partes[1];
         janela = Number(partes[2]);
       } else {
-        const err = new Error('Este código não é de um cartão Sinete.');
+        const err = new Error('Este código não é de um cartão Carimbo Digital.');
         err.codigo = 'formato'; throw err;
       }
 
@@ -650,7 +650,7 @@ function criarDemo() {
 
     async limpar() {
       guardar(CHAVE, null);
-      try { localStorage.removeItem('sinete:demo'); } catch { /* nada */ }
+      try { localStorage.removeItem('carimbo:demo'); } catch { /* nada */ }
     },
   };
   return api;
