@@ -8,6 +8,8 @@ balcão aponta a câmara, o carimbo aparece nos dois telemóveis.
 > carimbar, com o mesmo tracejado que a app usa nas casas vazias.
 
 **Domínio:** `carimbodigital.pt` (comprado; à espera de atribuição).
+**No ar:** https://renatovalente5.github.io/CarimboDigital/
+**API:** `https://carimbodigital-api.renato-lima-valente-dcb.workers.dev`
 
 ---
 
@@ -46,9 +48,14 @@ node scripts/gerar.mjs     # constrói para _site/
 node scripts/servir.mjs    # http://localhost:4321/CarimboDigital/
 ```
 
-Sem mais nada, a app corre em **modo de demonstração**: implementa as regras
-todas dentro do browser (arrefecimento, prémios, movimentos) e guarda no
-`localStorage`. Serve para experimentar tudo sem servidor nenhum.
+O `_fonte/config.json` já aponta para a API publicada, por isso corre contra
+o servidor a sério. Para trabalhar sem rede, esvazia o campo `api`.
+
+**Modo de demonstração:** `?demo=1` em qualquer das apps liga uma
+implementação completa das regras dentro do browser (arrefecimento, prémios,
+movimentos), sem servidor nenhum. `?demo=0` sai. Os dados da demonstração
+ficam noutro espaço de chaves, por isso não tocam na conta a sério — serve
+para mostrar o produto a um dono de café no próprio telemóvel.
 
 Para correr com a API a sério:
 
@@ -92,18 +99,48 @@ prefixo desaparece e tudo passa a apontar para a raiz.
 
 ### A API (Cloudflare Worker)
 
+**Já está publicada.** A base de dados D1 vive na Europa Ocidental
+(`--location=weur`) e os segredos estão postos. Para voltar a publicar depois
+de mexer no `worker/src/index.js`:
+
+```bash
+cd worker && npx wrangler deploy
+```
+
+Se um dia for preciso recomeçar do zero:
+
 ```bash
 cd worker
-npx wrangler d1 create carimbodigital --location=weur   # ver a nota sobre a Europa
+npx wrangler d1 create carimbodigital --location=weur
 # copia o database_id para o wrangler.toml
 npx wrangler d1 execute carimbodigital --remote --file=esquema.sql
-npx wrangler secret put CHAVE_MESTRA            # 32 bytes em base64url
-npx wrangler secret put RESEND_API_KEY          # opcional, para os emails
+npx wrangler secret put CHAVE_MESTRA      # 32 bytes em base64url
+npx wrangler secret put CODIGO_FUNDADOR   # o convite para criar negócios
+npx wrangler secret put RESEND_API_KEY    # opcional, para os emails
 npx wrangler deploy
 ```
 
-Depois põe o endereço em `_fonte/config.json` (`"api"`) e volta a publicar o
-site.
+### Criar um negócio
+
+Enquanto o serviço estiver por convite, um negócio nasce em
+**Balcão › Tenho um convite**, com o código que está no segredo
+`CODIGO_FUNDADOR` do Worker. Depois disso, quem manda entra pelo email.
+
+O problema do primeiro operador é real e não tem volta a dar: para entrar é
+preciso sessão, para ter sessão é preciso um código por email, e para receber
+o código é preciso já existir um operador. O convite é quem corta o nó.
+
+### Emails
+
+`node scripts/email.mjs` configura o Email Routing da Cloudflare — põe
+`ola@`, `balcao@` e `privacidade@` a cair na caixa pessoal, e um apanha-tudo
+para não se perder nada. **Só funciona depois de o domínio estar na
+Cloudflare**; até lá o script diz-te o que falta em vez de falhar sem
+explicar.
+
+Para o Worker *enviar* emails (os códigos de entrada) falta uma chave da
+Resend em `RESEND_API_KEY`. Sem ela o resto funciona, mas ninguém recupera a
+conta por email nem entra no balcão sem convite.
 
 **A jurisdição escolhe-se na criação e não se muda depois.** `--location=weur`
 põe a base de dados na Europa Ocidental. Para a garantia jurídica de

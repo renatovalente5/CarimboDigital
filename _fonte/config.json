@@ -2,7 +2,7 @@
   "nome": "Carimbo Digital",
   "dominio": "carimbodigital.pt",
   "descricao": "Todos os teus cartões de fidelidade num só sítio. Mostras o código, o balcão carimba.",
-  "api": "",
+  "api": "https://carimbodigital-api.renato-lima-valente-dcb.workers.dev",
   "_api": "Endereço do Worker, por exemplo https://api.carimbodigital.pt. Vazio = modo de demonstração, tudo dentro do browser.",
   "contacto": "renato.l.valente@gmail.com",
   "cor": "#5A31E8",
@@ -13,7 +13,7 @@
     "forma": "",
     "_forma": "Vazio = pessoa singular. Se um dia registares actividade nas Finanças, põe aqui «Empresário em nome individual».",
     "nif": "273363620",
-    "morada": "Rua José Moreira n.º 99, 4.º esq., 3700-047 São João da Madeira",
+    "morada": "Rua José Moreira 99, 4.º esq., 3700-155 São João da Madeira",
     "email": "renato.l.valente@gmail.com",
     "responsavel_dados": "Renato Lima Valente"
   },

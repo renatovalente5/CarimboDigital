@@ -10,7 +10,11 @@ import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
   pintarCartao, haQuanto, dataCurta, horas, NOMES_SELOS, seguro,
 } from '../js/nucleo.js';
-import { api, MODO } from '../js/api.js';
+import { api, MODO, DEMO_FORCADO, definirChaveSessao } from '../js/api.js';
+
+/* O balcão guarda a sessão numa chave própria — ver o comentário em
+   api.js. Tem de ser dito antes do primeiro pedido. */
+definirChaveSessao('sessao-balcao');
 import { lerQR } from '../js/qr-leitor.js';
 
 const estado = {
@@ -665,17 +669,181 @@ async function entrar() {
   await irPara('carimbar');
 }
 
+/* =========================================================================
+   Entrar
+   Duas portas: quem já tem negócio entra pelo email, e quem tem convite
+   funda o negócio na hora. Em modo de demonstração há uma terceira, que é
+   experimentar sem nada — e é a que fica em destaque.
+   ========================================================================= */
+
+function desenharEntrada() {
+  const acoes = $('#entrada-acoes');
+  acoes.innerHTML = '';
+
+  if (MODO === 'demo') {
+    acoes.append(
+      el('button', {
+        class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Experimentar agora',
+        aoClick: entrar,
+      }),
+      el('p', { class: 'entrada-nota', texto:
+        'Nesta demonstração os dados ficam só neste telemóvel — não há '
+        + 'servidor nenhum a receber nada.' }));
+    if (DEMO_FORCADO) {
+      acoes.append(el('button', {
+        class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Sair da demonstração',
+        aoClick: () => { location.href = '?demo=0'; },
+      }));
+    }
+    return;
+  }
+
+  acoes.append(
+    el('button', {
+      class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Entrar',
+      aoClick: entrarPorEmail,
+    }),
+    el('button', {
+      class: 'btn btn-contorno btn-bloco', texto: 'Tenho um convite',
+      aoClick: fundarNegocio,
+    }),
+    /* A porta para quem só quer ver. Um dono de café não vai pedir um convite
+       antes de saber o que isto faz — e a demonstração corre no espaço de
+       chaves dela, por isso não estraga nada. */
+    el('button', {
+      class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Só quero ver como funciona',
+      aoClick: () => { location.href = '?demo=1'; },
+    }),
+    el('p', { class: 'entrada-nota', texto:
+      'Sem instalar nada, sem cartão de crédito, sem mensalidade.' }));
+}
+
+function entrarPorEmail() {
+  const painel = abrirPainel('Entrar no balcão');
+  painel.append(
+    el('p', { class: 'subtexto', texto: 'Escreve o email com que o negócio foi criado. '
+      + 'Enviamos um código de seis algarismos.' }),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Email' }),
+      el('input', { id: 'e-email', type: 'email', inputmode: 'email',
+                    autocomplete: 'email', placeholder: 'o.teu@email.pt' })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Enviar o código',
+      aoClick: async (ev) => {
+        const email = $('#e-email').value.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          avisar('Esse email não parece válido.', 'mau'); return;
+        }
+        ev.currentTarget.disabled = true;
+        try { await api.entrarBalcao(email); pedirCodigoBalcao(email); }
+        catch (e) { ev.currentTarget.disabled = false; avisar(e.message, 'mau'); }
+      },
+    }));
+  setTimeout(() => $('#e-email')?.focus(), 120);
+}
+
+function pedirCodigoBalcao(email) {
+  const painel = abrirPainel('Escreve o código');
+  painel.append(
+    el('p', { class: 'subtexto', html:
+      `Se este email tiver um negócio, enviámos-lhe um código. Vale 15 minutos.` }),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Código' }),
+      el('input', { id: 'e-codigo', type: 'text', inputmode: 'numeric',
+                    autocomplete: 'one-time-code', maxlength: '6',
+                    placeholder: '000000', class: 'campo-codigo' })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Entrar',
+      aoClick: async (ev) => {
+        const codigo = $('#e-codigo').value.replace(/\D/g, '');
+        if (codigo.length !== 6) { avisar('O código tem seis algarismos.', 'mau'); return; }
+        ev.currentTarget.disabled = true;
+        try {
+          const r = await api.sessaoBalcao(email, codigo);
+          guardar('sessao-balcao', r.sessao);
+          fecharPainel();
+          await entrar();
+        } catch (e) { ev.currentTarget.disabled = false; avisar(e.message, 'mau'); }
+      },
+    }));
+  const campo = $('#e-codigo');
+  campo.addEventListener('input', () => { campo.value = campo.value.replace(/\D/g, ''); });
+  setTimeout(() => campo.focus(), 120);
+}
+
+function fundarNegocio() {
+  const painel = abrirPainel('Criar o meu cartão');
+  painel.append(
+    el('p', { class: 'subtexto', texto: 'Enquanto o Carimbo Digital estiver por '
+      + 'convite, é preciso um código para criar um negócio.' }),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Código de convite' }),
+      el('input', { id: 'f-convite', type: 'text', autocomplete: 'off',
+                    spellcheck: 'false', placeholder: 'o código que te deram' })),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Nome do negócio' }),
+      el('input', { id: 'f-negocio', maxlength: '60', placeholder: 'Café Torrado' })),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Localidade' }),
+      el('input', { id: 'f-localidade', maxlength: '40', placeholder: 'Ovar' })),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Email de quem manda' }),
+      el('input', { id: 'f-email', type: 'email', inputmode: 'email',
+                    autocomplete: 'email', placeholder: 'o.teu@email.pt' })),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'O prémio' }),
+      el('input', { id: 'f-premio', maxlength: '60',
+                    placeholder: 'Um café por conta da casa' })),
+    el('label', { class: 'campo' },
+      el('span', { texto: 'Carimbos até ao prémio' }),
+      el('input', { id: 'f-objetivo', type: 'number', min: '2', max: '30',
+                    step: '1', value: '10' })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Criar',
+      aoClick: async (ev) => {
+        const nome = $('#f-negocio').value.trim();
+        const email = $('#f-email').value.trim().toLowerCase();
+        if (nome.length < 2) { avisar('Falta o nome do negócio.', 'mau'); return; }
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          avisar('Esse email não parece válido.', 'mau'); return;
+        }
+        ev.currentTarget.disabled = true;
+        try {
+          const r = await api.fundar({
+            codigo: $('#f-convite').value.trim(),
+            nome, email,
+            localidade: $('#f-localidade').value.trim() || null,
+            premio: $('#f-premio').value.trim() || undefined,
+            objetivo: Number($('#f-objetivo').value) || 10,
+          });
+          if (r.sessao) guardar('sessao-balcao', r.sessao);
+          if (r.operadorId) guardar('operador', r.operadorId);
+          fecharPainel();
+          avisar('Negócio criado. O cartão já pode ser carimbado.', 'bom');
+          await entrar();
+        } catch (e) { ev.currentTarget.disabled = false; avisar(e.message, 'mau'); }
+      },
+    }),
+    el('p', { class: 'miudo', style: 'margin-top:12px', texto:
+      'Podes mudar tudo isto depois, no separador «O cartão».' }));
+  setTimeout(() => $('#f-convite')?.focus(), 120);
+}
+
 async function arrancar() {
   /* Escuro sempre — ver o comentário no topo de balcao.css. */
   document.documentElement.dataset.tema = 'escuro';
   const topo = $('#topo');
   addEventListener('scroll', () => { topo.dataset.rolado = window.scrollY > 4 ? 'sim' : 'nao'; }, { passive: true });
 
-  if (ler('balcao-entrou')) { await entrar(); }
-  else {
-    $('#entrada').hidden = false;
-    $('#entrar-demo').addEventListener('click', entrar);
+  /* Uma sessão guardada não é garantia de nada: pode ter expirado ou o
+     operador ter sido desactivado. Se falhar, volta-se ao ecrã de entrada em
+     vez de mostrar um erro no meio de nada. */
+  if (ler('balcao-entrou') && (MODO === 'demo' || ler('sessao-balcao'))) {
+    try { await entrar(); return; }
+    catch { apagar('balcao-entrou'); }
   }
+  $('#entrada').hidden = false;
+  desenharEntrada();
 
   if ('serviceWorker' in navigator) {
     try {

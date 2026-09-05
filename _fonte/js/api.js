@@ -14,10 +14,47 @@
    `_fonte/config.json` — mais nada muda no resto da app.
    ========================================================================= */
 
-import { identificador, ler, guardar, guardarChave, lerChave, apagarChave } from './nucleo.js';
+import { identificador, ler, guardar, guardarChave, lerChave, apagarChave,
+         definirEspaco } from './nucleo.js';
 
 const CONFIG = globalThis.SINETE_CONFIG || {};
-export const MODO = CONFIG.api ? 'remoto' : 'demo';
+
+/* O modo de demonstração pode ser ligado por `?demo=1` e desligado por
+   `?demo=0`. Serve para mostrar o produto a um dono de café no próprio
+   telemóvel, sem conta e sem convite — e para o site continuar a poder ser
+   experimentado depois de o servidor entrar ao serviço.
+   As chaves ficam noutro espaço, por isso entrar na demonstração não toca na
+   conta a sério e sair dela devolve-a como estava. */
+function pedidoDeDemo() {
+  try {
+    const p = new URLSearchParams(location.search);
+    if (p.has('demo')) {
+      const liga = p.get('demo') !== '0';
+      localStorage.setItem('carimbo:modo-demo', liga ? '1' : '0');
+      /* Limpa-se o endereço, senão fica colado no histórico e no ecrã
+         principal do telemóvel. */
+      history.replaceState(null, '', location.pathname + location.hash);
+      return liga;
+    }
+    return localStorage.getItem('carimbo:modo-demo') === '1';
+  } catch { return false; }
+}
+
+export const DEMO_FORCADO = Boolean(CONFIG.api) && pedidoDeDemo();
+export const MODO = CONFIG.api && !DEMO_FORCADO ? 'remoto' : 'demo';
+
+definirEspaco(MODO === 'demo' ? 'carimbo-demo:' : 'carimbo:');
+
+/* O segredo do aparelho vive no cofre (IndexedDB), que não passa pelo espaço
+   das chaves — por isso separa-se pelo nome. */
+const CHAVE_SEGREDO = MODO === 'demo' ? 'segredo-demo' : 'segredo';
+
+/* Onde fica o testemunho da sessão. Cada aplicação tem a sua chave: um dono
+   de café que também junte carimbos abre as duas no mesmo telemóvel, e com
+   uma chave só a segunda que entrasse apagava a sessão da primeira. */
+let CHAVE_SESSAO = 'sessao';
+
+export function definirChaveSessao(nome) { CHAVE_SESSAO = nome; }
 
 /* =========================================================================
    Utilidades comuns
@@ -47,19 +84,19 @@ function deBase64url(texto) {
 export async function guardarSegredo(segredoBase64) {
   const chave = await crypto.subtle.importKey(
     'raw', deBase64url(segredoBase64), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return guardarChave('segredo', chave);
+  return guardarChave(CHAVE_SEGREDO, chave);
 }
 
 export async function temSegredo() {
-  return Boolean(await lerChave('segredo'));
+  return Boolean(await lerChave(CHAVE_SEGREDO));
 }
 
 export async function esquecerSegredo() {
-  await apagarChave('segredo');
+  await apagarChave(CHAVE_SEGREDO);
 }
 
 async function assinar(mensagem) {
-  const chave = await lerChave('segredo');
+  const chave = await lerChave(CHAVE_SEGREDO);
   if (!chave) throw new Error('Falta o segredo deste aparelho.');
   const bytes = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(mensagem));
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -117,7 +154,7 @@ export async function gerarCodigo(publico) {
 function criarRemoto(base) {
   async function pedir(caminho, { metodo = 'GET', corpo, sessao } = {}) {
     const cabecalhos = { 'content-type': 'application/json' };
-    const t = sessao ?? ler('sessao');
+    const t = sessao ?? ler(CHAVE_SESSAO);
     if (t) cabecalhos.authorization = `Bearer ${t}`;
     const r = await fetch(base + caminho, {
       method: metodo,
@@ -481,6 +518,34 @@ function criarDemo() {
       return { cartao: comporCartao(e, cartao) };
     },
 
+    async fundar(dados) {
+      /* Na demonstração não há convite nenhum a validar: cria-se o negócio
+         e pronto. Serve para o ecrã ser o mesmo nos dois modos. */
+      const e = estado();
+      const negocioId = id();
+      const slug = String(dados.nome || 'negocio').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '').toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'negocio';
+      const negocio = {
+        id: negocioId, slug, nome: dados.nome, categoria: dados.categoria || null,
+        cor: dados.cor || '#17161C', localidade: dados.localidade || null,
+        criadoEm: agora(),
+        programas: [{
+          id: id(), negocioId, nome: dados.programa || 'Cartão de cliente',
+          tipo: 'carimbos', selo: dados.selo || 'carimbo',
+          objetivo: Math.max(2, Math.min(30, Number(dados.objetivo) || 10)),
+          premio: dados.premio || 'Um brinde por conta da casa',
+          regras: dados.regras || 'Um carimbo por visita.',
+          arrefecimento: 3600, ativo: 1, criadoEm: agora(),
+        }],
+      };
+      e.negocios.push(negocio);
+      const operador = { id: id(), negocioId, nome: dados.operador || 'Balcão', papel: 'dono' };
+      e.operadores.push(operador);
+      gravar(e);
+      return { negocio: { id: negocioId, slug, nome: dados.nome }, sessao: 'demo:' + operador.id, operadorId: operador.id };
+    },
+
     async negocioDoOperador(operadorId) {
       const e = estado();
       const o = e.operadores.find((x) => x.id === operadorId) || e.operadores[0];
@@ -675,6 +740,10 @@ export const api = MODO === 'remoto'
       carimbar: (dados) => remoto.pedir('/v1/balcao/carimbar', { metodo: 'POST', corpo: dados }),
       resgatar: (dados) => remoto.pedir('/v1/balcao/resgatar', { metodo: 'POST', corpo: dados }),
       anular: (dados) => remoto.pedir('/v1/balcao/anular', { metodo: 'POST', corpo: dados }),
+      fundar: (dados) => remoto.pedir('/v1/balcao/fundar', { metodo: 'POST', corpo: dados }),
+      entrarBalcao: (email) => remoto.pedir('/v1/balcao/entrar', { metodo: 'POST', corpo: { email } }),
+      sessaoBalcao: (email, codigo) =>
+        remoto.pedir('/v1/balcao/sessao', { metodo: 'POST', corpo: { email, codigo } }),
       negocioDoOperador: () => remoto.pedir('/v1/balcao/negocio'),
       resumo: () => remoto.pedir('/v1/balcao/resumo'),
       clientesDoNegocio: () => remoto.pedir('/v1/balcao/clientes'),

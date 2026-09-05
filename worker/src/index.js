@@ -674,6 +674,73 @@ rota('DELETE', '/v1/cliente', async (env, pedido) => {
 
 /* --- balcão ------------------------------------------------------------- */
 
+/**
+ * Fundar um negócio com um código de convite.
+ *
+ * O problema do primeiro operador: para entrar no balcão é preciso uma
+ * sessão, para ter sessão é preciso um código por email, e para receber o
+ * código é preciso já existir um operador. Alguém tem de criar o primeiro.
+ *
+ * Enquanto o serviço for por convite, quem o cria é este endereço, fechado
+ * por um segredo (`CODIGO_FUNDADOR`). Quando a inscrição passar a ser livre,
+ * troca-se o convite por uma confirmação de email e o resto fica igual.
+ */
+rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
+  if (!env.CODIGO_FUNDADOR) {
+    throw new Falha('As inscrições estão fechadas.', { estado: 403, codigo: 'fechado' });
+  }
+  const d = await pedido.json();
+  if (!iguais(await resumo(String(d.codigo || '')), await resumo(env.CODIGO_FUNDADOR))) {
+    throw new Falha('Convite inválido.', { estado: 403, codigo: 'convite' });
+  }
+
+  const nome = String(d.nome || '').trim().slice(0, 60);
+  const email = String(d.email || '').trim().toLowerCase();
+  if (nome.length < 2) throw new Falha('Falta o nome do negócio.');
+  if (!/^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$/i.test(email)) {
+    throw new Falha('Email inválido.');
+  }
+
+  /* O slug sai do nome: sem acentos, sem pontuação, sem espaços. Se já
+     existir, junta-se um sufixo curto em vez de recusar. */
+  let slug = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+    || 'negocio';
+  for (let i = 0; i < 12; i++) {
+    const existe = await env.DB.prepare('SELECT 1 FROM negocios WHERE slug = ?').bind(slug).first();
+    if (!existe) break;
+    slug = `${slug.replace(/-[a-z0-9]{4}$/, '')}-${publicoNovo(4).toLowerCase()}`;
+  }
+
+  const negocioId = id();
+  const programaId = id();
+  const operadorId = id();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO negocios (id, slug, nome, categoria, cor, localidade, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(negocioId, slug, nome, d.categoria || null, d.cor || '#17161C',
+           d.localidade || null, agora()),
+    env.DB.prepare(
+      `INSERT INTO programas (id, negocio_id, nome, tipo, selo, objetivo, premio, regras,
+                              arrefecimento, criado_em)
+       VALUES (?, ?, ?, 'carimbos', ?, ?, ?, ?, ?, ?)`
+    ).bind(programaId, negocioId, d.programa || 'Cartão de cliente', d.selo || 'carimbo',
+           Math.max(2, Math.min(30, Number(d.objetivo) || 10)),
+           d.premio || 'Um brinde por conta da casa',
+           d.regras || 'Um carimbo por visita.', 3600, agora()),
+    env.DB.prepare(
+      `INSERT INTO operadores (id, negocio_id, nome, email, papel, criado_em)
+       VALUES (?, ?, ?, ?, 'dono', ?)`
+    ).bind(operadorId, negocioId, d.operador || 'Balcão', email, agora()),
+  ]);
+
+  return {
+    negocio: { id: negocioId, slug, nome },
+    sessao: await criarSessao(env, `operador:${operadorId}`),
+  };
+});
+
 rota('POST', '/v1/balcao/entrar', async (env, pedido) => {
   const { email } = await pedido.json();
   if (!/^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$/i.test(String(email || ''))) {

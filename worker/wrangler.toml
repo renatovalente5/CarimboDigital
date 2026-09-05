@@ -10,16 +10,20 @@ compatibility_date = "2026-08-01"
 #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 [vars]
-SITIO = "https://carimbodigital.pt"
+SITIO = "https://renatovalente5.github.io/CarimboDigital"
 # Vírgulas a separar. Vazio = aceita qualquer origem (só para desenvolver).
-ORIGENS = "https://carimbodigital.pt"
+# O localhost está aqui de propósito, para se poder desenvolver contra o
+# servidor a sério. Não é o que protege a API: os testemunhos de sessão vão no
+# cabeçalho `authorization` e não em cookies, por isso um site alheio nunca os
+# envia sozinho. Isto é uma camada a mais, não a única.
+ORIGENS = "https://renatovalente5.github.io,https://carimbodigital.pt,https://www.carimbodigital.pt,http://localhost:4321"
 EMAIL_REMETENTE = "Carimbo Digital <ola@carimbodigital.pt>"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "carimbodigital"
 # Preenche-se depois de correr `npx wrangler d1 create carimbodigital`.
-database_id = "PREENCHER"
+database_id = "674af7c1-84ec-4b90-80db-f78152c116e0"
 
 [observability]
 enabled = true

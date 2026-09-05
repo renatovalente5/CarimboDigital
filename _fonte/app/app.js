@@ -6,7 +6,7 @@ import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
   pintarCartao, haQuanto, dataCurta, horas, manterEcraAceso, seguro,
 } from '../js/nucleo.js';
-import { api, MODO, gerarCodigo, JANELA, guardarSegredo, temSegredo,
+import { api, MODO, DEMO_FORCADO, gerarCodigo, JANELA, guardarSegredo, temSegredo,
          esquecerSegredo, guardarDesvio } from '../js/api.js';
 import { qrParaSVG } from '../js/qr.js';
 
@@ -532,6 +532,11 @@ function ecraPerfil(principal) {
     principal.append(el('div', { class: 'folha caixa-texto', style: 'margin-top:16px' },
       el('p', { html: '<b>Estás na demonstração.</b> Os dados ficam só neste telemóvel '
         + 'e não há servidor nenhum a receber nada. Serve para experimentar a app inteira.' }),
+      DEMO_FORCADO ? el('button', {
+        class: 'btn btn-cheio btn-pequeno', style: 'margin-top:12px;margin-right:8px',
+        texto: 'Sair da demonstração',
+        aoClick: () => { location.href = '?demo=0'; },
+      }) : null,
       el('button', {
         class: 'btn btn-suave btn-pequeno', style: 'margin-top:12px',
         texto: 'Recomeçar a demonstração',
@@ -893,7 +898,8 @@ function boasVindas() {
     if (passo < PASSOS.length - 1) { passo++; pintar(); vibrar(8); return; }
     guardar('visto-bv', true);
     caixa.hidden = true;
-    await entrar();
+    try { await entrar(); }
+    catch (e) { console.error(e); ecraSemLigacao(e); }
   });
   caixa.querySelector('#bv-saltar').addEventListener('click', () => {
     avisar(MODO === 'demo'
@@ -906,6 +912,33 @@ function boasVindas() {
 /* =========================================================================
    Arranque
    ========================================================================= */
+
+/**
+ * O ecrã de quando não há ligação.
+ *
+ * Antes disto, se a API não respondesse a app ficava simplesmente em branco:
+ * o registo falhava dentro de um clique, a promessa morria sozinha e não
+ * aparecia nada. Um ecrã em branco é o pior erro possível — ninguém sabe se
+ * é a rede, o telemóvel ou a app.
+ */
+function ecraSemLigacao(erro) {
+  $('#boas-vindas').hidden = true;
+  $('#aplicacao').hidden = false;
+  $('#topo-titulo').textContent = '';
+  $('#barra').innerHTML = '';
+  const principal = $('#principal');
+  principal.innerHTML = '';
+  principal.append(el('div', { class: 'vazio' },
+    el('div', { class: 'vazio-desenho', html: icone('alerta', { tamanho: 96 }) }),
+    el('h3', { texto: 'Sem ligação ao servidor' }),
+    el('p', { texto: 'Os teus cartões estão a salvo — é só a ligação que falta. '
+      + 'Verifica a rede e tenta outra vez.' }),
+    el('button', {
+      class: 'btn btn-cheio', texto: 'Tentar outra vez',
+      aoClick: () => location.reload(),
+    }),
+    el('p', { class: 'miudo', style: 'margin-top:8px', texto: erro?.message || '' })));
+}
 
 async function entrar() {
   $('#aplicacao').hidden = false;
@@ -946,8 +979,12 @@ async function arrancar() {
     topo.dataset.rolado = window.scrollY > 4 ? 'sim' : 'nao';
   }, { passive: true });
 
-  if (ler('visto-bv')) await entrar();
-  else boasVindas();
+  if (ler('visto-bv')) {
+    try { await entrar(); }
+    catch (e) { console.error(e); ecraSemLigacao(e); return; }
+  } else {
+    boasVindas();
+  }
 
   if ('serviceWorker' in navigator) {
     try {

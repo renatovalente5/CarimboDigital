@@ -205,20 +205,28 @@ export const NOMES_ICONES = Object.keys(TRACO);
    na mesma.
    ========================================================================= */
 
+/* O espaço onde as chaves vivem. A camada de dados troca-o quando se entra
+   em modo de demonstração, para os dados de brincar não pisarem a conta a
+   sério: são duas gavetas diferentes, e sair da demonstração devolve a conta
+   exactamente como estava. */
+let ESPACO = 'carimbo:';
+
+export function definirEspaco(nome) { ESPACO = nome; }
+
 export function guardar(chave, valor) {
-  try { localStorage.setItem('carimbo:' + chave, JSON.stringify(valor)); return true; }
+  try { localStorage.setItem(ESPACO + chave, JSON.stringify(valor)); return true; }
   catch { return false; }
 }
 
 export function ler(chave, omissao = null) {
   try {
-    const v = localStorage.getItem('carimbo:' + chave);
+    const v = localStorage.getItem(ESPACO + chave);
     return v === null ? omissao : JSON.parse(v);
   } catch { return omissao; }
 }
 
 export function apagar(chave) {
-  try { localStorage.removeItem('carimbo:' + chave); } catch { /* paciência */ }
+  try { localStorage.removeItem(ESPACO + chave); } catch { /* paciência */ }
 }
 
 /* =========================================================================
@@ -344,6 +352,7 @@ export function seguro(texto) {
    ========================================================================= */
 
 const COFRE = 'carimbo';
+let GAVETA_ESPACO = 'segredo';
 const GAVETA = 'chaves';
 
 function abrirCofre() {
