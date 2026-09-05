@@ -17,7 +17,7 @@
 import { identificador, ler, guardar, guardarChave, lerChave, apagarChave,
          definirEspaco } from './nucleo.js';
 
-const CONFIG = globalThis.SINETE_CONFIG || {};
+const CONFIG = globalThis.CARIMBO_CONFIG || {};
 
 /* O modo de demonstração pode ser ligado por `?demo=1` e desligado por
    `?demo=0`. Serve para mostrar o produto a um dono de café no próprio

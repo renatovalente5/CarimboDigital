@@ -26,7 +26,7 @@ const estado = {
 };
 
 function base() {
-  return (globalThis.SINETE_CONFIG && globalThis.SINETE_CONFIG.base) || '';
+  return (globalThis.CARIMBO_CONFIG && globalThis.CARIMBO_CONFIG.base) || '';
 }
 
 /* =========================================================================
