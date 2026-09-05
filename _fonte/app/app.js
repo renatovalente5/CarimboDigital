@@ -387,6 +387,7 @@ async function ecraDescobrir(principal) {
               html: tenho ? icone('visto', { tamanho: 13 }) + '<span>Já tens</span>'
                           : icone('mais', { tamanho: 13 }) + '<span>Juntar</span>',
               aoClick: async (ev) => {
+                const botao = ev.currentTarget;
                 ev.stopPropagation();
                 if (tenho) { irPara('carteira'); return; }
                 await api.aderir(estado.cliente.id, p.id);
@@ -563,16 +564,17 @@ async function guardarConta() {
       class: 'btn btn-cheio btn-bloco btn-grande', id: 'botao-enviar',
       texto: 'Enviar o código',
       aoClick: async (ev) => {
+        const botao = ev.currentTarget;
         const v = $('#campo-email').value.trim().toLowerCase();
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
           avisar('Esse email não parece válido.', 'mau'); return;
         }
-        ev.currentTarget.disabled = true;
+        botao.disabled = true;
         try {
           await api.guardarEmail(v);
           pedirCodigo(v);
         } catch (e) {
-          ev.currentTarget.disabled = false;
+          botao.disabled = false;
           avisar(e.message, 'mau');
         }
       },
@@ -604,9 +606,10 @@ function pedirCodigo(email) {
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Confirmar',
       aoClick: async (ev) => {
+        const botao = ev.currentTarget;
         const codigo = $('#campo-codigo').value.replace(/\D/g, '');
         if (codigo.length !== 6) { avisar('O código tem seis algarismos.', 'mau'); return; }
-        ev.currentTarget.disabled = true;
+        botao.disabled = true;
         try {
           await api.confirmarEmail(email, codigo);
           estado.cliente = { ...estado.cliente, email };
@@ -615,7 +618,7 @@ function pedirCodigo(email) {
           avisar('Conta guardada. Os cartões já não se perdem.', 'bom');
           irPara('perfil');
         } catch (e) {
-          ev.currentTarget.disabled = false;
+          botao.disabled = false;
           avisar(e.message, 'mau');
         }
       },

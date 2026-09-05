@@ -22,6 +22,12 @@ export function el(etiqueta, atributos = {}, ...filhos) {
         else n.style[prop] = v;
       }
     }
+    /* Atenção a um pormenor que morde: dentro de um `aoClick` assíncrono,
+       `ev.currentTarget` só existe enquanto o evento está a ser despachado —
+       depois do primeiro `await` vale `null`. Quem quiser reactivar o botão
+       no fim tem de o guardar numa variável ANTES de esperar. Sem isso o
+       botão fica desactivado para sempre e o erro nunca chega a aparecer:
+       o formulário simplesmente deixa de responder, sem dizer porquê. */
     else if (chave.startsWith('ao')) n.addEventListener(chave.slice(2).toLowerCase(), valor);
     else n.setAttribute(chave, valor === true ? '' : valor);
   }

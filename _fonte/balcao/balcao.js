@@ -284,7 +284,8 @@ function mostrarResultado(r) {
         class: 'btn btn-cheio btn-grande btn-bloco',
         html: icone('presente', { tamanho: 18 }) + `<span>Entreguei: ${seguro(g.descricao)}</span>`,
         aoClick: async (ev) => {
-          ev.currentTarget.disabled = true;
+          const botao = ev.currentTarget;
+          botao.disabled = true;
           await api.resgatar({ premioId: g.id, operador: estado.operador?.nome || 'Balcão' });
           avisar('Prémio entregue.', 'bom');
           fecharResultado();
@@ -730,13 +731,14 @@ function entrarPorEmail() {
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Enviar o código',
       aoClick: async (ev) => {
+        const botao = ev.currentTarget;
         const email = $('#e-email').value.trim().toLowerCase();
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
           avisar('Esse email não parece válido.', 'mau'); return;
         }
-        ev.currentTarget.disabled = true;
+        botao.disabled = true;
         try { await api.entrarBalcao(email); pedirCodigoBalcao(email); }
-        catch (e) { ev.currentTarget.disabled = false; avisar(e.message, 'mau'); }
+        catch (e) { botao.disabled = false; avisar(e.message, 'mau'); }
       },
     }));
   setTimeout(() => $('#e-email')?.focus(), 120);
@@ -755,15 +757,16 @@ function pedirCodigoBalcao(email) {
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Entrar',
       aoClick: async (ev) => {
+        const botao = ev.currentTarget;
         const codigo = $('#e-codigo').value.replace(/\D/g, '');
         if (codigo.length !== 6) { avisar('O código tem seis algarismos.', 'mau'); return; }
-        ev.currentTarget.disabled = true;
+        botao.disabled = true;
         try {
           const r = await api.sessaoBalcao(email, codigo);
           guardar('sessao-balcao', r.sessao);
           fecharPainel();
           await entrar();
-        } catch (e) { ev.currentTarget.disabled = false; avisar(e.message, 'mau'); }
+        } catch (e) { botao.disabled = false; avisar(e.message, 'mau'); }
       },
     }));
   const campo = $('#e-codigo');
@@ -801,13 +804,14 @@ function fundarNegocio() {
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Criar',
       aoClick: async (ev) => {
+        const botao = ev.currentTarget;
         const nome = $('#f-negocio').value.trim();
         const email = $('#f-email').value.trim().toLowerCase();
         if (nome.length < 2) { avisar('Falta o nome do negócio.', 'mau'); return; }
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
           avisar('Esse email não parece válido.', 'mau'); return;
         }
-        ev.currentTarget.disabled = true;
+        botao.disabled = true;
         try {
           const r = await api.fundar({
             codigo: $('#f-convite').value.trim(),
@@ -821,7 +825,7 @@ function fundarNegocio() {
           fecharPainel();
           avisar('Negócio criado. O cartão já pode ser carimbado.', 'bom');
           await entrar();
-        } catch (e) { ev.currentTarget.disabled = false; avisar(e.message, 'mau'); }
+        } catch (e) { botao.disabled = false; avisar(e.message, 'mau'); }
       },
     }),
     el('p', { class: 'miudo', style: 'margin-top:12px', texto:
