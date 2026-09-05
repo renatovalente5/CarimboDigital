@@ -20,9 +20,10 @@
   --papel-3:      #F2F0EB;   /* recuo: barras, campos, estados inertes       */
   --tinta:        #17161C;   /* texto principal                              */
   --tinta-2:      #5B5966;   /* texto secundário                             */
-  --tinta-3:      #93909C;   /* texto terciário, legendas                    */
+  --tinta-3:      #6A6775;   /* texto terciário, legendas                    */
   --linha:        rgba(23, 22, 28, .10);
   --linha-forte:  rgba(23, 22, 28, .18);
+  --linha-campo:  #8A8792;   /* contorno de um campo — a nota está em .campo */
 
   /* --- a marca ---------------------------------------------------------- */
   --marca:        #5A31E8;
@@ -73,7 +74,9 @@
 }
 
 /* O modo escuro é o mesmo sistema com os papéis trocados. A marca clareia:
-   #5A31E8 sobre preto não passa no contraste, #8B6DFF passa. */
+   #5A31E8 sobre preto não passa no contraste. #8B6DFF quase passava — 4,45
+   sobre --papel-3 e 4,44 sobre --marca-fundo, com 4,5 a ser o mínimo — e
+   «quase» aqui não conta. #9A80FF dá 5,35 no pior dos casos. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-tema="claro"]) {
     --papel:        #0E0D12;
@@ -81,12 +84,13 @@
     --papel-3:      #201F27;
     --tinta:        #F4F2F7;
     --tinta-2:      #A9A6B4;
-    --tinta-3:      #75727F;
+    --tinta-3:      #918E9B;
     --linha:        rgba(255, 255, 255, .10);
     --linha-forte:  rgba(255, 255, 255, .20);
-    --marca:        #8B6DFF;
+    --linha-campo:  #6C6977;
+    --marca:        #9A80FF;
     --marca-fundo:  #221B3C;
-    --marca-aro:    rgba(139, 109, 255, .34);
+    --marca-aro:    rgba(154, 128, 255, .34);
     --marca-texto:  #0E0D12;
     --bom:          #4ED39A; --bom-fundo:     #10261D;
     --atencao:      #F0B366; --atencao-fundo: #2A1E0E;
@@ -100,9 +104,10 @@
 /* Escolha explícita do utilizador — tem de ganhar nos dois sentidos. */
 :root[data-tema="escuro"] {
   --papel: #0E0D12; --papel-2: #17161C; --papel-3: #201F27;
-  --tinta: #F4F2F7; --tinta-2: #A9A6B4; --tinta-3: #75727F;
+  --tinta: #F4F2F7; --tinta-2: #A9A6B4; --tinta-3: #918E9B;
   --linha: rgba(255,255,255,.10); --linha-forte: rgba(255,255,255,.20);
-  --marca: #8B6DFF; --marca-fundo: #221B3C; --marca-aro: rgba(139,109,255,.34);
+  --linha-campo: #6C6977;
+  --marca: #9A80FF; --marca-fundo: #221B3C; --marca-aro: rgba(154,128,255,.34);
   --marca-texto: #0E0D12;
   --bom: #4ED39A; --bom-fundo: #10261D;
   --atencao: #F0B366; --atencao-fundo: #2A1E0E;
@@ -267,7 +272,18 @@ button { background: none; border: 0; cursor: pointer; }
 .etiqueta-mau     { background: var(--mau-fundo);     color: var(--mau); }
 .etiqueta-marca   { background: var(--marca-fundo);   color: var(--marca); }
 
-/* --- campos ------------------------------------------------------------- */
+/* --- campos -------------------------------------------------------------
+
+   O contorno de um campo não é decoração, é a única coisa que diz que ali
+   se pode escrever. Um botão sem contorno continua a ler-se como botão,
+   porque tem lá o texto; um campo vazio sem contorno é um vazio. Por isso
+   este contorno vai em --linha-campo, opaco e a 3:1 do papel, e não em
+   --linha, que é o fio de 10% com que se separam cartões e riscas.
+
+   O fio de 10% dava 1,2:1. Ficava bonito e desaparecia — em papel branco
+   ao sol, num telemóvel com o brilho em baixo, ou nos olhos de quem já não
+   tem trinta anos. O balcão de um café é os três ao mesmo tempo.
+   -------------------------------------------------------------------- */
 
 .campo { display: block; margin-bottom: var(--e-4); }
 .campo > span {
@@ -279,7 +295,7 @@ button { background: none; border: 0; cursor: pointer; }
   width: 100%; min-height: 48px;
   padding: var(--e-3) var(--e-4);
   background: var(--papel-2);
-  border: 1.5px solid var(--linha);
+  border: 1.5px solid var(--linha-campo);
   border-radius: var(--r-3);
   transition: border-color var(--t-2) ease, box-shadow var(--t-2) ease;
   /* 16px evita o zoom automático do Safari ao focar um campo. */

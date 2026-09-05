@@ -319,6 +319,45 @@ grupo('RGPD');
   certo(/"n":\s*0/.test(orfaos), 'não ficam cartões órfãos na base de dados');
 }
 
+grupo('Emails');
+{
+  const { emailCodigoCliente, emailCodigoBalcao } = await import('./src/emails.js');
+
+  const a = emailCodigoCliente({ codigo: '318204', minutos: 15 });
+  certo(a.assunto.includes('318204'), 'o código vai no assunto');
+  certo(a.html.includes('318&#160;204'), 'e no HTML, em dois grupos de três');
+  certo(a.texto.includes('318204'), 'e na versão em texto');
+  certo(a.html.includes('aria-label="3 1 8 2 0 4"'),
+    'soletrado para quem ouve o email em vez de o ler');
+
+  /* Estas três são cicatrizes. As duas primeiras deram email partido no
+     Outlook — que desenha com o motor do Word e não sabe o que é rgba()
+     nem letter-spacing em em. A terceira é o número de contribuinte de um
+     particular, que não tem que andar a espalhar-se por caixas de correio
+     alheias só porque coube no rodapé. */
+  certo(!/rgba\(/.test(a.html), 'nenhum rgba() — o motor do Word desenha-o a preto');
+  certo(!/letter-spacing:\s*[-.\d]+em/.test(a.html), 'espaçamento em px, que o Word lê');
+  certo(!/\b273363620\b/.test(a.html + a.texto), 'o NIF não vai no email');
+
+  /* A largura foi a segunda cicatriz: width="560" ganha ao max-width e o
+     email transbordava do ecrã do telemóvel. */
+  certo(a.html.includes('max-width:560px') && a.html.includes('[if mso]'),
+    'largura fluida com tabela-fantasma para o Outlook');
+
+  const b = emailCodigoBalcao({ codigo: '705193', negocio: '<script>x</script>' });
+  certo(!b.html.includes('<script>'), 'o nome do negócio é escapado');
+  certo(b.html.includes('&lt;script&gt;'), 'e chega escapado ao HTML');
+
+  /* Um código com menos de seis algarismos não parte o agrupamento. */
+  const c = emailCodigoCliente({ codigo: '1234' });
+  certo(c.html.includes('>1234</div>'), 'um código curto sai inteiro, sem espaço a meio');
+
+  for (const [nome, m] of [['cliente', a], ['balcão', b]]) {
+    certo(m.texto.length > 100 && m.html.length > 1000,
+      `${nome}: tem as duas versões, HTML e texto`);
+  }
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

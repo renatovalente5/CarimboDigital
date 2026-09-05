@@ -252,6 +252,91 @@ console.log('\nIndexação');
   if (!mal) bem('as duas aplicações estão fora dos motores de busca');
 }
 
+/* --- 11. contraste da paleta -------------------------------------------
+   Isto está aqui porque a paleta original tinha oito pares que não passavam
+   e nenhum deles se via a olho: a legenda cinzenta parecia «cinzenta o
+   suficiente». Passar o olho não mede nada — 3,0 e 4,6 são
+   indistinguíveis à vista e um deles é ilegal. O que se mede, mede-se
+   sempre; e o que se mede sempre não volta a partir-se sem ninguém notar.
+   ---------------------------------------------------------------------- */
+console.log('\nContraste');
+{
+  const css = readFileSync(join(RAIZ, '_fonte', 'estilos', 'nucleo.css'), 'utf8');
+
+  /* Lê as variáveis de um bloco de tema. O modo claro é o `:root {` do
+     princípio; o escuro é o bloco da escolha explícita, que repete o do
+     `prefers-color-scheme` — se algum dia se separarem, a auditoria só vê
+     um e é preciso vir aqui. */
+  const bloco = (de, ate) => {
+    const i = css.indexOf(de);
+    const corpo = css.slice(i, css.indexOf(ate, i));
+    const vars = {};
+    for (const m of corpo.matchAll(/--([\w-]+):\s*(#[0-9A-Fa-f]{6})/g)) vars[m[1]] = m[2];
+    return vars;
+  };
+  const escuroAuto = bloco(':root:not([data-tema="claro"])', '\n  }');
+  const escuroEscolhido = bloco(':root[data-tema="escuro"]', '\n}');
+  const TEMAS = {
+    claro: bloco(':root {', '@media (prefers-color-scheme: dark)'),
+    escuro: escuroEscolhido,
+  };
+
+  /* O modo escuro está escrito duas vezes — uma para quem o pede ao sistema,
+     outra para quem o escolhe no botão — e as duas têm de dizer o mesmo. Se
+     se separarem, metade das pessoas fica com a paleta velha e a auditoria
+     acima só olha para uma delas. */
+  for (const chave of new Set([...Object.keys(escuroAuto), ...Object.keys(escuroEscolhido)])) {
+    if (escuroAuto[chave] !== escuroEscolhido[chave]) {
+      falhar(`escuro: --${chave} é ${escuroAuto[chave] || 'nada'} para o sistema`
+        + ` e ${escuroEscolhido[chave] || 'nada'} para quem o escolhe`);
+    }
+  }
+
+  const luz = (hex) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const razao = (a, b) => {
+    const [x, y] = [luz(a), luz(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+
+  /* Texto pequeno pede 4,5. Contornos de controlo e ícones pedem 3. */
+  const PAPEIS = ['papel', 'papel-2', 'papel-3'];
+  const PARES = [
+    ...['tinta', 'tinta-2', 'tinta-3', 'marca', 'bom', 'atencao', 'mau']
+      .flatMap((t) => PAPEIS.map((f) => [t, f, 4.5])),
+    ['bom', 'bom-fundo', 4.5],
+    ['atencao', 'atencao-fundo', 4.5],
+    ['mau', 'mau-fundo', 4.5],
+    ['marca', 'marca-fundo', 4.5],
+    ['tinta', 'marca-fundo', 4.5],
+    ['marca-texto', 'marca', 4.5],
+    /* O contorno do campo é o que identifica o campo: 1.4.11, 3:1. */
+    ...PAPEIS.filter((f) => f !== 'papel-3').map((f) => ['linha-campo', f, 3]),
+  ];
+
+  let mal = 0;
+  let contados = 0;
+  for (const [tema, v] of Object.entries(TEMAS)) {
+    for (const [frente, fundo, minimo] of PARES) {
+      if (!v[frente] || !v[fundo]) {
+        falhar(`${tema}: --${frente} ou --${fundo} não é uma cor sólida no CSS`);
+        mal++; continue;
+      }
+      const r = razao(v[frente], v[fundo]);
+      contados++;
+      if (r < minimo) {
+        falhar(`${tema}: --${frente} sobre --${fundo} dá ${r.toFixed(2)}`
+          + `, precisa de ${minimo}`);
+        mal++;
+      }
+    }
+  }
+  if (!mal) bem(`${contados} pares de cores medidos, todos passam`);
+}
+
 /* --- resumo ------------------------------------------------------------- */
 console.log(`\n${erros ? '✗' : '✓'} ${erros} erros, ${avisos} avisos.\n`);
 process.exit(erros ? 1 : 0);
