@@ -291,6 +291,20 @@ export async function correr(palco, certo) {
      leituras que caiam as duas nessa fresta dão o mesmo número e parecem um
      anel avariado. Sete amostras ao longo de seis segundos atravessam
      qualquer fronteira. */
+  /* Pergunta-se a preferência, não se força.
+
+     O Chrome sem interface do CI anuncia `prefers-reduced-motion: reduce`, e
+     a app — bem — corta as transições todas nesse caso: o anel deixa de
+     deslizar e passa a saltar de janela em janela. A afirmação passava no
+     Mac e reprovava no CI, a acusar a app de um anel avariado que estava a
+     fazer exactamente o que lhe tinham pedido.
+
+     Forçar com `palco.movimento()` também não serve: o
+     `Emulation.setEmulatedMedia` congela as transições em curso e o anel
+     fica parado nos dois casos. Mede-se o que há, e exige-se o que faz
+     sentido para esse caso. */
+  const reduzido = await palco.js(
+    "return matchMedia('(prefers-reduced-motion: reduce)').matches");
   const amostras = [];
   for (let i = 0; i < 20; i++) { amostras.push(await lerAnel(palco)); await dorme(500); }
   const lidas = amostras.filter((x) => x !== null && Number.isFinite(x));
@@ -305,15 +319,24 @@ export async function correr(palco, certo) {
      pelo menos uma janela inteira. */
   const distintas = new Set(lidas.map((x) => x.toFixed(1))).size;
   const amplitude = Math.max(...lidas) - Math.min(...lidas);
-  certo(distintas >= 5 && amplitude > 20,
-    'o cronómetro desce com o tempo (o anel esvazia-se)',
-    `${distintas} valores distintos, amplitude ${amplitude.toFixed(1)} de ${ANEL}`);
+  /* Com movimento normal o anel desliza e passa por muitos valores; com
+     movimento reduzido salta, e o que se exige é que salte — se ficasse
+     parado, quem escolheu menos movimento ficava sem saber quando o código
+     muda. */
+  certo(reduzido ? distintas >= 2 : (distintas >= 5 && amplitude > 20),
+    reduzido
+      ? 'o cronómetro marca o tempo (com movimento reduzido, aos saltos)'
+      : 'o cronómetro desce com o tempo (o anel esvazia-se)',
+    `${distintas} valores distintos, amplitude ${amplitude.toFixed(1)} de ${ANEL}`
+    + `, movimento ${reduzido ? 'reduzido' : 'normal'}`);
 
   /* E que os valores ficam todos dentro do perímetro: um arco com offset
      acima do comprimento total desapareceria. */
   certo(Math.max(...lidas) <= ANEL + 0.5 && Math.min(...lidas) >= -0.5,
     'e nunca sai do perímetro do círculo',
     `${Math.min(...lidas).toFixed(1)}..${Math.max(...lidas).toFixed(1)}`);
+
+
 
   /* --- fechar pelo × ------------------------------------------------------ */
   await palco.clicar('.codigo-fechar');
