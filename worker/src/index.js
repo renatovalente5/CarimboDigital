@@ -18,6 +18,8 @@
                            continua a funcionar sem recuperação por email.
    ========================================================================= */
 
+import { emailCodigoCliente, emailCodigoBalcao } from './emails.js';
+
 const JANELA = 15;                 // segundos de vida de um código
 const TOLERANCIA = 2;              // janelas de folga para relógios desencontrados
 const SESSAO_DIAS = 180;
@@ -431,7 +433,7 @@ async function carimbar(env, pedido, operador) {
    Email (opcional)
    ========================================================================= */
 
-async function enviarEmail(env, { para, assunto, texto }) {
+async function enviarEmail(env, { para, assunto, texto, html, chaveUnica }) {
   if (!env.RESEND_API_KEY) return { enviado: false, motivo: 'sem-chave' };
   try {
     const r = await fetch('https://api.resend.com/emails', {
@@ -439,10 +441,19 @@ async function enviarEmail(env, { para, assunto, texto }) {
       headers: {
         authorization: `Bearer ${env.RESEND_API_KEY}`,
         'content-type': 'application/json',
+        /* Se o pedido for repetido — a pessoa carrega duas vezes, a rede
+           engasga-se e o Worker tenta de novo — a Resend reconhece a chave e
+           não manda um segundo email. Vale 24 horas. */
+        ...(chaveUnica ? { 'Idempotency-Key': chaveUnica } : {}),
       },
       body: JSON.stringify({
         from: env.EMAIL_REMETENTE || 'Carimbo Digital <ola@carimbodigital.pt>',
-        to: [para], subject: assunto, text: texto,
+        to: [para], subject: assunto,
+        /* As duas versões, sempre. A de texto não é um resto do passado: há
+           clientes que só mostram texto, os leitores de ecrã dão-se melhor
+           com ela, e um email só-HTML pontua pior nos filtros de spam. */
+        text: texto,
+        ...(html ? { html } : {}),
       }),
     });
     if (r.ok) return { enviado: true };
@@ -624,11 +635,8 @@ rota('POST', '/v1/cliente/email', async (env, pedido) => {
 
   const r = await enviarEmail(env, {
     para: email,
-    assunto: `${codigo} — o teu código Carimbo Digital`,
-    texto: `Olá!\n\nO teu código é:\n\n    ${codigo}\n\n`
-      + `Escreve-o na app para guardares os teus cartões.\n`
-      + `Vale ${ENTRADA_MINUTOS} minutos e só serve uma vez.\n\n`
-      + `Se não foste tu, ignora este email — não acontece nada.\n\nCarimbo Digital`,
+    chaveUnica: await resumo(`cliente|${clienteId}|${codigo}`),
+    ...emailCodigoCliente({ codigo, minutos: ENTRADA_MINUTOS }),
   });
   /* Devolve-se a verdade: é o email do próprio, e mandá-lo esperar por um
      código que nunca vai chegar é a pior coisa que se lhe pode fazer. */
@@ -763,7 +771,7 @@ rota('POST', '/v1/balcao/entrar', async (env, pedido) => {
     throw new Falha('Email inválido');
   }
   const op = await env.DB.prepare(
-    'SELECT id FROM operadores WHERE email = ? AND ativo = 1'
+    'SELECT id, negocio_id FROM operadores WHERE email = ? AND ativo = 1'
   ).bind(email).first();
 
   /* Responde-se sempre o mesmo, exista ou não a conta: senão este endpoint
@@ -775,12 +783,15 @@ rota('POST', '/v1/balcao/entrar', async (env, pedido) => {
       'INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em) VALUES (?, ?, ?, ?, ?)'
     ).bind(await resumo(`${email}|${codigo}`), `operador:${op.id}`, email, agora(),
            new Date(Date.now() + ENTRADA_MINUTOS * 60000).toISOString()).run();
+    const negocio = await env.DB.prepare(
+      'SELECT nome FROM negocios WHERE id = ?'
+    ).bind(op.negocio_id).first();
     await enviarEmail(env, {
       para: email,
-      assunto: `${codigo} — entrar no Carimbo Digital Balcão`,
-      texto: `O teu código é:\n\n    ${codigo}\n\n`
-        + `Escreve-o no telemóvel do balcão. Vale ${ENTRADA_MINUTOS} minutos `
-        + `e só serve uma vez.\n\nCarimbo Digital`,
+      chaveUnica: await resumo(`balcao|${op.id}|${codigo}`),
+      ...emailCodigoBalcao({
+        codigo, minutos: ENTRADA_MINUTOS, negocio: negocio && negocio.nome,
+      }),
     });
   }
   return { enviado: true };

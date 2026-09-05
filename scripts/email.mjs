@@ -231,7 +231,18 @@ if (!RESEND) {
   let dominio = (lista.dados.data || []).find((d) => d.name === DOMINIO);
 
   if (!dominio) {
-    /* `eu-west-1` para o correio sair da Europa, como o resto. */
+    /* O domínio de topo, e não um subdomínio.
+       A recomendação corrente é usar um subdomínio para isolar a reputação —
+       e faz sentido para quem envia campanhas. Aqui só saem códigos de
+       entrada, e o endereço que a pessoa vê importa mais do que o
+       isolamento: um código que chega de `ola@carimbodigital.pt` reconhece-se,
+       um que chega de `naoresponder@envio.carimbodigital.pt` parece burla.
+       O caminho de devolução da Resend fica num subdomínio dela à mesma, por
+       isso o isolamento que interessa continua a existir.
+
+       `eu-west-1` põe o envio na Irlanda. Atenção: os dados da conta e os
+       registos da Resend ficam nos Estados Unidos de qualquer maneira — está
+       na documentação deles e tem de constar dos subcontratantes. */
     const criado = await resend('/domains', {
       metodo: 'POST', corpo: { name: DOMINIO, region: 'eu-west-1' },
     });
@@ -268,7 +279,9 @@ if (!RESEND) {
       corpo: {
         type: r.type, name: nome, content: r.value, ttl: 1,
         ...(r.priority !== undefined && r.priority !== null ? { priority: r.priority } : {}),
-        /* Os registos de autenticação de email nunca passam pela Cloudflare:
+        /* Nunca com a nuvem laranja: um CNAME que passe pelo proxy da
+           Cloudflare deixa de devolver o valor que a Resend espera e a
+           verificação nunca conclui. Os registos de autenticação de email
            são lidos por servidores de correio, não por browsers. */
         ...(r.type === 'CNAME' ? { proxied: false } : {}),
       },
@@ -276,6 +289,10 @@ if (!RESEND) {
     console.log(criado.ok ? `✓ ${r.type.padEnd(5)} ${nome}`
       : `✗ ${r.type} ${nome}: ${JSON.stringify(criado.dados.errors || criado.dados).slice(0, 160)}`);
   }
+
+  /* Os dois MX não se atropelam, e vale a pena dizê-lo: o do Email Routing
+     fica no domínio de topo (a receber) e o da Resend num subdomínio de
+     devoluções (a enviar). São registos diferentes em nomes diferentes. */
 
   /* 3. pedir a verificação */
   const verifica = await resend(`/domains/${dominio.id}/verify`, { metodo: 'POST' });

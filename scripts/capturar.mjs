@@ -15,52 +15,16 @@
    Uso:  node scripts/capturar.mjs [endereço-base]
    ========================================================================= */
 
-import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
+import { abrirChrome, novoSeparador, esperarCarregada, encontrarChrome, esperar } from './chrome.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const DESTINO = join(AQUI, '..', '_dev', 'capturas');
-const PERFIL = join(tmpdir(), 'carimbodigital-capturas');
-const PORTA = 9333;
 const BASE = process.argv[2] || 'http://localhost:4321/CarimboDigital';
 
-const CHROME = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome', '/usr/bin/chromium',
-].find(existsSync);
-if (!CHROME) { console.error('Não encontrei o Chrome.'); process.exit(1); }
 
-const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/* --- ligação ao Chrome --------------------------------------------------- */
-
-let seguinte = 1;
-function ligar(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    const pendentes = new Map();
-    ws.onmessage = (ev) => {
-      const m = JSON.parse(ev.data);
-      if (m.id && pendentes.has(m.id)) {
-        const { ok, mal } = pendentes.get(m.id);
-        pendentes.delete(m.id);
-        m.error ? mal(new Error(m.error.message)) : ok(m.result);
-      }
-    };
-    ws.onerror = reject;
-    ws.onopen = () => resolve((metodo, params = {}, sessionId) => {
-      const id = seguinte++;
-      return new Promise((ok, mal) => {
-        pendentes.set(id, { ok, mal });
-        ws.send(JSON.stringify({ id, method: metodo, params, sessionId }));
-      });
-    });
-  });
-}
 
 /* --- os ecrãs a fotografar ----------------------------------------------- */
 
@@ -145,48 +109,15 @@ const ECRAS = [
 
 /* --- a correr ------------------------------------------------------------ */
 
-rmSync(PERFIL, { recursive: true, force: true });
+if (!encontrarChrome()) { console.error('Não encontrei o Chrome.'); process.exit(1); }
+
 /* A pasta é limpa de propósito: se um ecrã for renomeado, o ficheiro antigo
    fica lá e passa a parecer uma captura desta volta. */
 rmSync(DESTINO, { recursive: true, force: true });
 mkdirSync(DESTINO, { recursive: true });
 
-const chrome = spawn(CHROME, [
-  '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
-  '--no-default-browser-check', '--disable-extensions',
-  '--disable-background-networking', '--disable-sync', '--hide-scrollbars',
-  `--remote-debugging-port=${PORTA}`, `--user-data-dir=${PERFIL}`,
-  'about:blank',
-], { stdio: 'ignore' });
-
-let navegador = null;
-for (let i = 0; i < 40 && !navegador; i++) {
-  await esperar(400);
-  try {
-    navegador = await (await fetch(`http://127.0.0.1:${PORTA}/json/version`)).json();
-  } catch { /* ainda a arrancar */ }
-}
-if (!navegador) { chrome.kill(); console.error('O Chrome não arrancou.'); process.exit(1); }
-
-const enviar = await ligar(navegador.webSocketDebuggerUrl);
-
-const { targetId } = await enviar('Target.createTarget', { url: 'about:blank' });
-const { sessionId } = await enviar('Target.attachToTarget', { targetId, flatten: true });
-await enviar('Page.enable', {}, sessionId);
-await enviar('Runtime.enable', {}, sessionId);
-
-/** Espera que a página acabe de carregar, ou desiste ao fim de `tecto`. */
-async function esperarCarregada(tecto = 6000) {
-  const limite = Date.now() + tecto;
-  for (;;) {
-    const r = await enviar('Runtime.evaluate', {
-      expression: 'document.readyState', returnByValue: true,
-    }, sessionId).catch(() => null);
-    if (r?.result?.value === 'complete') return true;
-    if (Date.now() > limite) return false;
-    await esperar(150);
-  }
-}
+const { enviar, fechar } = await abrirChrome();
+const { targetId, sessionId } = await novoSeparador(enviar);
 
 let maus = 0;
 for (const ecra of ECRAS) {
@@ -200,14 +131,14 @@ for (const ecra of ECRAS) {
      estado a página está quando se dispara. */
   if (ecra.limpar) {
     await enviar('Page.navigate', { url: BASE + ecra.url }, sessionId);
-    await esperarCarregada();
+    await esperarCarregada(enviar, sessionId);
     await enviar('Runtime.evaluate', {
       expression: `(async () => { ${LIMPAR} })()`, awaitPromise: true,
     }, sessionId).catch(() => {});
   }
 
   await enviar('Page.navigate', { url: BASE + ecra.url }, sessionId);
-  await esperarCarregada();
+  await esperarCarregada(enviar, sessionId);
   await esperar(1100);
 
   if (ecra.guiao) {
@@ -234,10 +165,7 @@ for (const ecra of ECRAS) {
 }
 
 await enviar('Target.closeTarget', { targetId }).catch(() => {});
-chrome.kill();
-/* O Chrome ainda está a fechar ficheiros quando chegamos aqui; apagar o
-   perfil à força rebenta com ENOTEMPTY e não vale a pena. */
-try { rmSync(PERFIL, { recursive: true, force: true }); } catch { /* fica */ }
+fechar();
 
 console.log(`\n${ECRAS.length - maus}/${ECRAS.length} capturas na página certa, em _dev/capturas/.`);
 process.exit(maus ? 1 : 0);

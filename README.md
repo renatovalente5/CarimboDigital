@@ -157,6 +157,22 @@ depois de os servidores de nomes do registador apontarem para lá. Até esse
 dia o serviço funciona à mesma: quem perder o telemóvel é que perde os
 cartões, e o balcão entra por convite em vez de por email.
 
+**Dá para provar o percurso todo hoje**, antes do domínio: a Resend deixa
+enviar de `onboarding@resend.dev` — mas **só para o endereço da própria
+conta**. Chega para ver o email a chegar e a app a aceitar o código:
+
+```bash
+cd worker
+npx wrangler secret put RESEND_API_KEY
+# e temporariamente, no wrangler.toml:
+#   EMAIL_REMETENTE = "Carimbo Digital <onboarding@resend.dev>"
+npx wrangler deploy
+```
+
+Depois é só pedir o código na app com o email da conta Resend. Para qualquer
+outro destinatário a Resend responde 403 — não é uma limitação a contornar,
+é o que aquele remetente é.
+
 Quando o domínio chegar, por esta ordem:
 
 ```bash
@@ -177,6 +193,24 @@ O script regista o domínio na Resend, pede-lhe a lista de registos de DNS
 (SPF, DKIM e afins) e cria-os na Cloudflare — em vez de os copiar à mão de
 uma janela para a outra, que é onde se erra um carácter e se perdem duas
 horas. Depois pede a verificação.
+
+Três pormenores que o script já trata, e que dariam trabalho a descobrir:
+
+- **Os dois MX não se atropelam.** O do Email Routing fica no domínio de topo
+  (a receber) e o da Resend num subdomínio de devoluções (a enviar). São
+  registos diferentes em nomes diferentes.
+- **Nenhum registo pode ter a nuvem laranja.** Um CNAME que passe pelo proxy
+  da Cloudflare deixa de devolver o valor que a Resend espera, e a
+  verificação nunca conclui.
+- **Verifica-se o domínio de topo, não um subdomínio.** A recomendação
+  corrente é o subdomínio, para isolar reputação — faz sentido para quem
+  envia campanhas. Aqui só saem códigos de entrada, e um código que chega de
+  `ola@carimbodigital.pt` reconhece-se; de `naoresponder@envio.carimbodigital.pt`
+  parece burla.
+
+> **RGPD:** a Resend envia da Irlanda (`eu-west-1`) mas guarda os dados da
+> conta e os registos nos Estados Unidos. Tem de constar da lista de
+> subcontratantes na política de privacidade.
 
 Falta sempre uma coisa que nenhum script pode fazer: abrir o email que a
 Cloudflare manda para confirmar o destino do reencaminhamento, e clicar.
