@@ -64,7 +64,8 @@ e põe `"api": "http://localhost:8787"` em `_fonte/config.json`.
 ## Provar
 
 ```bash
-node scripts/verificar-qr.mjs   # 320 matrizes descodificadas por um leitor independente
+node scripts/verificar-qr.mjs      # 320 matrizes lidas por um descodificador independente
+node scripts/verificar-leitor.mjs  # o leitor, contra códigos tortos e desfocados
 node worker/testes.mjs          # 53 casos contra a API (precisa do wrangler a correr)
 node scripts/auditar.mjs        # ligações, prefixos, manifestos, dados legais, segredos
 ```
@@ -129,9 +130,13 @@ tecto as consultas falham até à meia-noite UTC, em vez de serem toleradas.
 - **Mudar a `CHAVE_MESTRA` invalida todos os códigos.** Existe uma coluna
   `chave_versao` na tabela `clientes` para uma futura rotação; enquanto não
   estiver implementada, não se muda a chave.
-- **O `iOS` não lê códigos QR pelo browser.** O `BarcodeDetector` não existe
-  no Safari; ao balcão, o iPhone cai na entrada manual do número do cartão.
-  Ver o `PLANO.md` para o que falta aqui.
+- **O leitor de códigos também é nosso** (`_fonte/js/qr-leitor.js`), porque o
+  `BarcodeDetector` não existe no Safari e sem ele um balcão com iPhone ficava
+  sem câmara. Faz binarização por blocos, encontra os olhos pela cadência
+  1:1:3:1:1, monta uma transformação de perspectiva pelo padrão de alinhamento
+  e corrige erros por Reed-Solomon. Lê o código real em 95% dos fotogramas em
+  24 ângulos × 3 inclinações × 2 tamanhos, com desfoque, grão e luz de lado —
+  e a 20 ms por fotograma. Onde o `BarcodeDetector` existe, é ele que trabalha.
 - **Links de email não funcionam dentro de uma app instalada no iOS.** Por
   isso a recuperação de conta é por **código de seis algarismos**, e não por
   ligação.

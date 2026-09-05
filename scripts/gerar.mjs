@@ -237,7 +237,9 @@ for (const app of ['app', 'balcao']) {
     ...(app === 'balcao' ? [`${BASE}/estilos/balcao.css?v=${VERSAO}`] : []),
     `${BASE}/js/nucleo.js?v=${VERSAO}`,
     `${BASE}/js/api.js?v=${VERSAO}`,
-    ...(app === 'app' ? [`${BASE}/js/qr.js?v=${VERSAO}`] : []),
+    ...(app === 'app'
+      ? [`${BASE}/js/qr.js?v=${VERSAO}`]
+      : [`${BASE}/js/qr-leitor.js?v=${VERSAO}`]),
   ];
 
   escrever(join(SAIDA, app, 'sw.js'), `/* Sinete ${app} — service worker (versão ${VERSAO}) */

@@ -11,6 +11,7 @@ import {
   pintarCartao, haQuanto, dataCurta, horas, NOMES_SELOS, seguro,
 } from '../js/nucleo.js';
 import { api, MODO } from '../js/api.js';
+import { lerQR } from '../js/qr-leitor.js';
 
 const estado = {
   negocio: null,
@@ -37,16 +38,15 @@ class Leitor {
     this.video = video;
     this.aoLer = aoLer;
     this.correr = false;
-    this.detetor = null;
+    this.nativo = null;
+    this.tela = null;
+    this.pincel = null;
     this.ultimo = null;
     this.ultimoEm = 0;
+    this.aTrabalhar = false;
   }
 
-  static suportado() { return 'BarcodeDetector' in window; }
-
   async comecar() {
-    if (!Leitor.suportado()) throw Object.assign(new Error('sem-detetor'), { codigo: 'sem-detetor' });
-    this.detetor = new BarcodeDetector({ formats: ['qr_code'] });
     this.fluxo = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
@@ -55,24 +55,67 @@ class Leitor {
     this.video.setAttribute('playsinline', '');   // sem isto o iOS abre em ecrã inteiro
     this.video.muted = true;
     await this.video.play();
+
+    if ('BarcodeDetector' in window) {
+      try { this.nativo = new BarcodeDetector({ formats: ['qr_code'] }); }
+      catch { this.nativo = null; }
+    }
+    /* Sem descodificador nativo — o caso do Safari, e portanto de todos os
+       iPhones — usa-se o nosso (js/qr-leitor.js). É por isso que ele existe. */
+    if (!this.nativo) {
+      this.tela = document.createElement('canvas');
+      this.pincel = this.tela.getContext('2d', { willReadFrequently: true });
+    }
     this.correr = true;
     this.ciclo();
+    return { nativo: Boolean(this.nativo) };
+  }
+
+  /* O quadrado do meio da imagem, reduzido a 480 px no lado maior. Não se lê
+     o fotograma inteiro: é quatro vezes mais trabalho e o código está sempre
+     ao centro, que é onde a mira o põe. */
+  recortar() {
+    const vw = this.video.videoWidth, vh = this.video.videoHeight;
+    if (!vw || !vh) return null;
+    const lado = Math.min(vw, vh);
+    const destino = Math.min(480, lado);
+    if (this.tela.width !== destino) { this.tela.width = destino; this.tela.height = destino; }
+    this.pincel.drawImage(this.video, (vw - lado) / 2, (vh - lado) / 2, lado, lado,
+                          0, 0, destino, destino);
+    return this.pincel.getImageData(0, 0, destino, destino);
   }
 
   async ciclo() {
     if (!this.correr) return;
-    try {
-      const codigos = await this.detetor.detect(this.video);
-      if (codigos.length) {
-        const valor = codigos[0].rawValue;
-        /* O mesmo código lido dez vezes por segundo não são dez carimbos. */
-        const agora = Date.now();
-        if (valor !== this.ultimo || agora - this.ultimoEm > 4000) {
-          this.ultimo = valor; this.ultimoEm = agora;
-          this.aoLer(valor);
+    if (!this.aTrabalhar) {
+      this.aTrabalhar = true;
+      try {
+        let valor = null;
+        if (this.nativo) {
+          const codigos = await this.nativo.detect(this.video);
+          if (codigos.length) valor = codigos[0].rawValue;
+        } else {
+          const imagem = this.recortar();
+          if (imagem) {
+            const { data, width, height } = imagem;
+            const cinza = new Uint8Array(width * height);
+            for (let k = 0, q = 0; k < data.length; k += 4, q++) {
+              cinza[q] = (data[k] * 306 + data[k + 1] * 601 + data[k + 2] * 117) >> 10;
+            }
+            valor = lerQR(cinza, width, height);
+          }
         }
-      }
-    } catch { /* um fotograma que falha não é motivo para parar */ }
+        if (valor) {
+          /* O mesmo código lido dez vezes por segundo não são dez carimbos. */
+          const agora = Date.now();
+          if (valor !== this.ultimo || agora - this.ultimoEm > 4000) {
+            this.ultimo = valor; this.ultimoEm = agora;
+            this.aoLer(valor);
+          }
+        }
+      } catch { /* um fotograma que falha não é motivo para parar */ }
+      this.aTrabalhar = false;
+    }
     if (this.correr) requestAnimationFrame(() => this.ciclo());
   }
 
@@ -137,12 +180,10 @@ async function ecraCarimbar(principal) {
     await leitor.comecar();
     $('#visor-estado').textContent = 'Aponta ao código do cliente';
     visor.dataset.ativo = 'sim';
-  } catch (e) {
+  } catch {
     visor.dataset.ativo = 'nao';
-    const semDetetor = e.codigo === 'sem-detetor';
-    $('#visor-estado').innerHTML = semDetetor
-      ? 'Este browser não lê códigos.<br>Usa o número do cartão.'
-      : 'Sem acesso à câmara.<br>Autoriza nas definições do browser, ou usa o número.';
+    $('#visor-estado').innerHTML =
+      'Sem acesso à câmara.<br>Autoriza nas definições do browser, ou escreve o número.';
     $('#botao-manual').classList.replace('btn-suave', 'btn-cheio');
   }
 }

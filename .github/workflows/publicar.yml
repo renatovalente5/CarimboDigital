@@ -36,6 +36,11 @@ jobs:
       - name: Provar o gerador de códigos QR
         run: node scripts/verificar-qr.mjs
 
+      # E o leitor: códigos desenhados tortos, de lado, desfocados, com grão e
+      # com uma lâmpada de um lado só — que é como uma câmara de balcão os vê.
+      - name: Provar o leitor de códigos QR
+        run: node scripts/verificar-leitor.mjs
+
       # A base de dados local do wrangler, e a bateria toda contra ela:
       # códigos repetidos, expirados, forjados, arrefecimento, prémios,
       # anulações e o apagar da conta.
