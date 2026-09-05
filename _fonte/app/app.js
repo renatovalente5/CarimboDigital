@@ -571,8 +571,16 @@ async function guardarConta() {
         }
         botao.disabled = true;
         try {
-          await api.guardarEmail(v);
-          pedirCodigo(v);
+          const r = await api.guardarEmail(v);
+          /* Se o email não saiu, não se manda ninguém esperar por um código
+             que nunca vai chegar — é a forma mais rápida de alguém achar que
+             a app está avariada. */
+          if (r && r.enviado === false && !r.demo) {
+            botao.disabled = false;
+            avisar('Não foi possível enviar o email agora. Tenta daqui a pouco.', 'mau');
+            return;
+          }
+          pedirCodigo(v, r && r.demo);
         } catch (e) {
           botao.disabled = false;
           avisar(e.message, 'mau');
@@ -590,12 +598,13 @@ async function guardarConta() {
  * uma app instalada no iOS uma ligação de email abre no Safari — que é outro
  * armazenamento — e a pessoa fica com sessão iniciada no sítio errado.
  */
-function pedirCodigo(email) {
+function pedirCodigo(email, demo = false) {
   const painel = abrirPainel('Escreve o código');
   painel.append(
-    el('p', { class: 'subtexto', html:
-      `Enviámos um código de seis algarismos para <b>${seguro(email)}</b>. `
-      + 'Vale 15 minutos.' }),
+    el('p', { class: 'subtexto', html: demo
+      ? `Nesta demonstração não sai email nenhum — o código é <b>000000</b>.`
+      : `Enviámos um código de seis algarismos para <b>${seguro(email)}</b>. `
+        + 'Vale 15 minutos.' }),
     el('label', { class: 'campo' },
       el('span', { texto: 'Código' }),
       el('input', {
@@ -625,7 +634,12 @@ function pedirCodigo(email) {
     }),
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno',
       texto: 'Não recebi — enviar outra vez',
-      aoClick: async () => { await api.guardarEmail(email); avisar('Enviámos outro.', 'bom'); } }));
+      aoClick: async () => {
+        const r = await api.guardarEmail(email);
+        avisar(r && r.enviado === false && !r.demo
+          ? 'Continua sem dar. Tenta daqui a pouco.'
+          : 'Enviámos outro.', r && r.enviado === false && !r.demo ? 'mau' : 'bom');
+      } }));
   const campo = $('#campo-codigo');
   campo.addEventListener('input', () => { campo.value = campo.value.replace(/\D/g, ''); });
   setTimeout(() => campo.focus(), 120);

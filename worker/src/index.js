@@ -433,18 +433,32 @@ async function carimbar(env, pedido, operador) {
 
 async function enviarEmail(env, { para, assunto, texto }) {
   if (!env.RESEND_API_KEY) return { enviado: false, motivo: 'sem-chave' };
-  const r = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: env.EMAIL_REMETENTE || 'Carimbo Digital <ola@carimbodigital.pt>',
-      to: [para], subject: assunto, text: texto,
-    }),
-  });
-  return { enviado: r.ok };
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: env.EMAIL_REMETENTE || 'Carimbo Digital <ola@carimbodigital.pt>',
+        to: [para], subject: assunto, text: texto,
+      }),
+    });
+    if (r.ok) return { enviado: true };
+
+    /* Um envio recusado tem quase sempre uma razão concreta — chave errada,
+       domínio por verificar, destinatário fora do permitido. Registá-la é o
+       que evita meia hora à procura: vê-se com `npx wrangler tail`.
+       O motivo NÃO volta ao cliente: diria a um estranho como está montada
+       a casa. */
+    const detalhe = await r.text().catch(() => '');
+    console.error('Resend recusou', r.status, detalhe.slice(0, 400));
+    return { enviado: false, motivo: 'recusado', estado: r.status };
+  } catch (e) {
+    console.error('Resend inacessível:', e.message);
+    return { enviado: false, motivo: 'rede' };
+  }
 }
 
 /**
@@ -616,7 +630,9 @@ rota('POST', '/v1/cliente/email', async (env, pedido) => {
       + `Vale ${ENTRADA_MINUTOS} minutos e só serve uma vez.\n\n`
       + `Se não foste tu, ignora este email — não acontece nada.\n\nCarimbo Digital`,
   });
-  return { enviado: r.enviado };
+  /* Devolve-se a verdade: é o email do próprio, e mandá-lo esperar por um
+     código que nunca vai chegar é a pior coisa que se lhe pode fazer. */
+  return { enviado: r.enviado, motivo: r.enviado ? null : r.motivo };
 });
 
 rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
