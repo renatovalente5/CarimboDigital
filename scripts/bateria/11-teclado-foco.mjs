@@ -394,9 +394,21 @@ export async function correr(palco, certo) {
   certo(positivos.length === 0,
     'carteira: nenhum tabindex positivo a furar a fila', positivos.join(', '));
 
-  const atras = await percorrer(palco, 2, { tras: true });
-  certo(atras[0] && atras[1] && atras[0].chave !== atras[1].chave,
-    'carteira: o Shift+Tab anda mesmo para trás', atras.map(nomear).join(' ⇤ '));
+  /* O Shift+Tab mede-se a partir do MEIO da fila, e não de onde o foco
+     calhou estar.
+
+     Estando no primeiro elemento focável, recuar sai do documento e o foco
+     cai no `body` — comportamento certo, e que depende do sistema: no Mac o
+     Chrome dá a volta, no Linux do CI não dá. A afirmação passava aqui e
+     reprovava lá, a acusar a app de uma coisa que é do browser. Põe-se o
+     foco no último separador da barra e recua-se de lá, que é uma pergunta
+     sobre a app e não sobre o sistema operativo. */
+  await palco.js(`document.querySelectorAll('.barra-item')[4].focus(); return true`);
+  const daBarra = await palco.focado();
+  const atras = await percorrer(palco, 1, { tras: true });
+  certo(atras[0] && daBarra && atras[0].chave !== `${daBarra.etiqueta}|${daBarra.texto}`,
+    'carteira: o Shift+Tab anda mesmo para trás',
+    `${daBarra ? daBarra.texto : '?'} ⇤ ${atras.map(nomear).join(' ')}`);
 
   /* --- o indicador de foco ----------------------------------------------- */
 
