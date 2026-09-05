@@ -86,11 +86,17 @@ function ligar(url, tecto) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const pendentes = new Map();
+    /* Os eventos não trazem `id` e não são resposta a nada: são a página a
+       dizer o que lhe aconteceu. É por aqui que chegam as excepções por
+       apanhar, que de outra forma passariam despercebidas — e são
+       precisamente o que a bateria de browser existe para ver. */
+    const ouvintes = new Set();
     let seguinte = 1;
 
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
-      const p = m.id && pendentes.get(m.id);
+      if (!m.id) { for (const o of ouvintes) { try { o(m); } catch { /* ouvinte marado */ } } return; }
+      const p = pendentes.get(m.id);
       if (!p) return;
       pendentes.delete(m.id);
       clearTimeout(p.relogio);
@@ -101,18 +107,23 @@ function ligar(url, tecto) {
       for (const p of pendentes.values()) { clearTimeout(p.relogio); p.mal(new Error('Ligação fechada.')); }
       pendentes.clear();
     };
-    ws.onopen = () => resolve((metodo, params = {}, sessionId) => {
-      const id = seguinte++;
-      return new Promise((ok, mal) => {
-        /* Sem isto, um método que não responda pendura o script inteiro. */
-        const relogio = setTimeout(() => {
-          pendentes.delete(id);
-          mal(new Error(`${metodo} não respondeu em ${tecto} ms`));
-        }, tecto);
-        pendentes.set(id, { ok, mal, relogio });
-        ws.send(JSON.stringify({ id, method: metodo, params, sessionId }));
-      });
-    });
+    ws.onopen = () => {
+      const enviar = (metodo, params = {}, sessionId) => {
+        const id = seguinte++;
+        return new Promise((ok, mal) => {
+          /* Sem isto, um método que não responda pendura o script inteiro. */
+          const relogio = setTimeout(() => {
+            pendentes.delete(id);
+            mal(new Error(`${metodo} não respondeu em ${tecto} ms`));
+          }, tecto);
+          pendentes.set(id, { ok, mal, relogio });
+          ws.send(JSON.stringify({ id, method: metodo, params, sessionId }));
+        });
+      };
+      /* `enviar.ouvintes.add(fn)` para ouvir os eventos do protocolo. */
+      enviar.ouvintes = ouvintes;
+      resolve(enviar);
+    };
   });
 }
 

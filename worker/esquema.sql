@@ -167,6 +167,23 @@ CREATE TABLE IF NOT EXISTS entradas (
   usada_em    TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_entradas_email ON entradas(email);
+
+-- Quantos códigos já saíram para cada morada, e quando.
+--
+-- Existe porque /v1/cliente/registar é aberto: qualquer pessoa cria uma
+-- sessão e a seguir pede que se mande um código para a morada que lhe
+-- apetecer. Sem tecto, isso é um relé de email gratuito montado em cima
+-- do nosso domínio — e o preço não é a fatura, é o domínio ficar marcado
+-- como fonte de spam e nenhum dos códigos a sério voltar a chegar.
+--
+-- Não se pode contar pela tabela `entradas`: um pedido novo apaga o
+-- anterior, por isso a contagem lá dá sempre um.
+CREATE TABLE IF NOT EXISTS envios (
+  id     TEXT PRIMARY KEY,
+  email  TEXT NOT NULL,
+  em     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_envios_email ON envios(email, em);
 CREATE INDEX IF NOT EXISTS ix_entradas_expira ON entradas(expira_em);
 
 -- --- códigos já usados (anti-repetição) ---------------------------------

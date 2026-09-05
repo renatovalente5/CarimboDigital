@@ -26,6 +26,8 @@ const SESSAO_DIAS = 180;
 const ENTRADA_MINUTOS = 15;
 const ENTRADA_TENTATIVAS = 5;
 const USADOS_HORAS = 24;           // quanto tempo se guarda um código já gasto
+const ENVIOS_HORA = 5;             // códigos por morada, por hora
+const ENVIOS_INTERVALO = 45;       // segundos entre dois pedidos para a mesma morada
 
 /* =========================================================================
    Respostas
@@ -255,9 +257,13 @@ async function moldarCartao(env, cartao) {
    ========================================================================= */
 
 async function carimbar(env, pedido, operador) {
-  const corpo = await pedido.json();
+  const corpo = await corpoJSON(pedido);
   const { codigo, programaId } = corpo;
-  let quantidade = Math.max(1, Math.min(500, Number(corpo.quantidade) || 1));
+  /* Arredondado, e não só limitado: sem o `Math.round` um pedido com
+     `quantidade: 3.7` gravava 3,7 pontos no cartão, e a partir daí todos os
+     totais daquele cliente ficavam com casas decimais. Um carimbo é uma
+     coisa inteira. */
+  let quantidade = Math.max(1, Math.min(500, Math.round(Number(corpo.quantidade)) || 1));
   let manual = Boolean(corpo.manual);
 
   const p = await programaCompleto(env, programaId);
@@ -481,10 +487,98 @@ async function enviarEmail(env, { para, assunto, texto, html, chaveUnica }) {
  * Cinco enganos e o código morre; sem isso, um milhão de hipóteses tentava-se
  * em minutos.
  */
+/**
+ * A forma canónica de uma morada de email.
+ *
+ * Isto é uma função e não um `.toLowerCase()` espalhado pelo código porque
+ * já custou um defeito: a morada era guardada como a pessoa a escreveu e
+ * procurada em minúsculas. Quem escrevesse `Renato@Exemplo.pt` recebia o
+ * código e nunca conseguia entrar — o resumo nunca batia certo.
+ */
+/**
+ * O corpo do pedido, em JSON, sem rebentar.
+ *
+ * `pedido.json()` atira quando o corpo está vazio ou não é JSON, e essa
+ * excepção sai pelo apanhador geral como 500 «Erro interno» — o que diz a
+ * quem chamou que o servidor se avariou, quando quem se enganou foi ele.
+ * Um corpo em branco é um objecto vazio; um corpo estragado é um 400.
+ */
+/**
+ * Um identificador que tem mesmo de vir no pedido.
+ *
+ * Sem isto, um campo em falta chegava ao `.bind(undefined)` do D1, que atira
+ * — e a excepção saía pelo apanhador geral como 500 «Erro interno». Dizia a
+ * quem chamou que o servidor se avariou quando quem se enganou foi ele, e
+ * enchia os registos de erros que não eram erros nossos.
+ */
+function exigirTexto(valor, nome) {
+  if (typeof valor !== 'string' || !valor.trim()) {
+    throw new Falha(`Falta ${nome}.`, { estado: 400, codigo: 'em-falta' });
+  }
+  return valor;
+}
+
+async function corpoJSON(pedido) {
+  const texto = await pedido.text();
+  if (!texto.trim()) return {};
+  try {
+    const d = JSON.parse(texto);
+    return d && typeof d === 'object' ? d : {};
+  } catch {
+    throw new Falha('O corpo do pedido não é JSON válido.', { estado: 400, codigo: 'json' });
+  }
+}
+
+function normalizarEmail(valor) {
+  return String(valor || '').trim().toLowerCase();
+}
+
+const EMAIL_VALIDO = /^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$/i;
+
+/**
+ * Quantos códigos podem sair para a mesma morada.
+ *
+ * Devolve `null` se pode sair, ou uma mensagem se não pode. Duas travas: um
+ * intervalo mínimo entre pedidos, para o dedo nervoso não gastar a quota, e
+ * um tecto por hora, para ninguém usar isto como relé de email.
+ */
+async function podeEnviar(env, email) {
+  const agoraMs = Date.now();
+  const ultimo = await env.DB.prepare(
+    'SELECT em FROM envios WHERE email = ? ORDER BY em DESC LIMIT 1'
+  ).bind(email).first();
+  if (ultimo && agoraMs - new Date(ultimo.em).getTime() < ENVIOS_INTERVALO * 1000) {
+    return 'Já enviámos um código há pouco. Espera um minuto.';
+  }
+  const desde = new Date(agoraMs - 3600000).toISOString();
+  const { n } = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM envios WHERE email = ? AND em >= ?'
+  ).bind(email, desde).first();
+  if (n >= ENVIOS_HORA) {
+    return 'Demasiados pedidos para esta morada. Tenta daqui a uma hora.';
+  }
+  return null;
+}
+
+/** Emite um código, guarda-o, e conta o envio para efeitos de tecto. */
+async function emitirCodigo(env, { email, alvo }) {
+  await env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(alvo).run();
+  const codigo = codigoEntrada();
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em) VALUES (?, ?, ?, ?, ?)'
+    ).bind(await resumo(`${email}|${codigo}`), alvo, email, agora(),
+           new Date(Date.now() + ENTRADA_MINUTOS * 60000).toISOString()),
+    env.DB.prepare('INSERT INTO envios (id, email, em) VALUES (?, ?, ?)')
+      .bind(id(), email, agora()),
+  ]);
+  return codigo;
+}
+
 async function consumirEntrada(env, email, codigo) {
   const limpo = String(codigo || '').replace(/\D/g, '');
   if (limpo.length !== 6) throw new Falha('O código tem seis algarismos.', { estado: 400 });
-  const correio = String(email || '').trim().toLowerCase();
+  const correio = normalizarEmail(email);
 
   const linha = await env.DB.prepare(
     'SELECT * FROM entradas WHERE resumo = ?'
@@ -566,7 +660,8 @@ rota('GET', /^\/v1\/cliente\/cartoes\/([\w-]+)$/, async (env, pedido, [cartaoId]
 
 rota('POST', '/v1/cliente/aderir', async (env, pedido) => {
   const clienteId = await exigirCliente(env, pedido);
-  const { programaId } = await pedido.json();
+  const { programaId } = await corpoJSON(pedido);
+  exigirTexto(programaId, 'programaId');
   const p = await programaCompleto(env, programaId);
   if (!p || !p.ativo) throw new Falha('Programa não encontrado', { estado: 404 });
 
@@ -616,45 +711,69 @@ rota('GET', '/v1/descobrir', async (env) => {
   return saida;
 });
 
+/**
+ * Pedir um código por email.
+ *
+ * Faz duas coisas que parecem uma só, e é aqui que estava o defeito mais
+ * caro do produto: guardar a conta e recuperá-la noutro telemóvel.
+ *
+ * Antes, o código era emitido sempre contra o cliente da sessão em curso.
+ * Num telemóvel novo a app já tinha registado uma conta vazia, por isso o
+ * código apontava para essa — e a pessoa confirmava, ouvia «os cartões já
+ * não se perdem», e ficava com a carteira vazia. Estava prometido no ecrã
+ * de boas-vindas, no perfil e no próprio email; não funcionava em lado
+ * nenhum.
+ *
+ * Agora decide-se pelo que já existe: se a morada pertence a uma conta
+ * confirmada que não é esta, o código aponta para ESSA. É uma recuperação.
+ * Se não pertence a ninguém, aponta para a conta actual e é uma adesão.
+ *
+ * O email só passa a constar da conta depois de confirmado. Guardá-lo antes
+ * punha na base de dados uma morada que ninguém provou ser sua — e a
+ * exportação de dados chamava-lhe «o teu email».
+ */
 rota('POST', '/v1/cliente/email', async (env, pedido) => {
   const clienteId = await exigirCliente(env, pedido);
-  const { email } = await pedido.json();
-  if (!/^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$/i.test(String(email || ''))) {
-    throw new Falha('Email inválido');
-  }
-  await env.DB.prepare('UPDATE clientes SET email = ? WHERE id = ?').bind(email, clienteId).run();
+  const { email } = await corpoJSON(pedido);
+  const correio = normalizarEmail(email);
+  if (!EMAIL_VALIDO.test(correio)) throw new Falha('Email inválido');
 
-  /* Um email de cada vez: apaga-se qualquer código anterior para o mesmo
-     destino, senão ficavam vários válidos ao mesmo tempo. */
-  await env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`cliente:${clienteId}`).run();
+  const trava = await podeEnviar(env, correio);
+  if (trava) throw new Falha(trava, { estado: 429, codigo: 'demasiados' });
 
-  const codigo = codigoEntrada();
-  await env.DB.prepare(
-    'INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em) VALUES (?, ?, ?, ?, ?)'
-  ).bind(await resumo(`${email}|${codigo}`), `cliente:${clienteId}`, email, agora(),
-         new Date(Date.now() + ENTRADA_MINUTOS * 60000).toISOString()).run();
+  const dono = await env.DB.prepare(
+    'SELECT id FROM clientes WHERE email = ? AND email_verificado = 1 LIMIT 1'
+  ).bind(correio).first();
+  const recuperar = Boolean(dono) && dono.id !== clienteId;
+  const alvo = `cliente:${recuperar ? dono.id : clienteId}`;
 
+  const codigo = await emitirCodigo(env, { email: correio, alvo });
   const r = await enviarEmail(env, {
-    para: email,
-    chaveUnica: await resumo(`cliente|${clienteId}|${codigo}`),
+    para: correio,
+    chaveUnica: await resumo(`cliente|${alvo}|${codigo}`),
     ...emailCodigoCliente({ codigo, minutos: ENTRADA_MINUTOS }),
   });
   /* Devolve-se a verdade: é o email do próprio, e mandá-lo esperar por um
-     código que nunca vai chegar é a pior coisa que se lhe pode fazer. */
-  return { enviado: r.enviado, motivo: r.enviado ? null : r.motivo };
+     código que nunca vai chegar é a pior coisa que se lhe pode fazer.
+     `recuperar` deixa a app avisar que os cartões vêm de outro aparelho. */
+  return { enviado: r.enviado, motivo: r.enviado ? null : r.motivo, recuperar };
 });
 
 rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
-  const { email, codigo } = await pedido.json();
+  const { email, codigo } = await corpoJSON(pedido);
   const linha = await consumirEntrada(env, email, codigo);
   const [tipo, valor] = linha.alvo.split(':');
   if (tipo !== 'cliente') throw new Falha('Código inválido', { estado: 400 });
   const cliente = await env.DB.prepare('SELECT * FROM clientes WHERE id = ?').bind(valor).first();
   if (!cliente) throw new Falha('Conta não encontrada', { estado: 404 });
-  await env.DB.prepare('UPDATE clientes SET email_verificado = 1 WHERE id = ?').bind(valor).run();
+
+  /* É aqui que a morada passa a ser da conta, e não no pedido do código:
+     agora está provado que quem a escreveu a lê. */
+  await env.DB.prepare('UPDATE clientes SET email = ?, email_verificado = 1 WHERE id = ?')
+    .bind(linha.email, valor).run();
 
   return {
-    cliente: { id: cliente.id, publico: cliente.publico, email: cliente.email, criadoEm: cliente.criado_em },
+    cliente: { id: cliente.id, publico: cliente.publico, email: linha.email, criadoEm: cliente.criado_em },
     segredo: await derivarSegredo(env, cliente.id),
     sessao: await criarSessao(env, `cliente:${cliente.id}`),
     horaDoServidor: agora(),
@@ -714,16 +833,27 @@ rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
   if (!env.CODIGO_FUNDADOR) {
     throw new Falha('As inscrições estão fechadas.', { estado: 403, codigo: 'fechado' });
   }
-  const d = await pedido.json();
+  const d = await corpoJSON(pedido);
   if (!iguais(await resumo(String(d.codigo || '')), await resumo(env.CODIGO_FUNDADOR))) {
     throw new Falha('Convite inválido.', { estado: 403, codigo: 'convite' });
   }
 
   const nome = String(d.nome || '').trim().slice(0, 60);
-  const email = String(d.email || '').trim().toLowerCase();
+  const email = normalizarEmail(d.email);
   if (nome.length < 2) throw new Falha('Falta o nome do negócio.');
-  if (!/^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$/i.test(email)) {
-    throw new Falha('Email inválido.');
+  if (!EMAIL_VALIDO.test(email)) throw new Falha('Email inválido.');
+
+  /* Entrar no balcão faz-se pelo email, e a procura devolve o primeiro
+     operador que casar. Fundar um segundo negócio com o mesmo email criava
+     uma conta em que nunca mais se conseguia entrar — o código chegava
+     sempre ao primeiro. Vale mais recusar aqui do que deixar um negócio
+     órfão na base de dados. */
+  const jaHa = await env.DB.prepare(
+    'SELECT 1 FROM operadores WHERE email = ? AND ativo = 1'
+  ).bind(email).first();
+  if (jaHa) {
+    throw new Falha('Já há um balcão com este email. Entra por «Entrar com o email».',
+      { estado: 409, codigo: 'email-usado' });
   }
 
   /* O slug sai do nome: sem acentos, sem pontuação, sem espaços. Se já
@@ -751,7 +881,7 @@ rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
                               arrefecimento, criado_em)
        VALUES (?, ?, ?, 'carimbos', ?, ?, ?, ?, ?, ?)`
     ).bind(programaId, negocioId, d.programa || 'Cartão de cliente', d.selo || 'carimbo',
-           Math.max(2, Math.min(30, Number(d.objetivo) || 10)),
+           Math.max(2, Math.min(30, Math.round(Number(d.objetivo)) || 10)),
            d.premio || 'Um brinde por conta da casa',
            d.regras || 'Um carimbo por visita.', 3600, agora()),
     env.DB.prepare(
@@ -767,39 +897,45 @@ rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
 });
 
 rota('POST', '/v1/balcao/entrar', async (env, pedido) => {
-  const { email } = await pedido.json();
-  if (!/^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$/i.test(String(email || ''))) {
-    throw new Falha('Email inválido');
-  }
+  const { email } = await corpoJSON(pedido);
+  const correio = normalizarEmail(email);
+  if (!EMAIL_VALIDO.test(correio)) throw new Falha('Email inválido');
+
+  const trava = await podeEnviar(env, correio);
+  if (trava) throw new Falha(trava, { estado: 429, codigo: 'demasiados' });
+
   const op = await env.DB.prepare(
     'SELECT id, negocio_id FROM operadores WHERE email = ? AND ativo = 1'
-  ).bind(email).first();
+  ).bind(correio).first();
 
-  /* Responde-se sempre o mesmo, exista ou não a conta: senão este endpoint
-     torna-se uma forma de descobrir que emails estão registados. */
+  /* Responde-se sempre o mesmo, exista ou não a conta: senão este endereço
+     torna-se uma forma de descobrir que emails estão registados.
+
+     O que mudou: antes respondia-se `enviado: true` mesmo quando nenhum
+     email tinha saído — incluindo quando o envio falhava a sério. Quem
+     ficasse à espera não tinha como saber que não vinha nada. Agora o
+     campo diz a verdade do envio; o que continua a não distinguir é a
+     existência da conta, que é o que se quer esconder. */
+  let saiu = true;
   if (op) {
-    await env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`operador:${op.id}`).run();
-    const codigo = codigoEntrada();
-    await env.DB.prepare(
-      'INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em) VALUES (?, ?, ?, ?, ?)'
-    ).bind(await resumo(`${email}|${codigo}`), `operador:${op.id}`, email, agora(),
-           new Date(Date.now() + ENTRADA_MINUTOS * 60000).toISOString()).run();
+    const codigo = await emitirCodigo(env, { email: correio, alvo: `operador:${op.id}` });
     const negocio = await env.DB.prepare(
       'SELECT nome FROM negocios WHERE id = ?'
     ).bind(op.negocio_id).first();
-    await enviarEmail(env, {
-      para: email,
+    const r = await enviarEmail(env, {
+      para: correio,
       chaveUnica: await resumo(`balcao|${op.id}|${codigo}`),
       ...emailCodigoBalcao({
         codigo, minutos: ENTRADA_MINUTOS, negocio: negocio && negocio.nome,
       }),
     });
+    saiu = r.enviado;
   }
-  return { enviado: true };
+  return { enviado: saiu };
 });
 
 rota('POST', '/v1/balcao/sessao', async (env, pedido) => {
-  const { email, codigo } = await pedido.json();
+  const { email, codigo } = await corpoJSON(pedido);
   const linha = await consumirEntrada(env, email, codigo);
   const [tipo, valor] = linha.alvo.split(':');
   if (tipo !== 'operador') throw new Falha('Código inválido', { estado: 400 });
@@ -828,21 +964,48 @@ rota('GET', '/v1/balcao/negocio', async (env, pedido) => {
 rota('PUT', '/v1/balcao/negocio', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
   if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
-  const d = await pedido.json();
+  const d = await corpoJSON(pedido);
+
+  /* `fundar` corta o nome aos 60 e valida o email; isto não validava nada.
+     Um nome de cinco mil caracteres entrava tal e qual e ia parar ao cartão
+     de todos os clientes do negócio. E a cor, que é escrita directamente
+     numa custom property do CSS, aceitava qualquer texto. */
+  const corta = (v, n) => (v === undefined || v === null ? null : String(v).trim().slice(0, n) || null);
+  const cor = d.cor === undefined || d.cor === null ? null : String(d.cor).trim();
+  if (cor !== null && !/^#[0-9a-fA-F]{6}$/.test(cor)) {
+    throw new Falha('A cor tem de ser um hexadecimal de seis dígitos, como #5A31E8.',
+      { estado: 400, codigo: 'cor' });
+  }
+  const nome = corta(d.nome, 60);
+  if (d.nome !== undefined && d.nome !== null && (!nome || nome.length < 2)) {
+    throw new Falha('O nome do negócio tem de ter pelo menos dois caracteres.');
+  }
+
   await env.DB.prepare(
     `UPDATE negocios SET nome = COALESCE(?, nome), cor = COALESCE(?, cor),
             morada = COALESCE(?, morada), localidade = COALESCE(?, localidade),
             telefone = COALESCE(?, telefone) WHERE id = ?`
-  ).bind(d.nome ?? null, d.cor ?? null, d.morada ?? null, d.localidade ?? null,
-         d.telefone ?? null, op.negocio_id).run();
+  ).bind(nome, cor, corta(d.morada, 120), corta(d.localidade, 60),
+         corta(d.telefone, 30), op.negocio_id).run();
   return env.DB.prepare('SELECT * FROM negocios WHERE id = ?').bind(op.negocio_id).first();
 });
+
+/** Segundos entre dois carimbos no mesmo cartão. Zero é válido: quer dizer
+    «sem arrefecimento». Lixo não é, e o tecto é um dia. */
+function arrefecimentoValido(valor) {
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n < 0) return 3600;
+  return Math.min(86400, Math.round(n));
+}
 
 rota('POST', '/v1/balcao/programas', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
   if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
-  const d = await pedido.json();
-  const objetivo = Math.max(2, Math.min(30, Number(d.objetivo) || 10));
+  const d = await corpoJSON(pedido);
+  /* O mesmo, do outro lado: `objetivo: 3.7` passava os limites e ficava um
+     cartão com três carimbos e sete décimos. A grelha desenha-se a partir
+     daqui, e não há forma de desenhar sete décimos de um quadrado. */
+  const objetivo = Math.max(2, Math.min(30, Math.round(Number(d.objetivo)) || 10));
   const existente = d.id
     ? await env.DB.prepare('SELECT * FROM programas WHERE id = ? AND negocio_id = ?')
         .bind(d.id, op.negocio_id).first()
@@ -852,15 +1015,20 @@ rota('POST', '/v1/balcao/programas', async (env, pedido) => {
     await env.DB.prepare(
       `UPDATE programas SET nome = ?, premio = ?, objetivo = ?, selo = ?, regras = ?,
               arrefecimento = ? WHERE id = ?`
-    ).bind(d.nome || existente.nome, d.premio || existente.premio, objetivo,
+    ).bind(String(d.nome || existente.nome).trim().slice(0, 60),
+           String(d.premio || existente.premio).trim().slice(0, 120), objetivo,
            d.selo || existente.selo, d.regras ?? existente.regras,
-           Number(d.arrefecimento ?? existente.arrefecimento), existente.id).run();
+           /* Sem o `||` de recurso, um `arrefecimento: "abc"` virava NaN e
+              ia para a base de dados. O ramo de criação já tinha rede; o de
+              actualização não. */
+           arrefecimentoValido(d.arrefecimento ?? existente.arrefecimento), existente.id).run();
   } else {
     await env.DB.prepare(
       `INSERT INTO programas (id, negocio_id, nome, tipo, selo, objetivo, premio, regras, arrefecimento, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(id(), op.negocio_id, d.nome || 'Cartão', d.tipo || 'carimbos', d.selo || 'carimbo',
-           objetivo, d.premio || 'Prémio', d.regras || null, Number(d.arrefecimento) || 3600, agora()).run();
+           objetivo, String(d.premio || 'Prémio').trim().slice(0, 120), d.regras || null,
+           arrefecimentoValido(d.arrefecimento), agora()).run();
   }
   const programas = (await env.DB.prepare(
     'SELECT * FROM programas WHERE negocio_id = ? AND ativo = 1'
@@ -875,7 +1043,8 @@ rota('POST', '/v1/balcao/carimbar', async (env, pedido) => {
 
 rota('POST', '/v1/balcao/resgatar', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
-  const { premioId } = await pedido.json();
+  const { premioId } = await corpoJSON(pedido);
+  exigirTexto(premioId, 'premioId');
   const premio = await env.DB.prepare(
     `SELECT p.*, c.negocio_id FROM premios p JOIN cartoes c ON c.id = p.cartao_id WHERE p.id = ?`
   ).bind(premioId).first();
@@ -883,25 +1052,42 @@ rota('POST', '/v1/balcao/resgatar', async (env, pedido) => {
   if (premio.negocio_id !== op.negocio_id) throw new Falha('Prémio de outro negócio', { estado: 403 });
   if (premio.resgatado_em) throw new Falha('Este prémio já foi entregue.', { estado: 409, codigo: 'ja-resgatado' });
 
-  await env.DB.batch([
-    env.DB.prepare('UPDATE premios SET resgatado_em = ?, resgatado_por = ? WHERE id = ?')
-      .bind(agora(), op.nome, premioId),
-    env.DB.prepare('INSERT INTO movimentos (id, cartao_id, tipo, nota, operador, em) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(id(), premio.cartao_id, 'resgate', premio.descricao, op.nome, agora()),
-  ]);
+  /* A leitura acima já viu que o prémio estava por entregar, mas entre a
+     leitura e a escrita cabe outro pedido — e dois toques no mesmo botão,
+     ou dois telemóveis ao balcão, entregavam o mesmo prémio duas vezes e
+     deixavam dois resgates no histórico. A condição vai na própria escrita:
+     quem chegar em segundo não muda nada e fica a saber. */
+  const escrita = await env.DB.prepare(
+    `UPDATE premios SET resgatado_em = ?, resgatado_por = ?
+      WHERE id = ? AND resgatado_em IS NULL`
+  ).bind(agora(), op.nome, premioId).run();
+  if (escrita.meta && escrita.meta.changes === 0) {
+    throw new Falha('Este prémio já foi entregue.', { estado: 409, codigo: 'ja-resgatado' });
+  }
+  await env.DB.prepare(
+    'INSERT INTO movimentos (id, cartao_id, tipo, nota, operador, em) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id(), premio.cartao_id, 'resgate', premio.descricao, op.nome, agora()).run();
   const c = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(premio.cartao_id).first();
   return { premio: { id: premioId, resgatadoEm: agora() }, cartao: await moldarCartao(env, c) };
 });
 
 rota('POST', '/v1/balcao/anular', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
-  const { movimentoId } = await pedido.json();
+  const { movimentoId } = await corpoJSON(pedido);
+  exigirTexto(movimentoId, 'movimentoId');
   const m = await env.DB.prepare(
     `SELECT m.*, c.negocio_id, c.programa_id FROM movimentos m
        JOIN cartoes c ON c.id = m.cartao_id WHERE m.id = ?`
   ).bind(movimentoId).first();
   if (!m) throw new Falha('Movimento não encontrado', { estado: 404 });
   if (m.negocio_id !== op.negocio_id) throw new Falha('Movimento de outro negócio', { estado: 403 });
+  /* Anular é para carimbos e pontos. Sem esta guarda, o movimento era
+     apagado fosse ele qual fosse — dava para apagar a adesão de um cliente
+     ou o registo de um prémio entregue, e nenhum dos dois ramos abaixo
+     repunha o que quer que fosse. Ficava um buraco no histórico. */
+  if (m.tipo !== 'carimbo' && m.tipo !== 'pontos') {
+    throw new Falha('Só se anulam carimbos e pontos.', { estado: 400, codigo: 'tipo' });
+  }
   /* Dois minutos. Passado isso o cliente já foi embora e anular passa a ser
      uma forma de tirar carimbos a quem não está a ver. */
   if (Date.now() - new Date(m.em).getTime() > 120000) {
@@ -910,6 +1096,22 @@ rota('POST', '/v1/balcao/anular', async (env, pedido) => {
   }
   const cartao = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(m.cartao_id).first();
   const p = await programaCompleto(env, m.programa_id);
+
+  /* Se este carimbo completou o cartão e o prémio JÁ foi entregue, anular
+     devolvia os carimbos e deixava o café a perder duas vezes: o brinde
+     saiu e o cartão volta a estar quase cheio. O prémio ainda por entregar
+     desfaz-se com o carimbo; o que já saiu pela porta não se desfaz. */
+  const completou = m.tipo === 'carimbo' && cartao.carimbos - m.quantidade < 0;
+  if (completou) {
+    const entregue = await env.DB.prepare(
+      `SELECT id FROM premios WHERE cartao_id = ? AND resgatado_em IS NOT NULL
+        ORDER BY ganho_em DESC LIMIT 1`
+    ).bind(cartao.id).first();
+    if (entregue) {
+      throw new Falha('Este carimbo deu um prémio que já foi entregue — não dá para anular.',
+        { estado: 409, codigo: 'premio-entregue' });
+    }
+  }
 
   let carimbos = cartao.carimbos, pontos = cartao.pontos;
   let total = cartao.total_carimbos, ganhos = cartao.premios_ganhos;
@@ -932,9 +1134,21 @@ rota('POST', '/v1/balcao/anular', async (env, pedido) => {
       carimbos += p.objetivo;
     }
   }
+  /* Repor o relógio do arrefecimento no movimento anterior. Sem isto, quem
+     se enganasse no cliente anulava — e a seguir não conseguia carimbar o
+     cliente certo durante uma hora, porque o cartão ainda tinha a marca de
+     um carimbo que já não existe. */
+  const anterior = await env.DB.prepare(
+    `SELECT em FROM movimentos
+      WHERE cartao_id = ? AND id != ? AND tipo IN ('carimbo','pontos')
+      ORDER BY em DESC LIMIT 1`
+  ).bind(cartao.id, movimentoId).first();
+
   instrucoes.push(
-    env.DB.prepare('UPDATE cartoes SET carimbos = ?, pontos = ?, total_carimbos = ?, premios_ganhos = ? WHERE id = ?')
-      .bind(carimbos, pontos, total, ganhos, cartao.id),
+    env.DB.prepare(
+      `UPDATE cartoes SET carimbos = ?, pontos = ?, total_carimbos = ?,
+              premios_ganhos = ?, ultimo_em = ? WHERE id = ?`)
+      .bind(carimbos, pontos, total, ganhos, anterior ? anterior.em : null, cartao.id),
     env.DB.prepare('DELETE FROM movimentos WHERE id = ?').bind(movimentoId),
     env.DB.prepare('INSERT INTO movimentos (id, cartao_id, tipo, nota, operador, em) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(id(), cartao.id, 'anulado', 'Movimento anulado', op.nome, agora()),
@@ -1066,6 +1280,8 @@ export default {
       env.DB.prepare('DELETE FROM codigos_usados WHERE usado_em < ?').bind(ontem),
       env.DB.prepare('DELETE FROM sessoes WHERE expira_em < ?').bind(agora()),
       env.DB.prepare('DELETE FROM entradas WHERE expira_em < ?').bind(agora()),
+      env.DB.prepare('DELETE FROM envios WHERE em < ?')
+        .bind(new Date(Date.now() - 86400000).toISOString()),
     ]);
   },
 };
