@@ -18,6 +18,26 @@
 <link rel="stylesheet" href="{{BASE}}/estilos/nucleo.css?v={{VERSAO}}">
 <link rel="stylesheet" href="{{BASE}}/estilos/app.css?v={{VERSAO}}">
 <script>window.CARIMBO_CONFIG = {{CONFIG}};</script>
+<script>
+  /* O tema, antes da primeira pintura.
+
+     Isto tinha de ser aqui e não no módulo: os módulos carregam depois de o
+     browser já ter pintado o fundo, e em modo escuro havia um clarão branco
+     de uns vinte milissegundos a cada arranque. Vinte milissegundos não
+     parecem nada escritos, mas de noite, na mão, é uma lanterna.
+
+     Sem `type="module"` de propósito — um módulo é sempre adiado. */
+  (function () {
+    try {
+      var t = null;
+      for (var e of ['carimbo:', 'carimbo-demo:']) {
+        var v = localStorage.getItem(e + 'tema');
+        if (v) { t = JSON.parse(v); break; }
+      }
+      if (t === 'claro' || t === 'escuro') document.documentElement.dataset.tema = t;
+    } catch (e) { /* armazenamento trancado: fica o tema do sistema */ }
+  })();
+</script>
 </head>
 <body class="app">
 

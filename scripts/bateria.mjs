@@ -436,6 +436,17 @@ async function correrModulo(enviar, servidor, mod, ficheiro) {
       width: mod.ecra?.largura || 390, height: mod.ecra?.altura || 844,
       deviceScaleFactor: 2, mobile: true,
     }, sessionId);
+    /* Um separador novo NÃO é armazenamento novo: o localStorage é do
+       domínio, não da aba. Sem isto, o módulo que abre `?demo=1` deixa a
+       marca do modo de demonstração ligada e o módulo seguinte encontra a
+       app noutro modo — que foi exactamente o que aconteceu, e levou meia
+       hora a perceber porque o balcão só mostrava duas portas em vez de
+       três. Limpa-se tudo: chaves, base de dados e service workers. */
+    await enviar('Storage.clearDataForOrigin', {
+      origin: servidor,
+      storageTypes: 'local_storage,indexeddb,service_workers,cache_storage,websql,cookies',
+    }, sessionId).catch(() => {});
+
     /* O service worker fica de fora salvo se o módulo o quiser testar — de
        outra forma serve versões guardadas a meio da bateria e o teste
        seguinte vê a app anterior. */

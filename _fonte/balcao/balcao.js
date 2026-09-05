@@ -48,13 +48,26 @@ class Leitor {
     this.ultimo = null;
     this.ultimoEm = 0;
     this.aTrabalhar = false;
+    this.desistiu = false;
   }
 
   async comecar() {
-    this.fluxo = await navigator.mediaDevices.getUserMedia({
+    const fluxo = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     });
+
+    /* A autorização da câmara pode demorar segundos — e nesses segundos a
+       pessoa muda de separador. O `parar()` corria antes de o fluxo chegar,
+       não encontrava nada para desligar, e a câmara ficava acesa até se
+       fechar a app: a luz do telemóvel ligada em cima do balcão, a gastar
+       bateria, sem nada no ecrã que o explicasse. Se já nos mandaram parar,
+       desliga-se o que acabou de chegar e sai-se. */
+    if (this.desistiu) {
+      try { fluxo.getTracks().forEach((t) => t.stop()); } catch { /* nada */ }
+      return { nativo: false, parado: true };
+    }
+    this.fluxo = fluxo;
     this.video.srcObject = this.fluxo;
     this.video.setAttribute('playsinline', '');   // sem isto o iOS abre em ecrã inteiro
     this.video.muted = true;
@@ -125,8 +138,9 @@ class Leitor {
 
   parar() {
     this.correr = false;
+    this.desistiu = true;
     try { this.fluxo?.getTracks().forEach((t) => t.stop()); } catch { /* nada */ }
-    this.video.srcObject = null;
+    if (this.video) this.video.srcObject = null;
   }
 }
 
@@ -246,20 +260,32 @@ async function carimbar(codigo, { manual = false } = {}) {
 function mostrarResultado(r) {
   const cartao = r.cartao;
   const p = cartao.programa;
+
+  /* Todos os prémios por entregar, e não só os que acabaram de sair.
+     Estava aqui o defeito mais caro do balcão: quem dissesse «levo noutro
+     dia» ficava sem forma nenhuma de o levantar — o botão de entregar só
+     existia no painel do carimbo que o tinha dado, e não havia outro
+     caminho na app inteira. O prémio ficava preso na base de dados para
+     sempre, e o cliente com um cartão cheio que não valia nada. */
+  const porEntregar = cartao.premios && cartao.premios.length
+    ? cartao.premios
+    : r.ganhos;
   const ganhou = r.ganhos.length > 0;
+  const temPremio = porEntregar.length > 0;
 
   const folha = el('div', { class: 'resultado', id: 'resultado', role: 'dialog', 'aria-modal': 'true' });
   const caixa = el('div', { class: 'resultado-caixa' });
 
-  caixa.append(el('div', { class: `resultado-marca ${ganhou ? 'resultado-marca-premio' : ''}`,
-    html: icone(ganhou ? 'presente' : 'visto', { tamanho: 34 }) }));
+  caixa.append(el('div', { class: `resultado-marca ${temPremio ? 'resultado-marca-premio' : ''}`,
+    html: icone(temPremio ? 'presente' : 'visto', { tamanho: 34 }) }));
 
   caixa.append(el('h2', { class: 'resultado-titulo', texto: ganhou
     ? 'Cartão completo!'
+    : temPremio ? 'Tem um prémio à espera'
     : r.novo ? 'Cartão criado e carimbado' : 'Carimbado' }));
 
-  caixa.append(el('p', { class: 'resultado-sub', texto: ganhou
-    ? `Entregar: ${r.ganhos.map((g) => g.descricao).join(', ')}`
+  caixa.append(el('p', { class: 'resultado-sub', texto: temPremio
+    ? `Entregar: ${porEntregar.map((g) => g.descricao).join(', ')}`
     : p.tipo === 'pontos'
       ? `+${r.quantidade} pontos · ${cartao.pontos} no total`
       : `${cartao.carimbos} de ${p.objetivo} · faltam ${p.objetivo - cartao.carimbos}` }));
@@ -278,17 +304,25 @@ function mostrarResultado(r) {
   caixa.append(mini);
 
   const acoes = el('div', { class: 'resultado-acoes' });
-  if (ganhou) {
-    for (const g of r.ganhos) {
+  if (temPremio) {
+    for (const g of porEntregar) {
       acoes.append(el('button', {
         class: 'btn btn-cheio btn-grande btn-bloco',
         html: icone('presente', { tamanho: 18 }) + `<span>Entreguei: ${seguro(g.descricao)}</span>`,
+        /* `ev.currentTarget` vale null depois do primeiro await — guarda-se
+           antes. Sem isto o catch rebentava a si próprio, o botão ficava
+           desactivado para sempre e o balcão pensava que tinha entregado. */
         aoClick: async (ev) => {
           const botao = ev.currentTarget;
           botao.disabled = true;
-          await api.resgatar({ premioId: g.id, operador: estado.operador?.nome || 'Balcão' });
-          avisar('Prémio entregue.', 'bom');
-          fecharResultado();
+          try {
+            await api.resgatar({ premioId: g.id, operador: estado.operador?.nome || 'Balcão' });
+            avisar('Prémio entregue.', 'bom');
+            fecharResultado();
+          } catch (e) {
+            botao.disabled = false;
+            avisar(e.message || 'Não deu para registar a entrega.', 'mau');
+          }
         },
       }));
     }
@@ -304,22 +338,31 @@ function mostrarResultado(r) {
   }
 
   /* Anular: dois minutos, e só ao carimbo que se acabou de dar. É o «enganei-me
-     no cliente» que acontece uma vez por semana em qualquer balcão. */
-  const movimento = null;
-  acoes.append(el('button', {
-    class: 'btn btn-fantasma btn-bloco btn-pequeno',
-    html: icone('menos', { tamanho: 16 }) + '<span>Enganei-me — anular</span>',
-    aoClick: async () => {
-      try {
-        const detalhe = await api.cartao(cartao.clienteId, cartao.id);
-        const ultimo = detalhe.movimentos.find((m) => m.tipo === 'carimbo' || m.tipo === 'pontos');
-        if (!ultimo) throw new Error('Nada para anular');
-        await api.anular({ movimentoId: ultimo.id });
-        avisar('Carimbo anulado.', 'bom');
-        fecharResultado();
-      } catch (e) { avisar(e.message, 'mau'); }
-    },
-  }));
+     no cliente» que acontece uma vez por semana em qualquer balcão.
+
+     Isto ia buscar o cartão a `/v1/cliente/cartoes/:id` para descobrir o
+     movimento — uma rota de CLIENTE, pedida com a sessão do OPERADOR. Em
+     demonstração passava, porque lá ninguém confere sessões; em produção
+     respondia 401 e o botão nunca funcionou. O carimbo já devolve o
+     `movimentoId`: não é preciso ir perguntar a ninguém. */
+  if (r.movimentoId) {
+    acoes.append(el('button', {
+      class: 'btn btn-fantasma btn-bloco btn-pequeno',
+      html: icone('menos', { tamanho: 16 }) + '<span>Enganei-me — anular</span>',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.disabled = true;
+        try {
+          await api.anular({ movimentoId: r.movimentoId });
+          avisar('Carimbo anulado.', 'bom');
+          fecharResultado();
+        } catch (e) {
+          botao.disabled = false;
+          avisar(e.message || 'Não deu para anular.', 'mau');
+        }
+      },
+    }));
+  }
 
   caixa.append(acoes);
   folha.append(caixa);
@@ -516,15 +559,30 @@ async function ecraPrograma(principal) {
   }
   form.append(el('div', { class: 'campo' }, el('span', { texto: 'Desenho do carimbo' }), selos));
 
-  for (const campo of ['f-nome', 'f-programa', 'f-premio', 'f-objetivo']) {
-    form.addEventListener('input', () => desenharPrevia(previa));
-  }
+  /* Um ouvinte, não quatro. O laço percorria os nomes dos campos e nunca
+     usava o nome: registava o mesmo ouvinte no mesmo formulário quatro
+     vezes, e a pré-visualização redesenhava-se quatro vezes por tecla.
+     O `input` borbulha — no formulário chega uma vez. */
+  form.addEventListener('input', () => desenharPrevia(previa));
 
   form.append(el('button', {
     class: 'btn btn-cheio btn-grande btn-bloco', style: 'margin-top:8px',
     texto: 'Guardar',
-    aoClick: async () => {
-      const objetivo = Math.max(2, Math.min(30, Number($('#f-objetivo').value) || p.objetivo));
+    aoClick: async (ev) => {
+      const botao = ev.currentTarget;
+      const escrito = Math.round(Number($('#f-objetivo').value));
+      if (!Number.isFinite(escrito) || escrito < 2 || escrito > 30) {
+        avisar('Os carimbos até ao prémio têm de estar entre 2 e 30.', 'mau');
+        $('#f-objetivo')?.focus();
+        return;
+      }
+      const objetivo = escrito;
+      /* São dois pedidos e o primeiro pode passar e o segundo falhar. Sem
+         tratamento, o botão ficava desactivado para sempre, metade ficava
+         gravada, e o ecrã não dizia nada — o dono do café saía convencido
+         de que tinha guardado. */
+      botao.disabled = true;
+      try {
       await api.guardarNegocio(estado.negocio.id, {
         nome: $('#f-nome').value.trim() || estado.negocio.nome,
         cor: estado.negocio.cor,
@@ -541,6 +599,10 @@ async function ecraPrograma(principal) {
       estado.programa = r.negocio.programas[0];
       avisar('Guardado. Os clientes vão ver já a mudança.', 'bom');
       irPara('programa');
+      } catch (e) {
+        botao.disabled = false;
+        avisar(e.message || 'Não deu para guardar. Tenta outra vez.', 'mau');
+      }
     },
   }));
 
@@ -811,6 +873,17 @@ function fundarNegocio() {
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
           avisar('Esse email não parece válido.', 'mau'); return;
         }
+        /* O `min`/`max` do campo só valem se o formulário for submetido, e
+           este não é: é um botão com um tratador. Sem esta verificação, quem
+           escrevesse 99 via o pedido partir, o servidor cortar em silêncio
+           para 30, e o cartão nascer diferente do que pediu — sem uma
+           palavra a explicar porquê. */
+        const objetivo = Math.round(Number($('#f-objetivo').value));
+        if (!Number.isFinite(objetivo) || objetivo < 2 || objetivo > 30) {
+          avisar('Os carimbos até ao prémio têm de estar entre 2 e 30.', 'mau');
+          $('#f-objetivo')?.focus();
+          return;
+        }
         botao.disabled = true;
         try {
           const r = await api.fundar({
@@ -818,7 +891,7 @@ function fundarNegocio() {
             nome, email,
             localidade: $('#f-localidade').value.trim() || null,
             premio: $('#f-premio').value.trim() || undefined,
-            objetivo: Number($('#f-objetivo').value) || 10,
+            objetivo,
           });
           if (r.sessao) guardar('sessao-balcao', r.sessao);
           if (r.operadorId) guardar('operador', r.operadorId);

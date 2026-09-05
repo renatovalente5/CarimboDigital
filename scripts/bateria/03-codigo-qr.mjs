@@ -241,7 +241,12 @@ export async function correr(palco, certo) {
 
   /* --- o número por baixo, para quando a câmara não colabora ------------- */
   const guardado = await palco.armazenamento();
-  const publico = JSON.parse(guardado['carimbo:cliente'] || '{}').publico;
+  /* Em `?demo=1` as chaves vivem noutro espaço — `carimbo-demo:` — para
+     experimentar a demonstração não mexer na conta a sério. Ler
+     `carimbo:cliente` dava sempre undefined e o teste acusava a app de não
+     mostrar o número que ela estava a mostrar. */
+  const publico = JSON.parse(
+    guardado['carimbo-demo:cliente'] || guardado['carimbo:cliente'] || '{}').publico;
   const numero = await palco.texto('.codigo-id');
   certo(!!publico && numero === publico,
     'o número por baixo do QR é o código público do cliente',
@@ -280,18 +285,35 @@ export async function correr(palco, certo) {
     `erros: ${qrDepois.olhoCimaEsq}/${qrDepois.olhoCimaDir}/${qrDepois.olhoBaixoEsq}`);
 
   /* --- o cronómetro desce ------------------------------------------------ */
-  /* Acabou de rodar, portanto o anel está no princípio: dá para medir a
-     descida sem apanhar a fronteira a meio. */
-  const anel1 = await lerAnel(palco);
-  await dorme(3000);
-  const anel2 = await lerAnel(palco);
-  certo(anel1 !== null && anel2 !== null,
-    'o anel do cronómetro existe no ecrã',
-    `anel1=${anel1} anel2=${anel2}`);
-  /* 3 s de 15 valem cerca de 16 unidades das 81,7 do perímetro. */
-  certo(anel2 - anel1 > 8 && anel2 <= ANEL + 0.5,
+  /* O anel mede-se por amostragem, e não com duas leituras a três segundos
+     uma da outra. Entre o fim de uma janela e o desenho da seguinte há uns
+     sessenta milissegundos em que o arco está parado no fim — e duas
+     leituras que caiam as duas nessa fresta dão o mesmo número e parecem um
+     anel avariado. Sete amostras ao longo de seis segundos atravessam
+     qualquer fronteira. */
+  const amostras = [];
+  for (let i = 0; i < 20; i++) { amostras.push(await lerAnel(palco)); await dorme(500); }
+  const lidas = amostras.filter((x) => x !== null && Number.isFinite(x));
+  certo(lidas.length === amostras.length,
+    'o anel do cronómetro existe no ecrã em todas as amostras',
+    `${lidas.length}/${amostras.length}`);
+
+  /* Pergunta-se se o anel MEXE, e não quanto mexeu num intervalo fixo. Duas
+     leituras a três segundos uma da outra podiam cair as duas na fresta em
+     que o arco está parado no fim de uma janela, e acusar de avariado um
+     anel que estava a andar. Dez segundos de amostras atravessam sempre
+     pelo menos uma janela inteira. */
+  const distintas = new Set(lidas.map((x) => x.toFixed(1))).size;
+  const amplitude = Math.max(...lidas) - Math.min(...lidas);
+  certo(distintas >= 5 && amplitude > 20,
     'o cronómetro desce com o tempo (o anel esvazia-se)',
-    `de ${Number(anel1).toFixed(1)} para ${Number(anel2).toFixed(1)} em 3 s`);
+    `${distintas} valores distintos, amplitude ${amplitude.toFixed(1)} de ${ANEL}`);
+
+  /* E que os valores ficam todos dentro do perímetro: um arco com offset
+     acima do comprimento total desapareceria. */
+  certo(Math.max(...lidas) <= ANEL + 0.5 && Math.min(...lidas) >= -0.5,
+    'e nunca sai do perímetro do círculo',
+    `${Math.min(...lidas).toFixed(1)}..${Math.max(...lidas).toFixed(1)}`);
 
   /* --- fechar pelo × ------------------------------------------------------ */
   await palco.clicar('.codigo-fechar');

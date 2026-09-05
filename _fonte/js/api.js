@@ -15,7 +15,7 @@
    ========================================================================= */
 
 import { identificador, ler, guardar, guardarChave, lerChave, apagarChave,
-         definirEspaco } from './nucleo.js';
+         definirEspaco, apagar } from './nucleo.js';
 
 const CONFIG = globalThis.CARIMBO_CONFIG || {};
 
@@ -151,20 +151,49 @@ export async function gerarCodigo(publico) {
    Condutor remoto
    ========================================================================= */
 
+/* Quinze segundos. Sem tecto, uma ligação que aceita a chamada e nunca
+   responde — o Wi-Fi do café a meio caminho, o túnel que caiu — deixa o
+   `fetch` pendurado para sempre. No balcão isso é o leitor a ficar quieto
+   com o cliente à espera e sem nada no ecrã que explique porquê. */
+const TECTO_PEDIDO = 15000;
+
 function criarRemoto(base) {
   async function pedir(caminho, { metodo = 'GET', corpo, sessao } = {}) {
     const cabecalhos = { 'content-type': 'application/json' };
     const t = sessao ?? ler(CHAVE_SESSAO);
     if (t) cabecalhos.authorization = `Bearer ${t}`;
-    const r = await fetch(base + caminho, {
-      method: metodo,
-      headers: cabecalhos,
-      body: corpo === undefined ? undefined : JSON.stringify(corpo),
-    });
+
+    let r;
+    try {
+      r = await fetch(base + caminho, {
+        method: metodo,
+        headers: cabecalhos,
+        body: corpo === undefined ? undefined : JSON.stringify(corpo),
+        signal: AbortSignal.timeout(TECTO_PEDIDO),
+      });
+    } catch (causa) {
+      /* A mensagem crua do fetch é «Failed to fetch» ou «signal timed out»,
+         em inglês e sem sentido para quem está do outro lado do balcão. */
+      const erro = new Error(causa && causa.name === 'TimeoutError'
+        ? 'O servidor está a demorar. Verifica a ligação e tenta outra vez.'
+        : 'Sem ligação ao servidor. Verifica a Internet.');
+      erro.rede = true;
+      erro.causa = causa;
+      throw erro;
+    }
+
     const texto = await r.text();
     let dados = null;
     try { dados = texto ? JSON.parse(texto) : null; } catch { /* resposta não-JSON */ }
     if (!r.ok) {
+      /* Uma sessão que já não vale não é um problema de rede, e tratá-la
+         como tal deixava a app presa: mostrava «Sem ligação ao servidor»,
+         a pessoa recarregava, e o testemunho morto continuava lá a dar 401
+         para sempre. Deitá-lo fora devolve a app ao princípio, onde ela
+         sabe registar-se de novo. */
+      if (r.status === 401) {
+        try { apagar(CHAVE_SESSAO); } catch { /* armazenamento trancado */ }
+      }
       const erro = new Error((dados && dados.erro) || `Erro ${r.status}`);
       erro.estado = r.status;
       erro.codigo = dados && dados.codigo;
@@ -462,8 +491,13 @@ function criarDemo() {
         }
       }
 
+      /* O id do movimento sai daqui e volta na resposta, como no Worker.
+         A demonstração não o devolvia, e o botão «Enganei-me — anular» do
+         balcão passou a depender dele: um motor a devolver menos do que o
+         outro é um defeito que só aparece quando se troca de motor. */
+      const movimentoId = id();
       e.movimentos.push({
-        id: id(), cartaoId: cartao.id, tipo: p.tipo === 'pontos' ? 'pontos' : 'carimbo',
+        id: movimentoId, cartaoId: cartao.id, tipo: p.tipo === 'pontos' ? 'pontos' : 'carimbo',
         quantidade, operador, manual: manual || undefined, em: agora(),
       });
       for (const g of ganhos) {
@@ -474,7 +508,7 @@ function criarDemo() {
       return {
         cartao: comporCartao(e, cartao),
         cliente: { publico: cliente.publico, nome: cliente.nome },
-        ganhos, novo, quantidade, manual,
+        ganhos, novo, quantidade, manual, movimentoId,
       };
     },
 
@@ -495,12 +529,27 @@ function criarDemo() {
       const e = estado();
       const m = e.movimentos.find((x) => x.id === movimentoId);
       if (!m) throw new Error('Movimento não encontrado');
+      /* As mesmas três guardas que o Worker: só carimbos e pontos se
+         anulam, nada por cima de um prémio que já saiu, e o relógio do
+         arrefecimento volta ao movimento anterior. A demonstração é onde
+         se experimenta o produto — se ela deixar fazer o que o servidor
+         recusa, ensina o contrário do que é verdade. */
+      if (m.tipo !== 'carimbo' && m.tipo !== 'pontos') {
+        const err = new Error('Só se anulam carimbos e pontos.'); err.codigo = 'tipo'; throw err;
+      }
       if ((Date.now() - new Date(m.em).getTime()) > 120000) {
         const err = new Error('Já passaram mais de 2 minutos — não dá para anular.');
         err.codigo = 'tarde'; throw err;
       }
       const cartao = e.cartoes.find((c) => c.id === m.cartaoId);
       const p = programa(e, cartao.programaId).programa;
+
+      if (m.tipo === 'carimbo' && cartao.carimbos - m.quantidade < 0
+          && e.premios.some((x) => x.cartaoId === cartao.id && x.resgatadoEm)) {
+        const err = new Error('Este carimbo deu um prémio que já foi entregue — não dá para anular.');
+        err.codigo = 'premio-entregue'; throw err;
+      }
+
       if (m.tipo === 'pontos') cartao.pontos = Math.max(0, cartao.pontos - m.quantidade);
       else if (m.tipo === 'carimbo') {
         cartao.carimbos -= m.quantidade;
@@ -513,6 +562,10 @@ function criarDemo() {
         }
       }
       e.movimentos = e.movimentos.filter((x) => x.id !== movimentoId);
+      const anterior = e.movimentos
+        .filter((x) => x.cartaoId === cartao.id && (x.tipo === 'carimbo' || x.tipo === 'pontos'))
+        .sort((x, y) => String(y.em).localeCompare(String(x.em)))[0];
+      cartao.ultimoEm = anterior ? anterior.em : null;
       e.movimentos.push({ id: id(), cartaoId: cartao.id, tipo: 'anulado', quantidade: 0, nota: 'Movimento anulado', em: agora() });
       gravar(e);
       return { cartao: comporCartao(e, cartao) };
@@ -624,6 +677,13 @@ function criarDemo() {
       e.movimentos = e.movimentos.filter((m) => !meus.includes(m.cartaoId));
       e.premios = e.premios.filter((p) => !meus.includes(p.cartaoId));
       e.clientes = e.clientes.filter((c) => c.id !== clienteId);
+      /* A morada ficava aqui, fora da conta, e sobrevivia ao apagar: quem
+         experimentasse a demonstração no telemóvel de outra pessoa deixava
+         lá o email escrito, e o «apagar tudo» dizia que tinha apagado tudo.
+         O Worker limpa as entradas ao apagar a conta; isto tem de fazer o
+         mesmo, senão a demonstração ensina uma coisa que não é verdade. */
+      delete e.emailDemo;
+      delete e.codigoDemo;
       gravar(e);
       return { apagado: true };
     },

@@ -122,6 +122,13 @@ function trilhoPontos(cartao) {
       }));
     no.dataset.atingido = atingido ? 'sim' : 'nao';
     no.dataset.premio = atingido ? 'sim' : 'nao';
+    /* A ponta marca-se aqui e não com `:first-of-type` no CSS. O
+       `:first-of-type` conta os irmãos DO MESMO TIPO, e o primeiro div
+       dentro do trilho é a barra de progresso — por isso a regra que
+       encostava o primeiro número nunca apanhava marco nenhum, e o número
+       saía do cartão sem ninguém perceber porquê. */
+    if (m === marcos[0]) no.dataset.ponta = 'primeiro';
+    if (m === marcos[marcos.length - 1]) no.dataset.ponta = 'ultimo';
     trilho.append(no);
   }
   return trilho;
@@ -137,9 +144,14 @@ function proximoPremio(cartao) {
       ? { rotulo: `faltam ${seguinte.pontos - cartao.pontos} pontos`, texto: seguinte.premio }
       : { rotulo: 'Prémio seguinte', texto: p.premio };
   }
-  const faltam = p.objetivo - cartao.carimbos;
+  /* Nunca abaixo de zero. O dono do café pode baixar «carimbos até ao
+     prémio» a meio — de dez para seis, digamos — e quem já tivesse oito
+     passava a ler «faltam -2 carimbos». Um número negativo num cartão de
+     fidelidade não quer dizer nada a ninguém. */
+  const faltam = Math.max(0, p.objetivo - cartao.carimbos);
   return {
-    rotulo: faltam === 1 ? 'falta 1 carimbo' : `faltam ${faltam} carimbos`,
+    rotulo: faltam === 0 ? 'pronto a carimbar'
+      : faltam === 1 ? 'falta 1 carimbo' : `faltam ${faltam} carimbos`,
     texto: p.premio,
   };
 }
@@ -185,7 +197,35 @@ function cartaoCompacto(cartao) {
    Ecrã: a carteira
    ========================================================================= */
 
-function ecraCarteira(principal) {
+/**
+ * Vai buscar os cartões outra vez, antes de desenhar.
+ *
+ * `estado.cartoes` era preenchido uma única vez, no arranque. O balcão
+ * carimbava, o cliente voltava à carteira, e continuava a ver o número de
+ * antes — até fechar a app e abrir de novo. Num cartão de fidelidade isso é
+ * o pior que pode acontecer: a pessoa fica convencida de que o carimbo não
+ * foi dado, e quem leva com a discussão é quem está ao balcão.
+ *
+ * O mesmo estado velho fazia um prémio já entregue continuar a aparecer
+ * como «pronto a levantar» ao lado da linha que diz que já foi levantado.
+ *
+ * Sem rede, fica-se com o que se tem e diz-se que pode estar desactualizado
+ * — é melhor do que um ecrã vazio ou um erro por cima dos cartões.
+ */
+async function recarregarCartoes(principal) {
+  try {
+    estado.cartoes = await api.cartoes(estado.cliente.id);
+  } catch (erro) {
+    if (!erro.rede) throw erro;
+    if (principal) {
+      principal.append(el('p', { class: 'miudo',
+        texto: 'Sem ligação — isto pode não estar actualizado.' }));
+    }
+  }
+}
+
+async function ecraCarteira(principal) {
+  await recarregarCartoes(principal);
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Os meus cartões' }));
 
   if (!estado.cartoes.length) {
@@ -201,13 +241,17 @@ function ecraCarteira(principal) {
     return;
   }
 
-  const prontos = estado.cartoes.filter((c) => c.porResgatar);
-  if (prontos.length) {
+  /* Contam-se prémios, não cartões. Três prémios no mesmo cartão davam uma
+     faixa a dizer «Tens um prémio à espera» com o cartão logo por baixo a
+     dizer «3 prémios à espera» — a app a contradizer-se a dois centímetros
+     de distância. */
+  const quantos = estado.cartoes.reduce((n, c) => n + (c.porResgatar || 0), 0);
+  if (quantos) {
     principal.append(el('div', {
       class: 'faixa-premio',
       html: icone('presente', { tamanho: 20 })
-        + `<span><b>${prontos.length === 1 ? 'Tens um prémio à espera'
-            : `Tens ${prontos.length} prémios à espera`}.</b> `
+        + `<span><b>${quantos === 1 ? 'Tens um prémio à espera'
+            : `Tens ${quantos} prémios à espera`}.</b> `
         + `Mostra o código no balcão para levantar.</span>`,
     }));
   }
@@ -363,6 +407,21 @@ async function ecraDescobrir(principal) {
     'Sítios que já usam o Carimbo Digital. Junta o cartão agora ou espera pelo primeiro carimbo.' }));
 
   const negocios = await api.descobrir();
+
+  /* A carteira e os prémios explicam-se quando estão vazios; este ecrã
+     ficava com um título e nada por baixo. E é o estado em que a app está
+     para toda a gente que a abra numa terra onde ainda não há nenhum café
+     inscrito — que, no princípio, é toda a gente. */
+  if (!negocios.length) {
+    principal.append(el('div', { class: 'vazio' },
+      el('div', { class: 'vazio-desenho', html: icone('bussola', { tamanho: 96 }) }),
+      el('h3', { texto: 'Ainda não há nada por aqui' }),
+      el('p', { texto: 'Assim que um café, um barbeiro ou um cabeleireiro aderir, '
+        + 'aparece nesta lista. Até lá, mostra o teu código no balcão: o cartão '
+        + 'nasce no primeiro carimbo.' })));
+    return;
+  }
+
   const meus = new Set(estado.cartoes.map((c) => c.programa.id));
   const lista = el('div', { class: 'pilha' });
 
@@ -390,8 +449,19 @@ async function ecraDescobrir(principal) {
                 const botao = ev.currentTarget;
                 ev.stopPropagation();
                 if (tenho) { irPara('carteira'); return; }
-                await api.aderir(estado.cliente.id, p.id);
-                estado.cartoes = await api.cartoes(estado.cliente.id);
+                /* Sem este try, um erro aqui — programa desactivado, rede
+                   em baixo, sessão expirada — matava a promessa em silêncio:
+                   o botão continuava a dizer «Juntar», nada acontecia, e a
+                   única pista era uma excepção na consola que ninguém abre. */
+                botao.disabled = true;
+                try {
+                  await api.aderir(estado.cliente.id, p.id);
+                  estado.cartoes = await api.cartoes(estado.cliente.id);
+                } catch (e) {
+                  botao.disabled = false;
+                  avisar(e.message || 'Não deu para juntar este cartão.', 'mau');
+                  return;
+                }
                 vibrar(14);
                 avisar(`Cartão de ${n.nome} adicionado.`, 'bom');
                 irPara('carteira');
@@ -413,6 +483,7 @@ async function ecraDescobrir(principal) {
    ========================================================================= */
 
 async function ecraPremios(principal) {
+  await recarregarCartoes(principal);
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Prémios' }));
 
   const porLevantar = [];
@@ -616,16 +687,41 @@ function pedirCodigo(email, demo = false) {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Confirmar',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
+        /* O email mostra o código em dois grupos de três: quem o copiar de
+           lá traz o espaço no meio, e a app dizia-lhe que o código tem seis
+           algarismos — que era o que ele tinha. Tira-se tudo o que não for
+           algarismo antes de contar. */
         const codigo = $('#campo-codigo').value.replace(/\D/g, '');
         if (codigo.length !== 6) { avisar('O código tem seis algarismos.', 'mau'); return; }
         botao.disabled = true;
         try {
-          await api.confirmarEmail(email, codigo);
-          estado.cliente = { ...estado.cliente, email };
-          guardar('cliente', estado.cliente);
+          const r = await api.confirmarEmail(email, codigo);
+
+          /* Aqui estava o defeito mais caro do produto: esta resposta era
+             deitada fora. Traz o cliente, o segredo do aparelho e uma
+             sessão — é com isto que um telemóvel novo se levanta como sendo
+             o antigo. Sem a guardar, a app colava o email à conta vazia
+             local, dizia «os cartões já não se perdem», e a carteira ficava
+             na mesma. Estava prometido nas boas-vindas, no perfil e no
+             próprio email que sai daqui. */
+          const trocou = r && r.cliente && r.cliente.id !== estado.cliente?.id;
+          if (r && r.cliente) {
+            if (r.segredo) await guardarSegredo(r.segredo);
+            if (r.sessao) guardar('sessao', r.sessao);
+            if (r.horaDoServidor) guardarDesvio(r.horaDoServidor);
+            estado.cliente = r.cliente;
+            guardar('cliente', r.cliente);
+            estado.cartoes = await api.cartoes(r.cliente.id);
+          } else {
+            estado.cliente = { ...estado.cliente, email };
+            guardar('cliente', estado.cliente);
+          }
+
           fecharPainel();
-          avisar('Conta guardada. Os cartões já não se perdem.', 'bom');
-          irPara('perfil');
+          avisar(trocou
+            ? `Cartões recuperados: ${estado.cartoes.length}.`
+            : 'Conta guardada. Os cartões já não se perdem.', 'bom');
+          irPara(trocou ? 'carteira' : 'perfil');
         } catch (e) {
           botao.disabled = false;
           avisar(e.message, 'mau');
@@ -634,11 +730,30 @@ function pedirCodigo(email, demo = false) {
     }),
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno',
       texto: 'Não recebi — enviar outra vez',
-      aoClick: async () => {
-        const r = await api.guardarEmail(email);
-        avisar(r && r.enviado === false && !r.demo
-          ? 'Continua sem dar. Tenta daqui a pouco.'
-          : 'Enviámos outro.', r && r.enviado === false && !r.demo ? 'mau' : 'bom');
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.disabled = true;
+        let r;
+        try {
+          r = await api.guardarEmail(email);
+        } catch (e) {
+          botao.disabled = false;
+          avisar(e.message || 'Não deu para pedir outro código.', 'mau');
+          return;
+        }
+        botao.disabled = false;
+        /* Três respostas, porque há três situações e dizer «Enviámos outro»
+           às três é mentir a duas delas. Na demonstração não sai email
+           nenhum — dizer que saiu manda a pessoa esperar por uma coisa que
+           nunca chega, e a demonstração é justamente onde ela está a
+           aprender como o produto funciona. */
+        if (r && r.demo) {
+          avisar('Nesta demonstração não sai email. O código é 000000.', 'neutro');
+        } else if (r && r.enviado === false) {
+          avisar('Continua sem dar. Tenta daqui a pouco.', 'mau');
+        } else {
+          avisar('Enviámos outro.', 'bom');
+        }
       } }));
   const campo = $('#campo-codigo');
   campo.addEventListener('input', () => { campo.value = campo.value.replace(/\D/g, ''); });
@@ -646,13 +761,20 @@ function pedirCodigo(email, demo = false) {
 }
 
 async function exportarDados() {
-  const dados = await api.exportar(estado.cliente.id);
-  const texto = JSON.stringify(dados, null, 2);
-  const url = URL.createObjectURL(new Blob([texto], { type: 'application/json' }));
-  const a = el('a', { href: url, download: 'carimbo-digital-os-meus-dados.json' });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  avisar('Ficheiro descarregado.', 'bom');
+  /* Anunciar «Ficheiro descarregado» sem saber se foi é pior do que não
+     dizer nada: a pessoa vai procurar às transferências um ficheiro que
+     não existe, e conclui que o telemóvel é que está estranho. */
+  try {
+    const dados = await api.exportar(estado.cliente.id);
+    const texto = JSON.stringify(dados, null, 2);
+    const url = URL.createObjectURL(new Blob([texto], { type: 'application/json' }));
+    const a = el('a', { href: url, download: 'carimbo-digital-os-meus-dados.json' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    avisar('Ficheiro descarregado.', 'bom');
+  } catch (e) {
+    avisar(e.message || 'Não deu para preparar o ficheiro.', 'mau');
+  }
 }
 
 function apagarConta() {
@@ -663,8 +785,21 @@ function apagarConta() {
     el('button', {
       class: 'btn btn-perigo btn-bloco btn-grande', style: 'margin-top:8px',
       texto: 'Apagar tudo, definitivamente',
-      aoClick: async () => {
-        await api.apagarTudo(estado.cliente.id);
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.disabled = true;
+        botao.textContent = 'A apagar…';
+        try {
+          await api.apagarTudo(estado.cliente.id);
+        } catch (e) {
+          /* Não se limpa nada se o servidor não confirmou. Apagar em local
+             o que continua a existir em remoto deixa a pessoa sem forma de
+             lá voltar, e com os dados na mesma — o pior dos dois mundos. */
+          botao.disabled = false;
+          botao.textContent = 'Apagar tudo, definitivamente';
+          avisar(e.message || 'Não deu para apagar. Tenta outra vez.', 'mau');
+          return;
+        }
         await esquecerSegredo();
         apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
         location.reload();
@@ -685,6 +820,7 @@ let travaEcra = null;
 
 async function abrirCodigo() {
   if ($('#folha-codigo')) return;
+  empurrarHistorico('codigo');
 
   const folha = el('div', { id: 'folha-codigo', class: 'codigo-folha', role: 'dialog',
                             'aria-modal': 'true', 'aria-label': 'O meu código' },
@@ -746,12 +882,15 @@ function aoVoltar() {
   }
 }
 
-function fecharCodigo() {
+function fecharCodigo({ historico = true } = {}) {
+  const havia = Boolean($('#folha-codigo'));
   clearTimeout(cronometroCodigo);
+  cronometroCodigo = null;
   document.removeEventListener('visibilitychange', aoVoltar);
   try { travaEcra?.release(); } catch { /* nada */ }
   travaEcra = null;
   $('#folha-codigo')?.remove();
+  if (havia && historico) recuar();
 }
 
 /* =========================================================================
@@ -759,7 +898,8 @@ function fecharCodigo() {
    ========================================================================= */
 
 function abrirPainel(titulo) {
-  fecharPainel();
+  fecharPainel({ historico: false });
+  empurrarHistorico('painel');
   const folha = el('div', { class: 'painel-folha', role: 'dialog', 'aria-modal': 'true',
                             'aria-label': titulo },
     el('div', { class: 'painel-pega' }),
@@ -771,9 +911,14 @@ function abrirPainel(titulo) {
   return folha;
 }
 function escapaPainel(ev) { if (ev.key === 'Escape') fecharPainel(); }
-function fecharPainel() {
+function fecharPainel({ historico = true } = {}) {
+  const havia = Boolean($('#painel'));
   document.removeEventListener('keydown', escapaPainel);
   $('#painel')?.remove();
+  /* Fechar pelo botão ou pela tecla também tem de comer a entrada que a
+     abertura empurrou, senão fica um passo fantasma no histórico e o
+     primeiro «voltar» a seguir não faz nada visível. */
+  if (havia && historico) recuar();
 }
 
 /* =========================================================================
@@ -792,8 +937,48 @@ function base() {
   return (globalThis.CARIMBO_CONFIG && globalThis.CARIMBO_CONFIG.base) || '';
 }
 
-async function irPara(nome) {
+/* =========================================================================
+   O botão de voltar
+
+   Numa PWA instalada no Android o gesto de voltar é o botão do sistema, e
+   sem isto ele FECHAVA A APP — mesmo com um painel aberto por cima. A pessoa
+   abria o código, carregava em voltar para o fechar, e ficava no ecrã
+   principal do telemóvel.
+
+   O modelo é o mais simples que funciona: cada ecrã é uma entrada no
+   histórico, e cada coisa que se abre por cima (painel, folha do código) é
+   outra. Voltar desfaz a última — fecha o que está aberto, ou recua um ecrã.
+   ========================================================================= */
+
+function empurrarHistorico(marca) {
+  try { history.pushState({ carimbo: marca }, ''); } catch { /* sem histórico */ }
+}
+
+/* Fechar um painel pelo botão também recua no histórico, para não deixar
+   uma entrada fantasma. Mas esse recuo dispara `popstate` — e o painel já
+   foi removido, por isso o tratador não o vê e navegaria de ecrã por cima.
+   Conta-se quantos recuos são nossos, e ignoram-se. */
+let recuosNossos = 0;
+
+addEventListener('popstate', () => {
+  if (recuosNossos > 0) { recuosNossos--; return; }
+  /* Primeiro o que está por cima. Só quando não há nada aberto é que se
+     recua de ecrã — de outra forma, voltar com um painel aberto saltava o
+     painel e o ecrã de uma vez. */
+  if ($('#folha-codigo')) { fecharCodigo({ historico: false }); return; }
+  if ($('#painel')) { fecharPainel({ historico: false }); return; }
+  if (estado.ecra && estado.ecra !== 'carteira') irPara('carteira', { historico: false });
+});
+
+/** Desfaz a entrada que uma abertura tinha empurrado. */
+function recuar() {
+  recuosNossos++;
+  try { history.back(); } catch { recuosNossos--; }
+}
+
+async function irPara(nome, { historico = true } = {}) {
   if (nome === 'codigo') { abrirCodigo(); return; }
+  if (historico && estado.ecra && estado.ecra !== nome) empurrarHistorico(`ecra:${nome}`);
   estado.ecra = nome;
   const principal = $('#principal');
   principal.innerHTML = '';
@@ -802,16 +987,46 @@ async function irPara(nome) {
   desenharBarra();
   window.scrollTo({ top: 0, behavior: 'instant' });
 
-  if (nome === 'cartao') {
-    principal.append(el('button', {
-      class: 'btn btn-fantasma voltar', html: icone('volta', { tamanho: 18 }) + '<span>Carteira</span>',
-      aoClick: () => irPara('carteira'),
-    }));
-    await ecraCartao(principal);
-  } else {
-    await ecra.render(principal);
+  /* Pintar um ecrã pode falhar — a rede cai a meio, o servidor responde
+     mal. Sem isto, a promessa morria em silêncio, o `principal` ficava
+     vazio, e a pessoa via um ecrã em branco sem uma palavra e sem forma de
+     tentar outra vez. Um erro tem de se ver. */
+  try {
+    if (nome === 'cartao') {
+      principal.append(el('button', {
+        class: 'btn btn-fantasma voltar', html: icone('volta', { tamanho: 18 }) + '<span>Carteira</span>',
+        aoClick: () => irPara('carteira'),
+      }));
+      await ecraCartao(principal);
+    } else {
+      await ecra.render(principal);
+    }
+  } catch (erro) {
+    principal.innerHTML = '';
+    principal.append(ecraFalhou(nome, erro));
   }
   principal.focus({ preventScroll: true });
+}
+
+/**
+ * O que fica no lugar de um ecrã que não deu para pintar.
+ *
+ * Nem sempre é falta de rede: pode ser o servidor a responder mal, ou uma
+ * resposta com uma forma inesperada. Por isso não diz «estás offline» —
+ * diz o que aconteceu e dá um botão para tentar outra vez, que é o que a
+ * pessoa ia fazer de qualquer maneira.
+ */
+function ecraFalhou(nome, erro) {
+  return el('div', { class: 'vazio' },
+    el('div', { class: 'vazio-desenho', html: icone('ligacao', { tamanho: 64 }) }),
+    el('h2', { texto: 'Não deu para carregar' }),
+    el('p', { class: 'subtexto',
+      texto: 'Verifica a ligação e tenta outra vez. Os teus cartões estão guardados.' }),
+    el('button', {
+      class: 'btn btn-cheio', texto: 'Tentar outra vez',
+      aoClick: () => irPara(nome),
+    }),
+    el('p', { class: 'miudo', style: 'margin-top:12px', texto: erro?.message || '' }));
 }
 
 function desenharBarra() {
@@ -989,6 +1204,49 @@ async function entrar() {
   await irPara('carteira');
 }
 
+/**
+ * O cartaz do balcão, do outro lado.
+ *
+ * O café imprime um cartaz com um código; o cliente aponta a câmara e o
+ * telemóvel abre `/app/?n=<slug>`. Sem isto a app abria e ficava por ali —
+ * e o cartaz prometia, com estas palavras, que «o cartão fica logo na
+ * carteira deles».
+ *
+ * Falhar aqui não pode estragar o arranque: quem chegou pelo cartaz e não
+ * conseguiu aderir fica na carteira, com um aviso, e junta o cartão à mão
+ * pelo Descobrir.
+ */
+async function seguirConvite() {
+  const slug = new URLSearchParams(location.search).get('n');
+  if (!slug) return;
+
+  /* Tira-se o parâmetro do endereço já: se a pessoa recarregar a página, ou
+     se a app for reaberta a partir do ecrã inicial, não se volta a tentar
+     aderir a um negócio que ela pode entretanto ter apagado. */
+  const limpo = new URL(location.href);
+  limpo.searchParams.delete('n');
+  history.replaceState(null, '', limpo.pathname + limpo.search + limpo.hash);
+
+  try {
+    const negocios = await api.descobrir();
+    const n = negocios.find((x) => x.slug === slug);
+    if (!n || !n.programas?.length) {
+      avisar('Não encontrei esse negócio. Procura-o em Descobrir.', 'mau');
+      return;
+    }
+    const ja = estado.cartoes.find((c) => c.negocio.slug === slug);
+    if (ja) { avisar(`Já tens o cartão de ${n.nome}.`, 'neutro'); return; }
+
+    await api.aderir(estado.cliente.id, n.programas[0].id);
+    estado.cartoes = await api.cartoes(estado.cliente.id);
+    vibrar(14);
+    avisar(`Cartão de ${n.nome} adicionado.`, 'bom');
+    await irPara('carteira');
+  } catch (e) {
+    avisar(e.message || 'Não deu para juntar o cartão. Tenta pelo Descobrir.', 'mau');
+  }
+}
+
 async function arrancar() {
   /* A sombra por baixo da barra de cima só aparece quando se rola. */
   const topo = $('#topo');
@@ -999,6 +1257,7 @@ async function arrancar() {
   if (ler('visto-bv')) {
     try { await entrar(); }
     catch (e) { console.error(e); ecraSemLigacao(e); return; }
+    await seguirConvite();
   } else {
     boasVindas();
   }

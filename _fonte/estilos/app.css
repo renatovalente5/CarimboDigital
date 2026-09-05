@@ -144,7 +144,7 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
 }
 .cartao-tipo {
   margin-top: 2px;
-  font-size: .75rem; font-weight: 600; opacity: .72;
+  font-size: .75rem; font-weight: 600; opacity: .9;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .cartao-logo {
@@ -160,9 +160,16 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   font-family: var(--letra-mono);
   font-size: .8125rem; font-weight: 700; letter-spacing: .08em;
 }
+/* As etiquetas pequenas do cartão distinguem-se pelo tamanho, pelo peso e
+   pelo espaçamento — não por serem transparentes.
+
+   A cor de cada negócio passa pelo `marcaSegura()`, que calcula uma tinta
+   com 4,5 de contraste. Uma opacidade de 0,6 por cima desfaz esse cálculo
+   e leva o texto a 3:1 — em nove píxeis, que é o corpo mais pequeno da app
+   inteira. Medidos treze pares abaixo do mínimo, todos aqui. */
 .cartao-id span {
   display: block; font-size: .5625rem; font-weight: 700;
-  letter-spacing: .1em; text-transform: uppercase; opacity: .6;
+  letter-spacing: .1em; text-transform: uppercase; opacity: .9;
 }
 
 .cartao-rodape {
@@ -172,7 +179,7 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
 .cartao-rodape > div { min-width: 0; flex: 1; }
 .cartao-rotulo {
   font-size: .5625rem; font-weight: 700; letter-spacing: .1em;
-  text-transform: uppercase; opacity: .62;
+  text-transform: uppercase; opacity: .9;
 }
 .cartao-premio {
   margin-top: 1px;
@@ -264,7 +271,7 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   font-weight: 800; letter-spacing: -.045em; line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.pontos-valor span { font-size: 1.0625rem; font-weight: 700; opacity: .7; }
+.pontos-valor span { font-size: 1.0625rem; font-weight: 700; opacity: .9; }
 
 .trilho {
   position: relative;
@@ -301,13 +308,16 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
 .marco[data-atingido="sim"][data-premio="sim"] .marco-ponto svg { width: 16px; height: 16px; }
 .marco-valor {
   position: absolute; top: calc(100% + 10px);
-  font-size: .6875rem; font-weight: 700; opacity: .7;
+  font-size: .6875rem; font-weight: 700; opacity: .9;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* O primeiro e o último encostam às pontas para não saírem do cartão. */
-.marco:first-of-type .marco-valor { transform: translateX(-25%); }
-.marco:last-of-type  .marco-valor { transform: translateX(25%); }
+/* O primeiro e o último encostam às pontas para não saírem do cartão.
+   O marcador vem do JavaScript: `:first-of-type` conta irmãos do mesmo
+   tipo, e o primeiro div do trilho é a barra de progresso — a regra
+   apontava para ela e nenhum marco levava empurrão nenhum. */
+.marco[data-ponta="primeiro"] .marco-valor { transform: translateX(-25%); }
+.marco[data-ponta="ultimo"]   .marco-valor { transform: translateX(25%); }
 
 /* =========================================================================
    O código — o momento em que se mostra o telemóvel ao balcão
@@ -428,6 +438,33 @@ button.linha:active, a.linha:active { transform: scale(.985); }
   box-shadow: var(--sombra-3);
   font-size: .875rem; font-weight: 600;
   animation: aviso-entra var(--t-3) var(--mola) both;
+  /* Ninguém carrega num aviso: é um `role="status"`, aparece e vai-se
+     embora sozinho. Mas fica quatro segundos por cima do fundo do ecrã, que
+     é onde vivem os botões dos painéis — e durante esses quatro segundos o
+     toque batia nele em vez de bater no botão. Quem visse a mensagem de
+     erro e corrigisse o email não conseguia carregar em «Enviar». */
+  pointer-events: none;
+}
+
+/* Com um painel aberto o aviso sobe para o topo. Deixar passar o toque já
+   resolvia o toque; o que ficava era a mensagem por cima do botão, que é
+   igualmente mau — a pessoa lê «esse email não parece válido» escrito por
+   cima da palavra «Enviar» e não sabe onde carregar. Em cima não tapa nada:
+   o painel sobe de baixo e o cimo do ecrã está livre. */
+body:has(#painel) .aviso,
+body:has(#resultado) .aviso {
+  bottom: auto;
+  top: calc(var(--seguro-cima) + var(--e-4));
+  animation-name: aviso-entra-cima;
+}
+body:has(#painel) .aviso[data-saida="sim"],
+body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; }
+@keyframes aviso-entra-cima {
+  from { opacity: 0; transform: translateY(-16px) scale(.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes aviso-sai-cima {
+  to { opacity: 0; transform: translateY(-10px) scale(.96); }
 }
 @keyframes aviso-entra {
   from { opacity: 0; transform: translateY(16px) scale(.94); }
@@ -673,13 +710,13 @@ button.linha:active, a.linha:active { transform: scale(.985); }
 }
 .pronto-texto { min-width: 0; flex: 1; }
 .pronto-texto b { display: block; font-size: 1.0625rem; font-weight: 800; letter-spacing: -.02em; }
-.pronto-texto span { display: block; margin-top: 1px; font-size: .8125rem; opacity: .72; }
+.pronto-texto span { display: block; margin-top: 1px; font-size: .8125rem; opacity: .9; }
 
 /* A linha discreta que diz que já se começou o cartão seguinte. */
 .recomeco {
   display: flex; align-items: center; gap: var(--e-2);
   margin-top: var(--e-3);
-  font-size: .75rem; font-weight: 600; opacity: .7;
+  font-size: .75rem; font-weight: 600; opacity: .9;
 }
 .recomeco-pontos { display: flex; gap: 3px; }
 .recomeco-ponto {

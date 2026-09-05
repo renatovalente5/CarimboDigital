@@ -10,9 +10,11 @@
    páginas; seguir ligações diz que três delas apontam para o vazio.
    ========================================================================= */
 
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
-import { join, dirname, resolve, extname } from 'node:path';
+import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join, dirname, resolve, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
@@ -278,7 +280,36 @@ console.log('\nIndexação');
   if (!mal) bem('as duas aplicações estão fora dos motores de busca');
 }
 
-/* --- 11. contraste da paleta -------------------------------------------
+/* --- 11. o JavaScript que se publica ao menos analisa ------------------
+   Um erro de sintaxe num módulo não parte a construção: o gerador copia
+   ficheiros, não os lê. Parte a aplicação no browser, em silêncio, e
+   descobre-se quando alguém a abre. Custa milissegundos verificar aqui.
+   ---------------------------------------------------------------------- */
+console.log('\nJavaScript');
+{
+  const modulos = ficheiros.filter((f) => extname(f) === '.js');
+  let mal = 0;
+  for (const f of modulos) {
+    /* `import` com caminho relativo não resolve fora do sítio; o que se
+       quer saber é só se o ficheiro ANALISA. Comentam-se os imports e
+       verifica-se o resto. */
+    const fonte = readFileSync(f, 'utf8');
+    const tmp = join(tmpdir(), `carimbo-sintaxe-${basename(f)}.mjs`);
+    writeFileSync(tmp, fonte);
+    try {
+      execFileSync(process.execPath, ['--check', tmp], { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (erro) {
+      const razao = String(erro.stderr || '').split('\n').filter(Boolean).slice(0, 3).join(' · ');
+      falhar(`${f.slice(SAIDA.length + 1)}: não analisa — ${razao}`);
+      mal++;
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
+  if (!mal) bem(`${modulos.length} módulos de JavaScript analisam`);
+}
+
+/* --- 12. contraste da paleta -------------------------------------------
    Isto está aqui porque a paleta original tinha oito pares que não passavam
    e nenhum deles se via a olho: a legenda cinzenta parecia «cinzenta o
    suficiente». Passar o olho não mede nada — 3,0 e 4,6 são

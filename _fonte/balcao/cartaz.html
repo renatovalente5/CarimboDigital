@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cartaz · {{NOME}}</title>
+<link rel="icon" href="{{BASE}}/icones/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{BASE}}/estilos/nucleo.css?v={{VERSAO}}">
+<style>
+  /* =========================================================================
+     O cartaz que fica ao balcão.
+
+     Uma folha A4 para imprimir e colar ao pé da caixa. O que manda aqui não
+     é o ecrã, é o papel: por isso as medidas são em milímetros, a cor é
+     forçada a sair na impressão (os browsers cortam fundos por omissão), e
+     não há nada que se carregue de fora — quem imprime pode estar sem rede.
+     ========================================================================= */
+
+  :root { color-scheme: light; }
+  body {
+    margin: 0; background: var(--papel-3);
+    font-family: var(--letra);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px 16px 64px;
+  }
+
+  .folha-a4 {
+    width: 210mm; max-width: 100%;
+    aspect-ratio: 210 / 297;
+    background: var(--marca);
+    color: #fff;
+    border-radius: 6px;
+    box-shadow: var(--sombra-3);
+    display: flex; flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    padding: 18mm 14mm;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .chamada {
+    font-size: clamp(20px, 3.6vw, 34px); font-weight: 600;
+    letter-spacing: -.01em; opacity: .82; margin: 0 0 6mm;
+  }
+  .negocio {
+    font-size: clamp(30px, 6.4vw, 62px); font-weight: 800;
+    letter-spacing: -.03em; line-height: 1.05; margin: 0 0 10mm;
+    /* Um nome comprido não pode empurrar o QR para fora da folha. */
+    overflow-wrap: anywhere;
+  }
+  .quadro {
+    background: #fff; border-radius: 8mm;
+    padding: 8mm; margin-bottom: 10mm;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .quadro svg, .quadro canvas { display: block; width: 74mm; height: 74mm; }
+  .quadro .falhou {
+    width: 74mm; height: 74mm; display: flex; align-items: center;
+    justify-content: center; color: var(--tinta-2); font-size: 14px;
+    padding: 8mm; box-sizing: border-box;
+  }
+
+  .premio {
+    font-size: clamp(19px, 3.2vw, 30px); font-weight: 700;
+    line-height: 1.25; margin: 0 0 4mm; overflow-wrap: anywhere;
+  }
+  .passos {
+    font-size: clamp(14px, 2.2vw, 20px); opacity: .8;
+    line-height: 1.5; margin: 0;
+  }
+  /* O miolo ocupa o que sobra e centra-se dentro dele; o rodapé fica onde
+     deve. Com `justify-content:center` na folha E `margin-top:auto` no
+     rodapé, a margem automática comia o espaço livre todo e empurrava o
+     conteúdo para o cimo da folha — ficava um terço de papel em branco por
+     baixo do texto. */
+  .miolo {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .rodape {
+    padding-top: 8mm;
+    font-size: clamp(12px, 1.7vw, 15px); opacity: .62; letter-spacing: .02em;
+  }
+
+  .barra-imprimir {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    justify-content: center; margin-bottom: 20px;
+  }
+  .dica { color: var(--tinta-2); font-size: .875rem; margin: 14px 0 0; text-align: center; }
+
+  @media print {
+    /* Sem isto o browser imprime a folha branca e o roxo desaparece. */
+    body { padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .barra-imprimir, .dica { display: none; }
+    .folha-a4 {
+      width: 100%; height: 100vh; aspect-ratio: auto;
+      border-radius: 0; box-shadow: none;
+    }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="barra-imprimir">
+  <button class="btn btn-cheio" id="imprimir">Imprimir</button>
+  <button class="btn btn-contorno" id="fechar">Fechar</button>
+</div>
+
+<div class="folha-a4" id="folha">
+  <div class="miolo">
+    <p class="chamada">Cartão de cliente</p>
+    <h1 class="negocio" id="negocio">&nbsp;</h1>
+    <div class="quadro" id="quadro"></div>
+    <p class="premio" id="premio">&nbsp;</p>
+    <p class="passos">Aponta a câmara do telemóvel.<br>Não é preciso instalar nada.</p>
+  </div>
+  <p class="rodape">carimbodigital.pt</p>
+</div>
+
+<p class="dica">Imprime em A4 e cola ao pé da caixa. O código leva o cliente
+  direito ao teu cartão.</p>
+
+<script type="module">
+  /* =========================================================================
+     Isto era um botão que abria uma página que não existia: `window.open`
+     para `/balcao/cartaz.html`, e um 404 do outro lado. O cartaz é a forma
+     de um café dizer aos clientes que o cartão existe — sem ele, o produto
+     fica à espera de que alguém descubra a app sozinho.
+
+     Os dados vêm pela query, postos pelo balcão. Não há chamada nenhuma à
+     API: quem imprime pode estar com o portátil na cozinha, sem rede.
+     ========================================================================= */
+
+  import { qrParaSVG } from '{{BASE}}/js/qr.js?v={{VERSAO}}';
+  import { marcaSegura } from '{{BASE}}/js/nucleo.js?v={{VERSAO}}';
+
+  const q = new URLSearchParams(location.search);
+  const nome = (q.get('n') || 'O meu negócio').slice(0, 60);
+  const cor = /^#[0-9a-fA-F]{6}$/.test(q.get('c') || '') ? q.get('c') : '#5A31E8';
+  const premio = (q.get('p') || '').slice(0, 120);
+  const slug = (q.get('s') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 60);
+
+  document.title = `Cartaz · ${nome}`;
+  document.getElementById('negocio').textContent = nome;
+  document.getElementById('premio').textContent = premio || 'Junta carimbos e ganha um prémio.';
+
+  /* A cor do negócio pinta a folha, e a tinta é calculada — nunca escolhida
+     à mão. É o que impede um cartaz amarelo com letras brancas. */
+  const folha = document.getElementById('folha');
+  const segura = marcaSegura(cor);
+  folha.style.background = segura.cor;
+  folha.style.color = segura.tinta;
+
+  const destino = slug
+    ? `https://carimbodigital.pt/app/?n=${encodeURIComponent(slug)}`
+    : 'https://carimbodigital.pt/app/';
+
+  const quadro = document.getElementById('quadro');
+  try {
+    /* Correcção alta: um cartaz vive numa parede, apanha sol, dobra-se e
+       fica com dedadas. `H` recupera até 30% do código estragado. */
+    quadro.innerHTML = qrParaSVG(destino, { nivel: 'H', margem: 4, cor: '#17161C' });
+  } catch (erro) {
+    quadro.innerHTML = '<div class="falhou">Não deu para desenhar o código. '
+      + 'Escreve carimbodigital.pt no cartaz.</div>';
+  }
+
+  document.getElementById('imprimir').addEventListener('click', () => window.print());
+  document.getElementById('fechar').addEventListener('click', () => window.close());
+</script>
+
+</body>
+</html>
