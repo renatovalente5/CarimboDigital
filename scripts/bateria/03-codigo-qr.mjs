@@ -305,8 +305,20 @@ export async function correr(palco, certo) {
      sentido para esse caso. */
   const reduzido = await palco.js(
     "return matchMedia('(prefers-reduced-motion: reduce)').matches");
+  /* Vinte e dois segundos de amostras, e não dez.
+
+     A janela do código é de quinze. Com movimento normal o arco desliza e
+     dez segundos chegavam — mas quando a máquina está carregada a pintura
+     chega tarde, a transição sai com duração quase nula e o arco salta
+     logo para o fim. Nesse caso o único momento em que o valor muda é a
+     rodagem seguinte, e uma janela de amostragem mais curta do que a do
+     código pode não apanhar nenhuma. Foi a única afirmação intermitente em
+     mil novecentas e cinquenta.
+
+     Amostrar mais do que uma janela inteira garante que se atravessa
+     sempre pelo menos uma rodagem. */
   const amostras = [];
-  for (let i = 0; i < 20; i++) { amostras.push(await lerAnel(palco)); await dorme(500); }
+  for (let i = 0; i < 44; i++) { amostras.push(await lerAnel(palco)); await dorme(500); }
   const lidas = amostras.filter((x) => x !== null && Number.isFinite(x));
   certo(lidas.length === amostras.length,
     'o anel do cronómetro existe no ecrã em todas as amostras',

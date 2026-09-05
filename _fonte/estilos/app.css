@@ -7,7 +7,12 @@
 /* Uma app instalada não faz «bounce» nem seleciona texto ao arrastar. */
 body.app {
   min-height: 100dvh;
-  padding-bottom: calc(var(--barra) + var(--seguro-baixo));
+  /* A altura da barra, o recorte do telemóvel — e mais um respiro.
+     Sem o respiro, a margem media exactamente a barra: o último item da
+     página ficava encostado a ela, sem um milímetro, e ao fim de uma
+     carteira comprida parecia que o conteúdo tinha sido cortado em vez de
+     ter acabado. */
+  padding-bottom: calc(var(--barra) + var(--seguro-baixo) + var(--e-6));
   user-select: none;
   -webkit-user-select: none;
 }

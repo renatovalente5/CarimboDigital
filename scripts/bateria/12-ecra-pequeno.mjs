@@ -325,15 +325,28 @@ async function medir(palco, certo, onde, l) {
   return r;
 }
 
-/** A barra de baixo não pode pousar em cima da última linha do conteúdo. */
+/**
+ * A barra de baixo não pode pousar em cima da última linha do conteúdo — nem
+ * encostar-se-lhe.
+ *
+ * Isto exigia só que não tapasse (`tapado <= 2`), e com isso a folga podia
+ * ser zero: o `body.app` tinha uma margem de baixo igual à altura exacta da
+ * barra, e o último cartão da carteira acabava colado a ela. Não estava
+ * tapado, estava encostado — e ao fim de uma carteira comprida parece que o
+ * conteúdo foi cortado em vez de ter acabado.
+ *
+ * `tapado` é «quanto é que o conteúdo passa para dentro da barra», por isso
+ * um valor negativo é folga. Pede-se pelo menos o passo da lista.
+ */
+const FOLGA_MINIMA = 16;
+
 async function medirBarra(palco, certo, onde, l) {
   const b = await palco.js(BARRA);
   if (!b) return null;
-  /* Dois píxeis de folga: a barra tem um fio de 1 px em cima, e o arredondar
-     de um `dvh` chega para o outro. */
-  certo(b.tapado <= 2,
-    `${onde} @${l}: a barra de baixo não tapa o fim do conteúdo`,
-    `«${b.texto}» (${b.quem}) acaba ${b.tapado}px por baixo do cimo da barra`);
+  certo(b.tapado <= -FOLGA_MINIMA,
+    `${onde} @${l}: a barra de baixo não tapa nem encosta ao fim do conteúdo`,
+    `«${b.texto}» (${b.quem}) acaba a ${-b.tapado}px do cimo da barra`
+    + `, e o mínimo é ${FOLGA_MINIMA}`);
   return b;
 }
 
