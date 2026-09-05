@@ -55,6 +55,10 @@ jobs:
         run: |
           node -e "console.log('CHAVE_MESTRA=' + require('crypto').randomBytes(32).toString('base64url'))" > .dev.vars
           echo "ORIGENS=" >> .dev.vars
+          # Sem isto, `/v1/balcao/fundar` responde «as inscrições estão
+          # fechadas» e os testes das rotas do balcão não têm por onde entrar.
+          # É um segredo de brincar, para uma base de dados de brincar.
+          echo "CODIGO_FUNDADOR=TESTE1" >> .dev.vars
           npx --yes wrangler dev --local --port 8787 > /tmp/wrangler.log 2>&1 &
           for i in $(seq 1 40); do
             curl -sf http://localhost:8787/v1/saude >/dev/null && exit 0

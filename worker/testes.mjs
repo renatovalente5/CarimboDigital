@@ -441,7 +441,15 @@ grupo('Rotas do balcão que nunca tinham sido tocadas');
     codigo: 'TESTE1', nome: 'Padaria da Sonda', email: correio, objetivo: 8 } });
   certo(f.estado === 200 && !!f.dados.sessao, 'fundar devolve sessão logo',
     JSON.stringify(f.dados).slice(0, 120));
-  const S = f.dados.sessao;
+  /* Sem sessão não há nada a fazer aqui — e continuar rebentava com um
+     TypeError que levava a bateria inteira à frente, escondendo os grupos
+     que vêm a seguir. Uma falha de configuração tem de reprovar um grupo,
+     não matar a corrida. */
+  const S = f.dados && f.dados.sessao;
+  if (!S) {
+    certo(false, 'sem sessão de fundador, o resto deste grupo não pode correr',
+      'falta CODIGO_FUNDADOR em worker/.dev.vars?');
+  } else {
 
   /* Sem isto, fundar duas vezes com o mesmo email deixava o segundo negócio
      sem forma de entrar: a procura do operador devolve sempre o primeiro. */
@@ -522,6 +530,7 @@ grupo('Rotas do balcão que nunca tinham sido tocadas');
     const r = await pedir(rota, { sessao: c.dados.sessao });
     certo(r.estado === 401 || r.estado === 403,
       `${rota} recusa uma sessão de cliente`, String(r.estado));
+  }
   }
 }
 
