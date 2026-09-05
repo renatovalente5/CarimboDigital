@@ -47,10 +47,10 @@ function marca(lado, { fundo = '#5A31E8', tinta = '#fff', raio = 8.5 } = {}) {
 
 /** Máscara do Android: o fundo tem de ir de ponta a ponta porque o sistema
     corta em círculo, e o glifo tem de caber na zona segura (80% do lado). */
-function mascara(lado) {
+function mascara(lado, { fundo = '#5A31E8' } = {}) {
   const escala = 0.72;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${lado}" height="${lado}">`
-    + `<rect width="32" height="32" fill="#5A31E8"/>`
+    + `<rect width="32" height="32" fill="${fundo}"/>`
     + `<g transform="translate(16 16) scale(${escala}) translate(-16 -16)">`
     + GLIFO('#fff') + `</g></svg>`;
 }
@@ -121,6 +121,13 @@ const TRABALHOS = [
   { nome: 'mascara.png',          lado: 512, svg: mascara(512) },
   { nome: 'balcao-192.png',       lado: 192, svg: marca(192, { fundo: '#17161C' }) },
   { nome: 'balcao-512.png',       lado: 512, svg: marca(512, { fundo: '#17161C' }) },
+  /* O balcão precisa dos seus dois, e não dos do cliente. Sem o maskable, o
+     Android recorta o quadrado de canto redondo dentro de um círculo e sai um
+     ícone pequeno com moldura branca. Sem o do iOS, quem instalar as duas
+     apps — que é o caso de quem tem um café e também junta carimbos noutros
+     sítios — fica com dois ícones roxos iguais no ecrã inicial. */
+  { nome: 'balcao-mascara.png',   lado: 512, svg: mascara(512, { fundo: '#17161C' }) },
+  { nome: 'balcao-apple-touch-icon.png', lado: 180, svg: marca(180, { fundo: '#17161C' }) },
 ];
 
 if (process.platform !== 'darwin') {

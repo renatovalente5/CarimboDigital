@@ -237,6 +237,7 @@ escrever(join(SAIDA, 'balcao', 'manifest.webmanifest'), JSON.stringify({
   icons: [
     { src: `${BASE}/icones/balcao-192.png`, sizes: '192x192', type: 'image/png' },
     { src: `${BASE}/icones/balcao-512.png`, sizes: '512x512', type: 'image/png' },
+    { src: `${BASE}/icones/balcao-mascara.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
   ],
 }, null, 2));
 

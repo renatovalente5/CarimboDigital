@@ -146,8 +146,34 @@ console.log('\nManifestos');
       falhar(`${app}: start_url fora do âmbito (${m.start_url})`); mal++;
     }
     if (!existsSync(join(SAIDA, app, 'sw.js'))) { falhar(`${app}: service worker em falta`); mal++; }
+
+    /* Existirem não chega: têm de ser os três tamanhos certos. O balcão foi
+       publicado sem `maskable` e o Android recorta o quadrado de canto
+       redondo dentro de um círculo — sai um ícone pequeno com moldura
+       branca, e ninguém repara enquanto não instalar. */
+    const tem = (f) => (m.icons || []).some(f);
+    if (!tem((i) => i.sizes === '192x192')) { falhar(`${app}: falta o ícone de 192`); mal++; }
+    if (!tem((i) => i.sizes === '512x512' && !/maskable/.test(i.purpose || ''))) {
+      falhar(`${app}: falta o ícone de 512`); mal++;
+    }
+    if (!tem((i) => /maskable/.test(i.purpose || ''))) {
+      falhar(`${app}: falta o ícone maskable, que é o que o Android usa`); mal++;
+    }
   }
-  if (!mal) bem('manifestos, ícones e service workers no sítio');
+
+  /* As duas apps instalam-se no mesmo telemóvel: quem tem um café também
+     junta carimbos noutros sítios. Se partilharem ícone, ficam dois quadrados
+     iguais no ecrã inicial e a pessoa abre a errada. */
+  const iconesIOS = ['app', 'balcao'].map((app) => {
+    const html = readFileSync(join(SAIDA, app, 'index.html'), 'utf8');
+    return (html.match(/rel="apple-touch-icon" href="([^"]+)"/) || [])[1];
+  });
+  if (iconesIOS[0] && iconesIOS[0] === iconesIOS[1]) {
+    falhar('as duas apps partilham o ícone do iOS — no ecrã inicial ficam iguais');
+    mal++;
+  }
+
+  if (!mal) bem('manifestos, ícones e service workers no sítio, e as duas apps distinguem-se');
 }
 
 /* --- 6. o casco do service worker existe mesmo -------------------------- */
