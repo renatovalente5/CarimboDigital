@@ -342,8 +342,10 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   gap: var(--e-5);
 }
 .codigo-qr {
-  width: min(72vw, 320px); aspect-ratio: 1;
-  padding: var(--e-4);
+  /* Grande. Quanto maior o módulo no ecrã, mais longe e mais torto o balcão
+     pode estar e continuar a ler — e o espaço estava lá a sobrar. */
+  width: min(86vw, 400px); aspect-ratio: 1;
+  padding: var(--e-3);
   background: #FFFFFF;
   border-radius: var(--r-4);
   box-shadow: 0 0 0 1px rgba(0,0,0,.07);
@@ -699,3 +701,10 @@ button.linha:active, a.linha:active { transform: scale(.985); }
   letter-spacing: .38em; text-indent: .38em;
   text-align: center; font-weight: 700;
 }
+
+/* O contentor principal recebe o foco a cada mudança de ecrã, para os
+   leitores de ecrã anunciarem o conteúdo novo. Mas é uma caixa do tamanho da
+   página inteira: desenhar-lhe um aro à volta não ajuda ninguém a perceber
+   onde está, só mete uma moldura roxa no meio da app. O anúncio fica; o aro
+   sai. Os elementos que se navegam por tabulação continuam a tê-lo. */
+#principal:focus, #principal:focus-visible { outline: none; }
