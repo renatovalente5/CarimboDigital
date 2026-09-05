@@ -1,18 +1,27 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Carimbo Digital — Email Routing da Cloudflare
+   Carimbo Digital — o email, as duas metades
 
-   Põe o `ola@carimbodigital.pt` a cair na caixa de correio pessoal, sem
-   alojamento de email nenhum e sem custo. Só funciona depois de o domínio
-   estar na Cloudflare (isto é: depois de os servidores de nomes do
-   registador apontarem para lá) — antes disso não existe zona para
-   configurar, e o script diz-te isso em vez de falhar sem explicar.
+   RECEBER: o Email Routing da Cloudflare põe `ola@carimbodigital.pt` a cair
+   na caixa pessoal, sem alojamento de email e sem custo.
+
+   ENVIAR: os códigos de recuperação saem pela Resend, que precisa de provar
+   que o domínio é nosso — três registos de DNS. Como o DNS já está na
+   Cloudflare, este script pede a lista à Resend e cria-os lá, em vez de
+   obrigar a copiar valores à mão de uma janela para a outra (que é onde se
+   erra um carácter e se perdem duas horas).
+
+   As duas metades só funcionam depois de o domínio estar na Cloudflare — ou
+   seja, depois de os servidores de nomes do registador apontarem para lá.
+   Antes disso o script diz o que falta em vez de falhar sem explicar.
 
    Uso:  node scripts/email.mjs
          node scripts/email.mjs --destino outro@email.pt
+         RESEND_API_KEY=re_... node scripts/email.mjs     (faz também o envio)
 
-   A autenticação sai do wrangler (`npx wrangler login`), ou de um token em
-   CLOUDFLARE_API_TOKEN com as permissões Zone:Read e Email Routing:Edit.
+   A autenticação da Cloudflare sai do wrangler (`npx wrangler login`), ou de
+   um token em CLOUDFLARE_API_TOKEN com Zone:Read, Zone:Edit (DNS) e
+   Email Routing:Edit.
 
    Corre-se quantas vezes se quiser: não duplica nada.
    ========================================================================= */
@@ -187,6 +196,96 @@ if (necessarios.length) {
     console.log(`  ${r.type.padEnd(5)} ${(r.name || '@').padEnd(28)} ${r.content}`
       + (r.priority !== undefined ? `  (prioridade ${r.priority})` : ''));
   }
+}
+
+/* =========================================================================
+   ENVIAR — a Resend
+   ========================================================================= */
+
+const RESEND = process.env.RESEND_API_KEY;
+
+if (!RESEND) {
+  console.log('\n· Sem RESEND_API_KEY: a parte do envio fica por fazer.');
+  console.log('  Cria a chave em resend.com/api-keys e volta a correr com');
+  console.log('  RESEND_API_KEY=re_... node scripts/email.mjs');
+} else {
+  console.log('\nEnvio (Resend)');
+
+  async function resend(caminho, { metodo = 'GET', corpo } = {}) {
+    const r = await fetch('https://api.resend.com' + caminho, {
+      method: metodo,
+      headers: { authorization: `Bearer ${RESEND}`, 'content-type': 'application/json' },
+      body: corpo === undefined ? undefined : JSON.stringify(corpo),
+    });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, estado: r.status, dados: d };
+  }
+
+  /* 1. o domínio já lá está? */
+  const lista = await resend('/domains');
+  if (!lista.ok) {
+    console.error(`✗ a Resend recusou a chave (${lista.estado}):`,
+      JSON.stringify(lista.dados).slice(0, 200));
+    process.exit(1);
+  }
+  let dominio = (lista.dados.data || []).find((d) => d.name === DOMINIO);
+
+  if (!dominio) {
+    /* `eu-west-1` para o correio sair da Europa, como o resto. */
+    const criado = await resend('/domains', {
+      metodo: 'POST', corpo: { name: DOMINIO, region: 'eu-west-1' },
+    });
+    if (!criado.ok) {
+      console.error('✗ não deu para registar o domínio na Resend:',
+        JSON.stringify(criado.dados).slice(0, 250));
+      process.exit(1);
+    }
+    dominio = criado.dados;
+    console.log(`✓ domínio registado na Resend (${dominio.region || 'eu-west-1'})`);
+  } else {
+    console.log(`✓ domínio já estava na Resend (${dominio.status})`);
+  }
+
+  /* 2. os registos que ela pede, criados na Cloudflare */
+  const detalhe = await resend(`/domains/${dominio.id}`);
+  const registos = detalhe.dados.records || dominio.records || [];
+  if (!registos.length) {
+    console.log('  ! a Resend não devolveu registos — confere em resend.com/domains');
+  }
+
+  const existentes = await cf(`/zones/${zona.id}/dns_records?per_page=200`);
+  const jaLaEsta = (r) => (existentes.dados.result || []).some((x) =>
+    x.type === r.type
+    && x.name === (r.name.endsWith(DOMINIO) ? r.name : `${r.name}.${DOMINIO}`).replace(/^@\./, '')
+    && String(x.content).replace(/^"|"$/g, '') === String(r.value).replace(/^"|"$/g, ''));
+
+  for (const r of registos) {
+    const nome = r.name === '@' || !r.name ? DOMINIO
+      : (r.name.endsWith(DOMINIO) ? r.name : `${r.name}.${DOMINIO}`);
+    if (jaLaEsta(r)) { console.log(`✓ ${r.type.padEnd(5)} ${nome} já existia`); continue; }
+    const criado = await cf(`/zones/${zona.id}/dns_records`, {
+      metodo: 'POST',
+      corpo: {
+        type: r.type, name: nome, content: r.value, ttl: 1,
+        ...(r.priority !== undefined && r.priority !== null ? { priority: r.priority } : {}),
+        /* Os registos de autenticação de email nunca passam pela Cloudflare:
+           são lidos por servidores de correio, não por browsers. */
+        ...(r.type === 'CNAME' ? { proxied: false } : {}),
+      },
+    });
+    console.log(criado.ok ? `✓ ${r.type.padEnd(5)} ${nome}`
+      : `✗ ${r.type} ${nome}: ${JSON.stringify(criado.dados.errors || criado.dados).slice(0, 160)}`);
+  }
+
+  /* 3. pedir a verificação */
+  const verifica = await resend(`/domains/${dominio.id}/verify`, { metodo: 'POST' });
+  console.log(verifica.ok
+    ? '✓ verificação pedida — costuma demorar alguns minutos'
+    : `! não deu para pedir a verificação: ${JSON.stringify(verifica.dados).slice(0, 160)}`);
+
+  console.log('\n  Depois de a Resend dizer «verified», falta pôr a chave no Worker:');
+  console.log('    cd worker && npx wrangler secret put RESEND_API_KEY');
+  console.log(`    npx wrangler deploy`);
 }
 
 console.log('\nFalta só uma coisa, e não é aqui: abrir o email que a Cloudflare');
