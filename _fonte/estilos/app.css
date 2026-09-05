@@ -272,7 +272,7 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   /* Os números dos marcos ficam por baixo, não por cima: em cima chocavam
      com o total em corpo grande, e um «430» a tapar o «400» é exactamente a
      informação que não se pode perder. */
-  margin: var(--e-7) 0 var(--e-8);
+  margin: var(--e-7) 0 var(--e-9);
   background: var(--m-veu); border-radius: var(--r-max);
 }
 .trilho-cheio {
