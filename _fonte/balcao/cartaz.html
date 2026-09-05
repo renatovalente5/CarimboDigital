@@ -1,5 +1,9 @@
 <!doctype html>
-<html lang="pt-PT">
+<html lang="pt-PT" data-tema="claro">
+<!-- `data-tema="claro"` e não só `color-scheme: light`: o nucleo.css troca
+     os tokens dentro de um @media (prefers-color-scheme: dark), e o
+     color-scheme não o trava. Isto é uma folha de papel — não muda de cor
+     com a hora do dia de quem a está a imprimir. -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -27,7 +31,14 @@
 
   .folha-a4 {
     width: 210mm; max-width: 100%;
-    aspect-ratio: 210 / 297;
+    /* A proporção de A4 só se impõe quando há espaço para ela. Num
+       telemóvel, 210mm encolhem para a largura do ecrã e a altura encolhe
+       com eles — mas o miolo continua medido em milímetros e não encolhe:
+       o prémio, as instruções e metade do código ficavam escondidos por
+       baixo do `overflow: hidden`. Abaixo dos 210mm a folha passa a crescer
+       com o que tem dentro. */
+    aspect-ratio: auto;
+    min-height: min(297mm, 140vw);
     background: var(--marca);
     color: #fff;
     border-radius: 6px;
@@ -55,7 +66,12 @@
     padding: 8mm; margin-bottom: 10mm;
     display: flex; align-items: center; justify-content: center;
   }
-  .quadro svg, .quadro canvas { display: block; width: 74mm; height: 74mm; }
+  /* Quadrado sempre: com `width: 74mm` e `height: 74mm` num flex apertado, a
+     largura encolhia e a altura não, e o código ficava com faixas brancas
+     por cima e por baixo. */
+  .quadro svg, .quadro canvas {
+    display: block; width: min(74mm, 62vw); height: auto; aspect-ratio: 1;
+  }
   .quadro .falhou {
     width: 74mm; height: 74mm; display: flex; align-items: center;
     justify-content: center; color: var(--tinta-2); font-size: 14px;
@@ -66,8 +82,12 @@
     font-size: clamp(19px, 3.2vw, 30px); font-weight: 700;
     line-height: 1.25; margin: 0 0 4mm; overflow-wrap: anywhere;
   }
+  /* Sem opacidade. A tinta do cartaz é calculada pelo marcaSegura() para
+     dar 4,5 sobre a cor do comerciante; qualquer transparência por cima
+     desfaz essa conta — o rodapé caía a 2,95:1 com uma cor clara. A
+     hierarquia faz-se pelo tamanho e pelo peso, que aqui sobram. */
   .passos {
-    font-size: clamp(14px, 2.2vw, 20px); opacity: .8;
+    font-size: clamp(14px, 2.2vw, 20px); font-weight: 500;
     line-height: 1.5; margin: 0;
   }
   /* O miolo ocupa o que sobra e centra-se dentro dele; o rodapé fica onde
@@ -81,7 +101,7 @@
   }
   .rodape {
     padding-top: 8mm;
-    font-size: clamp(12px, 1.7vw, 15px); opacity: .62; letter-spacing: .02em;
+    font-size: clamp(12px, 1.7vw, 15px); font-weight: 600; letter-spacing: .06em;
   }
 
   .barra-imprimir {

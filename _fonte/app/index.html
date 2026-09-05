@@ -54,7 +54,11 @@
       agora está aqui, e nunca se perde.</p>
   </div>
   <div class="bv-acoes">
-    <div class="bv-pontos" role="tablist" aria-label="Passos"></div>
+    <!-- Os pontinhos são decoração: quem vê conta-os, quem ouve precisa da
+         frase. Um `role="tablist"` com filhos sem `role="tab"` fazia o leitor
+         de ecrã anunciar uma lista de separadores vazia — pior do que nada. -->
+    <div class="bv-pontos" aria-hidden="true"></div>
+    <p class="so-leitor" id="bv-passo" role="status" aria-live="polite"></p>
     <button class="btn btn-cheio btn-grande btn-bloco" id="bv-seguinte">Continuar</button>
     <button class="btn btn-fantasma btn-bloco btn-pequeno" id="bv-saltar">Já tenho conta noutro telemóvel</button>
   </div>

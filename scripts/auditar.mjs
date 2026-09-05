@@ -126,7 +126,10 @@ console.log('\nCabeçalhos');
         && !texto.includes('name="robots" content="noindex"')) {
       falhar(`${nome}: descrição em falta ou curta de mais`); mal++;
     }
-    if (!/<html lang="pt-PT">/.test(texto)) { falhar(`${nome}: falta lang="pt-PT"`); mal++; }
+    /* Procura-se o atributo, não a linha inteira: uma página com outro
+       atributo no `<html>` — o cartaz declara `data-tema` — continua a estar
+       em português, e a guarda dizia que não. */
+    if (!/<html[^>]*\blang="pt-PT"/.test(texto)) { falhar(`${nome}: falta lang="pt-PT"`); mal++; }
   }
   if (!mal) bem('título, descrição e idioma em todas as páginas');
 }
@@ -391,7 +394,24 @@ console.log('\nContraste');
       }
     }
   }
-  if (!mal) bem(`${contados} pares de cores medidos, todos passam`);
+  /* As páginas do site pintam cartões de exemplo com a cor e a tinta
+     escritas à mão no HTML — o site não corre JavaScript, por isso não pode
+     chamar o marcaSegura(). Uma delas já estava errada: branco sobre um azul
+     claro, a 3,56:1, na página inicial. Mede-se cada par. */
+  let manuais = 0;
+  for (const f of paginas) {
+    const html = readFileSync(f, 'utf8');
+    for (const m of html.matchAll(/--m:\s*(#[0-9A-Fa-f]{6})\s*;\s*--m-txt:\s*(#[0-9A-Fa-f]{6})/g)) {
+      manuais++;
+      const r = razao(m[2], m[1]);
+      if (r < 4.5) {
+        falhar(`${f.slice(SAIDA.length + 1)}: a tinta ${m[2]} sobre ${m[1]} dá ${r.toFixed(2)}`);
+        mal++;
+      }
+    }
+  }
+
+  if (!mal) bem(`${contados} pares de cores medidos e ${manuais} escritos à mão, todos passam`);
 }
 
 /* --- resumo ------------------------------------------------------------- */

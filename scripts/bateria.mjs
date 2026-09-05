@@ -333,9 +333,24 @@ class Palco {
                rotulo: a.getAttribute('aria-label') || null };`);
   }
 
+  /**
+   * Rola, e espera que a página ASSENTE.
+   *
+   * O `html` da app tem `scroll-behavior: smooth`, por isso um `scrollBy` é
+   * uma animação e não um salto. Medir 150 ms depois apanha-a a meio — e um
+   * teste que rola e mede a seguir acusava a app de deixar o ecrã novo onze
+   * píxeis fora do sítio quando o que estava fora do sítio era a medição.
+   */
   async rolar(quanto = 400) {
     await this.js(`window.scrollBy(0, ${quanto}); return true`);
-    await esperar(150);
+    let anterior = null;
+    for (let i = 0; i < 25; i++) {
+      const agora = await this.js('return Math.round(window.scrollY)');
+      if (agora === anterior) return agora;
+      anterior = agora;
+      await esperar(80);
+    }
+    return anterior;
   }
 
   /* --- ambiente --------------------------------------------------------- */

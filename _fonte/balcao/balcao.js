@@ -9,6 +9,7 @@
 import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
   pintarCartao, haQuanto, dataCurta, horas, NOMES_SELOS, seguro,
+  prenderFoco, colunas,
 } from '../js/nucleo.js';
 import { api, MODO, DEMO_FORCADO, definirChaveSessao } from '../js/api.js';
 
@@ -193,16 +194,29 @@ async function ecraCarimbar(principal) {
   }
 
   const video = $('#video');
-  leitor = new Leitor(video, (valor) => carimbar(valor));
+  const meu = leitor = new Leitor(video, (valor) => carimbar(valor));
+
+  /* Escreve-se no `visor` que esta função criou, e não no que estiver no
+     documento. A câmara pode demorar segundos a responder — e nesses
+     segundos a pessoa muda de separador. Quando a resposta chegava,
+     `$('#visor-estado')` já não existia, o `.textContent` rebentava com um
+     TypeError, e a excepção subia até ao `catch` do arrancar(), que a lia
+     como «a sessão não presta» e mandava o operador de volta ao ecrã de
+     entrada — com o email a pedir outra vez, a meio de um serviço.
+     Se já não somos o leitor em curso, não se toca em nada. */
+  const estadoDoVisor = visor.querySelector('#visor-estado');
+  const botaoManual = manual.querySelector('#botao-manual');
   try {
-    await leitor.comecar();
-    $('#visor-estado').textContent = 'Aponta ao código do cliente';
+    await meu.comecar();
+    if (leitor !== meu) return;
+    estadoDoVisor.textContent = 'Aponta ao código do cliente';
     visor.dataset.ativo = 'sim';
   } catch {
+    if (leitor !== meu) return;
     visor.dataset.ativo = 'nao';
-    $('#visor-estado').innerHTML =
+    estadoDoVisor.innerHTML =
       'Sem acesso à câmara.<br>Autoriza nas definições do browser, ou escreve o número.';
-    $('#botao-manual').classList.replace('btn-suave', 'btn-cheio');
+    botaoManual.classList.replace('btn-suave', 'btn-cheio');
   }
 }
 
@@ -215,7 +229,7 @@ function abrirManual() {
       el('input', {
         id: 'campo-numero', type: 'text', inputmode: 'text',
         autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false',
-        maxlength: '6', placeholder: 'EA4BFM', class: 'campo-numero',
+        maxlength: '6', placeholder: 'AE4KFM', class: 'campo-numero',
       })),
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Carimbar',
@@ -256,6 +270,8 @@ async function carimbar(codigo, { manual = false } = {}) {
     setTimeout(() => { aCarimbar = false; }, 900);
   }
 }
+
+let soltarResultado = null;
 
 function mostrarResultado(r) {
   const cartao = r.cartao;
@@ -346,8 +362,21 @@ function mostrarResultado(r) {
      respondia 401 e o botão nunca funcionou. O carimbo já devolve o
      `movimentoId`: não é preciso ir perguntar a ninguém. */
   if (r.movimentoId) {
-    acoes.append(el('button', {
+    /* Meio segundo de carência, e só nesta.
+
+       O painel nasce no mesmo sítio do ecrã onde estava o botão em que a
+       pessoa acabou de carregar, e esta é a única acção destrutiva que o
+       balcão tem. Um toque duplo — ou um dedo que insiste porque a app
+       pareceu lenta — anulava o carimbo que o primeiro toque tinha dado, em
+       silêncio: o cliente ia-se embora com o cartão na mesma.
+
+       A carência é só neste botão, e não no painel inteiro: um painel que
+       não aceita toques deixa de ser visível ao teste de «isto está tapado?»
+       — e passar a ser transparente para se proteger é trocar um problema
+       por outro. */
+    const anular = el('button', {
       class: 'btn btn-fantasma btn-bloco btn-pequeno',
+      disabled: true,
       html: icone('menos', { tamanho: 16 }) + '<span>Enganei-me — anular</span>',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
@@ -361,12 +390,17 @@ function mostrarResultado(r) {
           avisar(e.message || 'Não deu para anular.', 'mau');
         }
       },
-    }));
+    });
+    acoes.append(anular);
+    setTimeout(() => { anular.disabled = false; }, 500);
   }
 
   caixa.append(acoes);
   folha.append(caixa);
+  folha.setAttribute('aria-label', temPremio ? 'Prémio a entregar' : 'Cartão carimbado');
+
   document.body.append(folha);
+  soltarResultado = prenderFoco(folha, { aoEscapar: fecharResultado });
 
   if (ganhou) confetes();
   /* Fecha-se sozinho: ao balcão ninguém carrega em «ok». */
@@ -389,6 +423,7 @@ function grelhaResultado(cartao, quantidade) {
 
 function fecharResultado() {
   clearTimeout(estado.fecho);
+  if (soltarResultado) { soltarResultado(); soltarResultado = null; }
   $('#resultado')?.remove();
 }
 
@@ -400,8 +435,16 @@ function mostrarErro(e) {
     repetido: ['Código já usado', 'Este código já foi carimbado. Pede o seguinte.'],
     arrefecimento: ['Já foi carimbado há pouco', e.message],
   };
-  const [titulo, corpo] = explicacoes[e.codigo] || ['Não deu', e.message];
-  const folha = el('div', { class: 'resultado', id: 'resultado', role: 'alertdialog' },
+  let [titulo, corpo] = explicacoes[e.codigo] || ['Não deu', e.message];
+  /* O corpo de alguns erros começa pelo próprio título — a mensagem do
+     servidor traz a frase inteira e a tabela acima só lhe põe um chapéu.
+     Lido em voz alta ao balcão fica «Já foi carimbado há pouco. Já foi
+     carimbado há pouco. Volte a tentar daqui a 60 min.» */
+  if (corpo && titulo && corpo.startsWith(titulo)) {
+    corpo = corpo.slice(titulo.length).replace(/^[.\s—-]+/, '') || corpo;
+  }
+  const folha = el('div', { class: 'resultado', id: 'resultado', role: 'alertdialog',
+                            'aria-modal': 'true', 'aria-label': titulo },
     el('div', { class: 'resultado-caixa' },
       el('div', { class: 'resultado-marca resultado-marca-mau', html: icone('alerta', { tamanho: 34 }) }),
       el('h2', { class: 'resultado-titulo', texto: titulo }),
@@ -409,6 +452,7 @@ function mostrarErro(e) {
       el('div', { class: 'resultado-acoes' },
         el('button', { class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Tentar outra vez', aoClick: fecharResultado }))));
   document.body.append(folha);
+  soltarResultado = prenderFoco(folha, { aoEscapar: fecharResultado });
   estado.fecho = setTimeout(fecharResultado, 6000);
 }
 
@@ -630,8 +674,18 @@ function desenharPrevia(previa) {
   const premio = $('#f-premio')?.value || estado.programa.premio;
   const objetivo = Math.max(2, Math.min(30, Number($('#f-objetivo')?.value) || estado.programa.objetivo));
   const selo = estado.programa.selo;
-  const feitos = Math.min(objetivo, Math.ceil(objetivo * 0.6));
-  const cols = Math.min(objetivo, objetivo <= 6 ? 3 : 5);
+  /* Um cartão a MEIO, e nunca cheio: com o objectivo no mínimo (2), o
+     `Math.ceil(2 * 0.6)` dava 2 e a pré-visualização mostrava um cartão
+     completo a dizer «faltam 0 carimbos» — o exemplo mais confuso que se
+     podia dar a quem está a montar o cartão. Deixa-se sempre pelo menos um
+     por fazer. */
+  const feitos = Math.max(1, Math.min(objetivo - 1, Math.ceil(objetivo * 0.6)));
+  const faltam = objetivo - feitos;
+  /* A MESMA grelha da app do cliente, vinda do núcleo. Havia aqui uma regra
+     própria — `objetivo <= 6 ? 3 : 5` — e o editor, que promete «é assim
+     que os clientes o vêem», mostrava um cartão de nove em cinco colunas
+     quando o cliente o via em três. */
+  const cols = colunas(objetivo);
 
   previa.innerHTML = '';
   previa.append(el('div', { class: 'cartao-corpo' },
@@ -640,7 +694,7 @@ function desenharPrevia(previa) {
         el('div', { class: 'cartao-nome', texto: nome }),
         el('div', { class: 'cartao-tipo', texto: prog })),
       el('div', { class: 'cartao-id' },
-        el('span', { texto: 'cartão' }), el('b', { texto: 'EA4BFM' }))),
+        el('span', { texto: 'cartão' }), el('b', { texto: 'AE4KFM' }))),
     el('div', { class: 'carimbos', estilo: { '--colunas': String(cols) },
       html: Array.from({ length: objetivo }, (_, k) =>
         `<div class="carimbo" data-estado="${k < feitos ? 'cheio' : 'vazio'}" `
@@ -648,7 +702,10 @@ function desenharPrevia(previa) {
         + icone(selo, { tipo: 'cheio', tamanho: 24 }) + '</div>').join('') }),
     el('div', { class: 'cartao-rodape' },
       el('div', {},
-        el('div', { class: 'cartao-rotulo', texto: `faltam ${objetivo - feitos} carimbos` }),
+        /* Singular à parte, como na app do cliente: «faltam 1 carimbos» era
+           a pré-visualização a escrever pior português do que o produto. */
+        el('div', { class: 'cartao-rotulo',
+                    texto: faltam === 1 ? 'falta 1 carimbo' : `faltam ${faltam} carimbos` }),
         el('div', { class: 'cartao-premio', texto: premio })))));
   pintarCartao(previa, estado.negocio.cor);
 }
@@ -657,20 +714,63 @@ function desenharPrevia(previa) {
    Painel
    ========================================================================= */
 
+/* =========================================================================
+   O botão de voltar
+
+   O balcão não tratava disto de todo: abrir o painel do número do cartão e
+   carregar em voltar levava o separador para fora de /balcao/ — e numa app
+   instalada isso é a app a fechar-se, com o cliente à espera. O modelo é o
+   mesmo da app do cliente: cada coisa que se abre por cima é uma entrada, e
+   voltar desfaz a última.
+   ========================================================================= */
+
+try { history.scrollRestoration = 'manual'; } catch { /* nem sempre existe */ }
+
+let recuosNossos = 0;
+
+function empurrarHistorico(marca) {
+  try { history.pushState({ carimbo: marca }, ''); } catch { /* sem histórico */ }
+}
+
+function recuar() {
+  recuosNossos++;
+  try { history.back(); } catch { recuosNossos--; }
+}
+
+addEventListener('popstate', () => {
+  if (recuosNossos > 0) { recuosNossos--; return; }
+  if ($('#resultado')) { fecharResultado(); empurrarHistorico('ecra'); return; }
+  if ($('#painel')) { fecharPainel({ historico: false }); return; }
+  /* Fora dos painéis, voltar leva ao ecrã de carimbar, que é a casa do
+     balcão. Já lá estando, deixa-se sair — quem carrega duas vezes quer
+     mesmo ir-se embora. */
+  if (estado.ecra && estado.ecra !== 'carimbar') {
+    empurrarHistorico('ecra');
+    irPara('carimbar');
+  }
+});
+
+let soltarPainel = null;
+
 function abrirPainel(titulo) {
-  fecharPainel();
+  const jaHavia = Boolean($('#painel'));
+  fecharPainel({ historico: false });
+  if (!jaHavia) empurrarHistorico('painel');
   const folha = el('div', { class: 'painel-folha', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo },
     el('div', { class: 'painel-pega' }),
     el('h2', { style: 'margin-bottom:12px', texto: titulo }));
   document.body.append(el('div', { class: 'painel', id: 'painel' },
     el('div', { class: 'painel-veu', aoClick: fecharPainel }), folha));
-  document.addEventListener('keydown', escapaPainel);
+  /* Foco para dentro, Tab preso lá, e devolvido ao fechar — as três coisas
+     que o `aria-modal="true"` promete e que nenhuma acontecia sozinha. */
+  soltarPainel = prenderFoco(folha, { aoEscapar: () => fecharPainel() });
   return folha;
 }
-function escapaPainel(ev) { if (ev.key === 'Escape') fecharPainel(); }
-function fecharPainel() {
-  document.removeEventListener('keydown', escapaPainel);
+function fecharPainel({ historico = true } = {}) {
+  const havia = Boolean($('#painel'));
+  if (soltarPainel) { soltarPainel(); soltarPainel = null; }
   $('#painel')?.remove();
+  if (havia && historico) recuar();
 }
 
 /* =========================================================================
@@ -694,8 +794,25 @@ async function irPara(nome) {
   principal.innerHTML = '';
   $('#topo-titulo').textContent = ECRAS[nome].titulo;
   desenharBarra();
+  try {
+    await ECRAS[nome].render(principal);
+  } catch (erro) {
+    /* Um ecrã que não deu para pintar tem de o dizer. Sem isto, tocar em
+       «Hoje» com a API em baixo deixava o título e mais nada — e o erro
+       morria dentro do clique, sem consola aberta para o ver. */
+    principal.innerHTML = '';
+    principal.append(el('div', { class: 'vazio' },
+      el('div', { class: 'vazio-desenho', html: icone('ligacao', { tamanho: 64 }) }),
+      el('h2', { texto: 'Não deu para carregar' }),
+      el('p', { class: 'subtexto', texto: 'Verifica a ligação e tenta outra vez.' }),
+      el('button', { class: 'btn btn-cheio', texto: 'Tentar outra vez',
+                     aoClick: () => irPara(nome) }),
+      el('p', { class: 'miudo', style: 'margin-top:12px', texto: erro?.message || '' })));
+  }
+  /* Ao topo só depois de o conteúdo existir: a rolar antes, a página
+     voltava a descer sozinha um fotograma depois e o ecrã novo abria a
+     meio. */
   window.scrollTo({ top: 0, behavior: 'instant' });
-  await ECRAS[nome].render(principal);
   principal.focus({ preventScroll: true });
 }
 
@@ -915,13 +1032,30 @@ async function arrancar() {
   /* Uma sessão guardada não é garantia de nada: pode ter expirado ou o
      operador ter sido desactivado. Se falhar, volta-se ao ecrã de entrada em
      vez de mostrar um erro no meio de nada. */
+  /* O registo do service worker foi para cima do `return`. Estava no fim da
+     função, a seguir a um `return` que dispara sempre que há sessão — ou
+     seja, o balcão de quem já entrou NUNCA o registava, que é precisamente
+     o balcão que precisa de funcionar sem rede. */
+  await registarServiceWorker();
+
   if (ler('balcao-entrou') && (MODO === 'demo' || ler('sessao-balcao'))) {
     try { await entrar(); return; }
-    catch { apagar('balcao-entrou'); }
+    catch (erro) {
+      /* Só se deita fora a sessão quando o servidor DIZ que ela não vale.
+         Um erro de rede não é isso: apagar a marca por o Wi-Fi ter falhado
+         punha o operador a pedir o email outra vez por nada. */
+      if (!erro.rede) apagar('balcao-entrou');
+      $('#entrada').hidden = false;
+      desenharEntrada();
+      if (erro.rede) avisar('Sem ligação. Verifica a Internet e tenta entrar de novo.', 'mau');
+      return;
+    }
   }
   $('#entrada').hidden = false;
   desenharEntrada();
+}
 
+async function registarServiceWorker() {
   if ('serviceWorker' in navigator) {
     try {
       /* Ver o comentário igual em app.js: o GitHub Pages não deixa mexer nos

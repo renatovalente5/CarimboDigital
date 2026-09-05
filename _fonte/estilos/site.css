@@ -13,8 +13,24 @@
   -webkit-backdrop-filter: saturate(1.8) blur(20px);
   border-bottom: 1px solid transparent;
   transition: border-color var(--t-2) ease;
+
+  /* A linha aparece quando a página rola, sem uma linha de JavaScript: o
+     `scroll()` do CSS liga a animação à barra de deslocamento do documento.
+
+     Havia aqui uma regra `[data-rolado="sim"]` que ninguém accionava — o
+     site não corre JavaScript nenhum, de propósito, e o atributo nunca era
+     posto. A linha simplesmente não existia.
+
+     Onde o `scroll()` não é entendido — Safari mais antigo, Firefox — não
+     acontece nada e o cabeçalho fica sem linha, que é como estava. Ninguém
+     fica pior do que antes por causa disto. */
+  animation: cabecalho-linha linear both;
+  animation-timeline: scroll();
+  animation-range: 4px 40px;
 }
-.cabecalho[data-rolado="sim"] { border-bottom-color: var(--linha); }
+@keyframes cabecalho-linha {
+  to { border-bottom-color: var(--linha); }
+}
 .cabecalho-linha {
   display: flex; align-items: center; gap: var(--e-4);
   max-width: var(--coluna-larga); margin-inline: auto;

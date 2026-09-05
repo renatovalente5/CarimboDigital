@@ -198,11 +198,18 @@ for (const ficheiro of paginas) {
     .split('{{TITULO}}').join(meta.titulo || config.nome)
     .split('{{RESUMO}}').join(meta.resumo || config.descricao)
     .split('{{CANONICO}}').join(`https://${config.dominio}${rota}${rota ? '/' : '/'}`)
+    .split('{{ROBOTS}}').join(meta.naoIndexar
+      ? '\n<meta name="robots" content="noindex">' : '')
     .split('{{CLASSE}}').join(meta.classe || '')
     .split('{{CORPO}}').join(preencher(corpo));
 
   escrever(destino, html);
-  rotas.push({ rota: `${rota}/`, prioridade: meta.prioridade || (rota ? '0.6' : '1.0') });
+  /* Uma página pode existir e não querer ser anunciada — a 404 é o caso.
+     Anunciá-la no sitemap dizia aos motores «esta página é conteúdo», e o
+     canónico dela dizia-lhes que era a página inicial. */
+  if (!meta.semSitemap) {
+    rotas.push({ rota: `${rota}/`, prioridade: meta.prioridade || (rota ? '0.6' : '1.0') });
+  }
 }
 
 /* --- manifesto ----------------------------------------------------------- */
@@ -365,10 +372,19 @@ escrever(join(SAIDA, 'sitemap.xml'),
       + `<priority>${r.prioridade}</priority></url>`).join('\n')
   + `\n</urlset>\n`);
 
-/* --- 404 ----------------------------------------------------------------- */
-if (existsSync(join(SAIDA, 'index.html'))) {
-  const molde = readFileSync(join(SAIDA, 'index.html'), 'utf8');
-  escrever(join(SAIDA, '404.html'), molde);
+/* --- 404 -----------------------------------------------------------------
+
+   Era uma cópia byte a byte do index.html: quem escrevesse um endereço
+   errado recebia a página inicial com um cabeçalho 404, sem uma palavra que
+   dissesse que se tinha enganado — e com o canónico a apontar para a raiz,
+   ou seja, a dizer aos motores de busca que aquilo ERA a página inicial.
+   Agora é uma página escrita para isso, gerada a partir de paginas/404.html
+   como as outras.
+   -------------------------------------------------------------------- */
+if (existsSync(join(SAIDA, '404', 'index.html'))) {
+  const pagina = readFileSync(join(SAIDA, '404', 'index.html'), 'utf8');
+  escrever(join(SAIDA, '404.html'), pagina);
+  rmSync(join(SAIDA, '404'), { recursive: true, force: true });
 }
 
 console.log(`Carimbo Digital gerado. versão ${VERSAO}, base "${BASE || '/'}", `

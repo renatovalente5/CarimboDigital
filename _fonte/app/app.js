@@ -5,6 +5,7 @@
 import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
   pintarCartao, haQuanto, dataCurta, horas, manterEcraAceso, seguro,
+  prenderFoco, colunas,
 } from '../js/nucleo.js';
 import { api, MODO, DEMO_FORCADO, gerarCodigo, JANELA, guardarSegredo, temSegredo,
          esquecerSegredo, guardarDesvio } from '../js/api.js';
@@ -15,18 +16,12 @@ const estado = {
   cartoes: [],
   ecra: 'carteira',
   cartaoAberto: null,
+  /* Sobe a cada pintura. Serve para uma pintura lenta saber que já não é a
+     que está no ecrã e desistir em silêncio, em vez de assentar por cima da
+     seguinte. */
+  geracao: 0,
 };
 
-/* =========================================================================
-   Grelha dos carimbos
-   O número de colunas escolhe-se para as linhas ficarem cheias — um cartão
-   de dez com uma linha de cinco e outra de cinco parece um cartão de papel;
-   com uma linha de seis e outra de quatro parece um erro.
-   ========================================================================= */
-
-const GRELHA = { 1:1, 2:2, 3:3, 4:4, 5:5, 6:3, 7:4, 8:4, 9:3, 10:5, 11:4,
-                 12:4, 13:5, 14:5, 15:5, 16:4, 18:6, 20:5, 24:6, 25:5, 30:6 };
-const colunas = (n) => GRELHA[n] || (n <= 12 ? 4 : 5);
 
 /* =========================================================================
    Peças do cartão
@@ -212,21 +207,24 @@ function cartaoCompacto(cartao) {
  * Sem rede, fica-se com o que se tem e diz-se que pode estar desactualizado
  * — é melhor do que um ecrã vazio ou um erro por cima dos cartões.
  */
-async function recarregarCartoes(principal) {
+async function recarregarCartoes() {
   try {
     estado.cartoes = await api.cartoes(estado.cliente.id);
+    return null;
   } catch (erro) {
     if (!erro.rede) throw erro;
-    if (principal) {
-      principal.append(el('p', { class: 'miudo',
-        texto: 'Sem ligação — isto pode não estar actualizado.' }));
-    }
+    /* Devolve-se o aviso em vez de o colar já: quem chama é que sabe onde
+       ele fica bem. Colado aqui, ficava o primeiro filho do `#principal` —
+       ou seja, por cima do título do ecrã. */
+    return el('p', { class: 'miudo',
+      texto: 'Sem ligação — isto pode não estar actualizado.' });
   }
 }
 
 async function ecraCarteira(principal) {
-  await recarregarCartoes(principal);
+  const semRede = await recarregarCartoes();
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Os meus cartões' }));
+  if (semRede) principal.append(semRede);
 
   if (!estado.cartoes.length) {
     principal.append(el('div', { class: 'vazio' },
@@ -483,8 +481,14 @@ async function ecraDescobrir(principal) {
    ========================================================================= */
 
 async function ecraPremios(principal) {
-  await recarregarCartoes(principal);
+  /* Sem rede não se deita fora o que já se sabe: os prémios vêm de
+     `estado.cartoes`, que ainda está em memória. Mostrá-los com um aviso é
+     melhor do que um «Não deu para carregar» por cima de um prémio que a
+     pessoa tem mesmo para levantar — e é justamente ao balcão, sem rede,
+     que ela precisa de o ver. */
+  const semRede = await recarregarCartoes();
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Prémios' }));
+  if (semRede) principal.append(semRede);
 
   const porLevantar = [];
   for (const c of estado.cartoes) {
@@ -517,13 +521,22 @@ async function ecraPremios(principal) {
     }));
   }
 
-  /* Histórico de prémios já levantados. */
+  /* Histórico de prémios já levantados.
+
+     Sem rede, o histórico não vem — mas os prémios POR levantar estão todos
+     em memória, e são o que interessa neste ecrã. Deixar o erro subir daqui
+     deitava fora a lista inteira e punha «Não deu para carregar» por cima de
+     um prémio que a pessoa tem mesmo para receber, ao balcão, sem rede. */
   const antigos = [];
-  for (const c of estado.cartoes) {
-    const detalhe = await api.cartao(estado.cliente.id, c.id);
-    for (const m of detalhe.movimentos.filter((x) => x.tipo === 'resgate')) {
-      antigos.push({ nome: c.negocio.nome, m });
+  try {
+    for (const c of estado.cartoes) {
+      const detalhe = await api.cartao(estado.cliente.id, c.id);
+      for (const m of detalhe.movimentos.filter((x) => x.tipo === 'resgate')) {
+        antigos.push({ nome: c.negocio.nome, m });
+      }
     }
+  } catch (erro) {
+    if (!erro.rede) throw erro;
   }
   if (antigos.length) {
     const lista = el('div', { class: 'lista' });
@@ -818,6 +831,8 @@ function apagarConta() {
 let cronometroCodigo = null;
 let travaEcra = null;
 
+let soltarCodigo = null;
+
 async function abrirCodigo() {
   if ($('#folha-codigo')) return;
   empurrarHistorico('codigo');
@@ -848,6 +863,9 @@ async function abrirCodigo() {
   const anel = folha.querySelector('.codigo-anel');
 
   document.body.append(folha);
+  /* A folha do código é o ecrã que mais tempo fica aberto — e era o único
+     que não ouvia o Escape de todo. */
+  soltarCodigo = prenderFoco(folha, { aoEscapar: () => fecharCodigo() });
   travaEcra = await manterEcraAceso();
 
   async function pintar() {
@@ -884,6 +902,7 @@ function aoVoltar() {
 
 function fecharCodigo({ historico = true } = {}) {
   const havia = Boolean($('#folha-codigo'));
+  if (soltarCodigo) { soltarCodigo(); soltarCodigo = null; }
   clearTimeout(cronometroCodigo);
   cronometroCodigo = null;
   document.removeEventListener('visibilitychange', aoVoltar);
@@ -897,9 +916,16 @@ function fecharCodigo({ historico = true } = {}) {
    Painel deslizante
    ========================================================================= */
 
+let soltarPainel = null;
+
 function abrirPainel(titulo) {
+  /* Se já estava um painel aberto, a entrada dele serve para este: o que a
+     pessoa vê continua a ser um painel, e um «voltar» tem de o fechar. A
+     empurrar outra vez ficavam duas entradas para um painel só, e o
+     primeiro «voltar» não fazia nada visível. */
+  const jaHavia = Boolean($('#painel'));
   fecharPainel({ historico: false });
-  empurrarHistorico('painel');
+  if (!jaHavia) empurrarHistorico('painel');
   const folha = el('div', { class: 'painel-folha', role: 'dialog', 'aria-modal': 'true',
                             'aria-label': titulo },
     el('div', { class: 'painel-pega' }),
@@ -907,13 +933,15 @@ function abrirPainel(titulo) {
   const painel = el('div', { class: 'painel', id: 'painel' },
     el('div', { class: 'painel-veu', aoClick: fecharPainel }), folha);
   document.body.append(painel);
-  document.addEventListener('keydown', escapaPainel);
+  /* O Escape passa a ser tratado pelo prenderFoco, junto com a prisão do
+     Tab e a devolução do foco — as quatro coisas que um `aria-modal="true"`
+     promete e que nenhuma acontecia. */
+  soltarPainel = prenderFoco(folha, { aoEscapar: () => fecharPainel() });
   return folha;
 }
-function escapaPainel(ev) { if (ev.key === 'Escape') fecharPainel(); }
 function fecharPainel({ historico = true } = {}) {
   const havia = Boolean($('#painel'));
-  document.removeEventListener('keydown', escapaPainel);
+  if (soltarPainel) { soltarPainel(); soltarPainel = null; }
   $('#painel')?.remove();
   /* Fechar pelo botão ou pela tecla também tem de comer a entrada que a
      abertura empurrou, senão fica um passo fantasma no histórico e o
@@ -950,6 +978,13 @@ function base() {
    outra. Voltar desfaz a última — fecha o que está aberto, ou recua um ecrã.
    ========================================================================= */
 
+/* O browser guarda a posição da página em cada entrada do histórico e
+   repõe-na sozinho — `scrollRestoration` vale «auto» por omissão. Com uma
+   app de um só documento isso trabalha contra nós: mandava-se a página ao
+   topo e o browser fazia-a descer outra vez uns pixéis, para onde ela
+   estava no ecrã anterior. Quem manda aqui somos nós. */
+try { history.scrollRestoration = 'manual'; } catch { /* nem sempre existe */ }
+
 function empurrarHistorico(marca) {
   try { history.pushState({ carimbo: marca }, ''); } catch { /* sem histórico */ }
 }
@@ -980,12 +1015,35 @@ async function irPara(nome, { historico = true } = {}) {
   if (nome === 'codigo') { abrirCodigo(); return; }
   if (historico && estado.ecra && estado.ecra !== nome) empurrarHistorico(`ecra:${nome}`);
   estado.ecra = nome;
-  const principal = $('#principal');
-  principal.innerHTML = '';
+
+  /* Cada pintura recebe um `<main>` NOVO, que substitui o anterior.
+
+     Antes desenhava-se tudo no mesmo elemento: dois toques seguidos na barra
+     punham as duas pinturas a escrever no mesmo sítio, e ficavam os dois
+     ecrãs empilhados — «Prémios» no topo com o Descobrir por dentro.
+
+     O elemento novo entra no documento já com o id, e o velho sai na mesma
+     linha: nunca há dois. Uma pintura atrasada continua a escrever no seu,
+     que já não está em lado nenhum — e o que ela faz não se vê.
+
+     Tinha começado por embrulhar isto numa caixa `.ecra` por dentro do
+     `#principal`. Funcionava e partia tudo o que fosse `#principal > algo`:
+     um filho directo deixa de o ser quando se lhe põe um pai. */
+  const velho = $('#principal');
+  const principal = el('main', { id: 'principal', class: 'coluna', tabindex: '-1' });
+  velho.replaceWith(principal);
+  window.scrollTo({ top: 0, behavior: 'instant' });
+
   const ecra = ECRAS[nome] || { titulo: '', render: ecraCartao };
   $('#topo-titulo').textContent = nome === 'cartao' ? '' : ecra.titulo;
   desenharBarra();
-  window.scrollTo({ top: 0, behavior: 'instant' });
+
+  /* Cada pintura leva um número. Pintar espera por dados, e quem trocar de
+     separador durante essa espera fica com o desenho atrasado a assentar no
+     ecrã seguinte — dois toques seguidos davam «Prémios» no topo com a
+     carteira por dentro. Se o número mudou, o que se estava a desenhar já
+     não interessa a ninguém. */
+  const geracao = ++estado.geracao;
 
   /* Pintar um ecrã pode falhar — a rede cai a meio, o servidor responde
      mal. Sem isto, a promessa morria em silêncio, o `principal` ficava
@@ -1002,9 +1060,14 @@ async function irPara(nome, { historico = true } = {}) {
       await ecra.render(principal);
     }
   } catch (erro) {
+    if (geracao !== estado.geracao) return;
     principal.innerHTML = '';
     principal.append(ecraFalhou(nome, erro));
   }
+  if (geracao !== estado.geracao) return;
+  /* Ao topo outra vez, agora que o conteúdo existe: a primeira volta corre
+     com a coluna vazia e a página desce sozinha quando ela enche. */
+  window.scrollTo({ top: 0, behavior: 'instant' });
   principal.focus({ preventScroll: true });
 }
 
@@ -1049,15 +1112,48 @@ function desenharBarra() {
    Tema
    ========================================================================= */
 
+const SISTEMA_ESCURO = matchMedia('(prefers-color-scheme: dark)');
+
+/**
+ * Aplica o tema — e não só às nossas cores.
+ *
+ * Escolher «escuro» num telemóvel em claro trocava as cores da app e mais
+ * nada: a `color-scheme` ficava em `light dark`, por isso as superfícies que
+ * o browser pinta sozinho — campos nativos, barras de deslocamento, o menu
+ * de um `<select>` — continuavam brancas no meio de um ecrã preto. E a faixa
+ * do sistema no topo do telemóvel (theme-color) seguia o telemóvel e não a
+ * escolha, com as duas metas presas a `prefers-color-scheme`.
+ */
 function aplicarTema() {
   const t = ler('tema', 'sistema');
   if (t === 'sistema') delete document.documentElement.dataset.tema;
   else document.documentElement.dataset.tema = t;
-  const escuro = t === 'escuro'
-    || (t === 'sistema' && matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const escuro = t === 'escuro' || (t === 'sistema' && SISTEMA_ESCURO.matches);
+
+  document.documentElement.style.colorScheme = t === 'sistema'
+    ? 'light dark' : (escuro ? 'dark' : 'light');
+
+  /* Uma meta só, sem `media`, escrita à mão. As duas com `media` não podem
+     ser sobrepostas por JavaScript — a que casa com o sistema ganha sempre. */
+  let faixa = document.querySelector('meta[name="theme-color"]:not([media])');
+  if (!faixa) {
+    faixa = document.createElement('meta');
+    faixa.setAttribute('name', 'theme-color');
+    document.head.append(faixa);
+  }
+  faixa.setAttribute('content', escuro ? '#0E0D12' : '#FBFAF7');
+
   const b = $('#botao-tema');
   if (b) b.innerHTML = icone(escuro ? 'sol' : 'lua', { tipo: escuro ? 'cheio' : 'traco', tamanho: 20 });
 }
+
+/* Com o tema em «sistema», mudar o telemóvel de claro para escuro trocava as
+   cores na hora — e o ícone do botão ficava preso no estado anterior, porque
+   ninguém voltava a chamar isto. */
+SISTEMA_ESCURO.addEventListener('change', () => {
+  if (ler('tema', 'sistema') === 'sistema') aplicarTema();
+});
 
 /* =========================================================================
    Primeira abertura
@@ -1121,6 +1217,8 @@ function boasVindas() {
     caixa.querySelector('#bv-titulo').innerHTML = PASSOS[passo].t;
     caixa.querySelector('#bv-corpo').textContent = PASSOS[passo].c;
     caixa.querySelectorAll('.bv-ponto').forEach((p, i) => { p.dataset.ativo = i === passo ? 'sim' : 'nao'; });
+    const anuncio = caixa.querySelector('#bv-passo');
+    if (anuncio) anuncio.textContent = `Passo ${passo + 1} de ${PASSOS.length}`;
     caixa.querySelector('#bv-seguinte').textContent =
       passo === PASSOS.length - 1 ? 'Começar' : 'Continuar';
     palco.dataset.passo = String(passo);
@@ -1160,13 +1258,33 @@ function ecraSemLigacao(erro) {
   $('#barra').innerHTML = '';
   const principal = $('#principal');
   principal.innerHTML = '';
+
+  /* O que a pessoa veio fazer é mostrar o código ao balcão — e para isso não
+     precisa de nós. O código é gerado aqui, com o segredo que está no cofre
+     do telemóvel. Este ecrã dizia «os teus cartões estão a salvo» e depois
+     não dava caminho nenhum para lá chegar: um beco com uma frase simpática.
+     Se houver conta e segredo, o botão do código aparece primeiro. */
+  const podeMostrar = Boolean(estado.cliente?.publico || ler('cliente')?.publico);
+  if (podeMostrar && !estado.cliente) estado.cliente = ler('cliente');
+
   principal.append(el('div', { class: 'vazio' },
     el('div', { class: 'vazio-desenho', html: icone('alerta', { tamanho: 96 }) }),
     el('h3', { texto: 'Sem ligação ao servidor' }),
-    el('p', { texto: 'Os teus cartões estão a salvo — é só a ligação que falta. '
-      + 'Verifica a rede e tenta outra vez.' }),
+    el('p', { texto: podeMostrar
+      ? 'Podes mostrar o teu código na mesma — ele é feito no telemóvel e não '
+        + 'precisa de Internet. O balcão carimba e o cartão actualiza-se quando '
+        + 'a ligação voltar.'
+      : 'Os teus cartões estão a salvo — é só a ligação que falta. '
+        + 'Verifica a rede e tenta outra vez.' }),
+    podeMostrar ? el('button', {
+      class: 'btn btn-cheio btn-grande',
+      html: icone('qr', { tamanho: 18 }) + '<span>Mostrar o meu código</span>',
+      aoClick: () => abrirCodigo(),
+    }) : null,
     el('button', {
-      class: 'btn btn-cheio', texto: 'Tentar outra vez',
+      class: podeMostrar ? 'btn btn-contorno' : 'btn btn-cheio',
+      style: podeMostrar ? 'margin-top:8px' : '',
+      texto: 'Tentar outra vez',
       aoClick: () => location.reload(),
     }),
     el('p', { class: 'miudo', style: 'margin-top:8px', texto: erro?.message || '' })));
@@ -1191,7 +1309,21 @@ async function entrar() {
     if (MODO === 'demo') await api.semear(cliente.id);
   }
   estado.cliente = cliente;
-  estado.cartoes = await api.cartoes(cliente.id);
+  /* Os cartões ficam também em local. Não é cache por gosto: o momento em
+     que a app é mais precisa é ao balcão, e o balcão de um café é
+     exactamente onde a rede falha. O código QR é gerado no telemóvel, com o
+     segredo que está no cofre — não precisa de servidor nenhum. Sem esta
+     cópia, a app abria sem rede e não mostrava cartão nenhum, com um ecrã a
+     dizer «os teus cartões estão a salvo». */
+  try {
+    estado.cartoes = await api.cartoes(cliente.id);
+    guardar('cartoes', estado.cartoes);
+  } catch (erro) {
+    const guardados = ler('cartoes', null);
+    if (!erro.rede || !guardados) throw erro;
+    estado.cartoes = guardados;
+    estado.velho = true;
+  }
 
   aplicarTema();
   $('#botao-tema').addEventListener('click', () => {
@@ -1258,6 +1390,10 @@ async function arrancar() {
     try { await entrar(); }
     catch (e) { console.error(e); ecraSemLigacao(e); return; }
     await seguirConvite();
+    /* O manifesto declara um atalho «Mostrar o meu código» que aponta para
+       `?acao=codigo` — uma pressão longa no ícone da app, no Android. Ninguém
+       lia o parâmetro: o atalho abria a carteira como qualquer outro toque. */
+    if (new URLSearchParams(location.search).get('acao') === 'codigo') abrirCodigo();
   } else {
     boasVindas();
   }

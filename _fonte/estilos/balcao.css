@@ -53,9 +53,13 @@
 }
 .programa-texto { min-width: 0; }
 .programa-texto b { display: block; font-size: .9375rem; }
+/* «10 carimbos · Um café por conta da casa» pedia 247 px e tinha 198 num
+   ecrã de 320: o prémio ficava cortado nos quatro ecrãs do balcão. Duas
+   linhas resolvem sem crescer o cabeçalho de forma notória. */
 .programa-texto span {
-  display: block; font-size: .8125rem; color: var(--tinta-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  font-size: .8125rem; color: var(--tinta-3);
+  overflow: hidden; line-height: 1.3;
 }
 
 /* --- o visor da câmara ---------------------------------------------------- */
@@ -165,6 +169,21 @@
 .resultado-acoes {
   display: flex; flex-direction: column; gap: var(--e-2);
   margin-top: var(--e-5);
+}
+/* O botão de entregar leva o nome do prémio dentro, e o `.btn` do núcleo
+   traz `white-space: nowrap` — «Entreguei: Um café por conta da casa» pedia
+   289 px num botão de 280 e saía por fora dele. Aqui deixa-se quebrar, e a
+   altura acompanha. */
+.resultado-acoes .btn {
+  white-space: normal; text-wrap: balance;
+  height: auto; padding-block: var(--e-3); line-height: 1.3;
+}
+/* Espaço para a barra de baixo. A última acção do painel — que é sempre a
+   destrutiva, «Enganei-me — anular» — ficava por baixo da barra de
+   navegação: o toque batia na barra e não nela. E com os botões a poderem
+   agora quebrar em duas linhas, o painel cresceu e o problema piorou. */
+.resultado-acoes {
+  padding-bottom: calc(var(--barra) + var(--seguro-baixo) + var(--e-3));
 }
 
 /* --- números -------------------------------------------------------------- */

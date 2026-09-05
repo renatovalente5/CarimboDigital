@@ -216,12 +216,26 @@ button { background: none; border: 0; cursor: pointer; }
 }
 .saltar:focus { top: calc(var(--seguro-cima) + var(--e-4)); }
 
+/* Texto que só existe para quem ouve.
+   Não se usa `display:none` nem `visibility:hidden`: os dois tiram o texto
+   da árvore de acessibilidade e o leitor de ecrã também deixa de o ler. */
+.so-leitor {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 /* --- botões ------------------------------------------------------------- */
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
   gap: var(--e-2);
-  min-height: 48px;            /* WCAG 2.2 alvo mínimo, com folga */
+  /* 48 px. A WCAG 2.2 pede 24 no nível AA; 44 é a medida da Apple e a que
+     um polegar quer mesmo. Fica-se pelos 48 por folga — e as variantes
+     pequenas não descem abaixo de 44, senão a promessa da classe não vale
+     nada no sítio onde ela é mais precisa. */
+  min-height: 48px;
   padding: 0 var(--e-6);
   border-radius: var(--r-max);
   font-weight: 650;
@@ -246,7 +260,7 @@ button { background: none; border: 0; cursor: pointer; }
 
 .btn-bloco { width: 100%; }
 .btn-grande { min-height: 56px; font-size: 1.05rem; padding-inline: var(--e-7); }
-.btn-pequeno { min-height: 40px; font-size: .875rem; padding-inline: var(--e-4); }
+.btn-pequeno { min-height: 44px; font-size: .875rem; padding-inline: var(--e-4); }
 
 /* --- cartão de superfície ----------------------------------------------- */
 

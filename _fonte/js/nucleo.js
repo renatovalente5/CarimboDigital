@@ -45,6 +45,25 @@ export function el(etiqueta, atributos = {}, ...filhos) {
    mão: calcula-se. É isto que impede um cartão amarelo com letras brancas.
    ========================================================================= */
 
+/* =========================================================================
+   Grelha dos carimbos
+
+   O número de colunas escolhe-se para as linhas ficarem cheias — um cartão
+   de dez com uma linha de cinco e outra de cinco parece um cartão de papel;
+   com uma linha de seis e outra de quatro parece um erro.
+
+   Vive aqui, e não na app do cliente, porque o editor do balcão diz por
+   escrito «é assim que os clientes o vêem» — e tinha uma regra sua, de duas
+   linhas, que dava outro desenho. Um cartão de nove aparecia em três
+   colunas ao cliente e em cinco ao dono, que ficava a desenhar um cartão
+   que não era o que ia sair.
+   ========================================================================= */
+
+const GRELHA = { 1:1, 2:2, 3:3, 4:4, 5:5, 6:3, 7:4, 8:4, 9:3, 10:5, 11:4,
+                 12:4, 13:5, 14:5, 15:5, 16:4, 18:6, 20:5, 24:6, 25:5, 30:6 };
+
+export const colunas = (n) => GRELHA[n] || (n <= 12 ? 4 : 5);
+
 export function paraRGB(cor) {
   let h = String(cor || '').trim().replace('#', '');
   if (h.length === 3) h = h.split('').map((c) => c + c).join('');
@@ -240,6 +259,74 @@ export function apagar(chave) {
    ========================================================================= */
 
 let avisoAtual = null;
+
+/* =========================================================================
+   Diálogos: foco, prisão e devolução
+
+   Um painel que se declara `role="dialog" aria-modal="true"` e tapa o ecrã
+   está a prometer três coisas a quem navega por teclado ou por leitor de
+   ecrã, e nenhuma delas acontecia sozinha:
+
+   · o foco entra nele quando abre — senão continua atrás do véu, e quem usa
+     leitor de ecrã não faz ideia de que apareceu alguma coisa;
+   · o foco não sai dele enquanto estiver aberto — com Tab, o cursor passeava
+     pela página tapada, a carregar em botões que ninguém vê;
+   · o foco volta ao sítio de onde veio quando fecha — em vez de cair no
+     `body` e a tabulação recomeçar no topo da página.
+
+   `prenderFoco(no)` faz as três, e devolve a função que desfaz.
+   ========================================================================= */
+
+const FOCAVEIS = 'a[href], button:not([disabled]), input:not([disabled]), '
+  + 'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export function prenderFoco(no, { aoEscapar } = {}) {
+  const veioDe = document.activeElement;
+
+  const dentro = () => Array.from(no.querySelectorAll(FOCAVEIS))
+    .filter((n) => n.offsetWidth || n.offsetHeight || n.getClientRects().length);
+
+  /* O primeiro campo, se houver — é onde a pessoa vai escrever. Senão o
+     primeiro botão. Senão o próprio painel, que passa a ser focável só para
+     isto e sai da ordem de tabulação. */
+  const primeiro = no.querySelector('input, textarea, select') || dentro()[0];
+  if (primeiro) {
+    setTimeout(() => primeiro.focus({ preventScroll: true }), 60);
+  } else {
+    no.setAttribute('tabindex', '-1');
+    setTimeout(() => no.focus({ preventScroll: true }), 60);
+  }
+
+  const aoTeclar = (ev) => {
+    if (ev.key === 'Escape' && aoEscapar) { ev.preventDefault(); aoEscapar(); return; }
+    if (ev.key !== 'Tab') return;
+    const lista = dentro();
+    if (!lista.length) { ev.preventDefault(); return; }
+    const primeiroF = lista[0];
+    const ultimo = lista[lista.length - 1];
+    /* O `document.activeElement` pode estar fora do painel — por exemplo
+       logo a seguir a abrir, antes de o `setTimeout` correr. */
+    if (!no.contains(document.activeElement)) {
+      ev.preventDefault(); primeiroF.focus(); return;
+    }
+    if (ev.shiftKey && document.activeElement === primeiroF) {
+      ev.preventDefault(); ultimo.focus();
+    } else if (!ev.shiftKey && document.activeElement === ultimo) {
+      ev.preventDefault(); primeiroF.focus();
+    }
+  };
+  document.addEventListener('keydown', aoTeclar, true);
+
+  return function soltar() {
+    document.removeEventListener('keydown', aoTeclar, true);
+    /* Só se devolve o foco se ele ainda estiver dentro do que fechou. Se a
+       pessoa entretanto carregou noutro sítio, é lá que ela quer estar. */
+    if (veioDe && veioDe.isConnected && (!document.activeElement
+        || document.activeElement === document.body || no.contains(document.activeElement))) {
+      try { veioDe.focus({ preventScroll: true }); } catch { /* saiu do DOM */ }
+    }
+  };
+}
 
 export function avisar(mensagem, tipo = 'neutro') {
   if (avisoAtual) avisoAtual.remove();
