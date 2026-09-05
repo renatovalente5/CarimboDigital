@@ -59,6 +59,28 @@ function listar(pasta) {
 
 const VERSAO = versao();
 
+/* Os prazos de conservação lidos do Worker, que é quem os cumpre.
+
+   Estavam escritos à mão na política de privacidade e já tinham fugido: a
+   página prometia 20 minutos e o código apagava aos 15. Ninguém repara —
+   e é um prazo de conservação numa página legal, não uma gralha de rodapé.
+   Se algum destes nomes desaparecer do Worker, a construção morre aqui em
+   vez de publicar uma página com {{...}} à vista. */
+function prazosDoWorker() {
+  const fonte = readFileSync(join(RAIZ, 'worker', 'src', 'index.js'), 'utf8');
+  const ler = (nome) => {
+    const m = fonte.match(new RegExp(`const ${nome} = (\\d+);`));
+    if (!m) {
+      console.error(`\n✗ ${nome} deixou de existir em worker/src/index.js.`);
+      console.error('  Os prazos da política de privacidade saem de lá.\n');
+      process.exit(1);
+    }
+    return m[1];
+  };
+  return { ENTRADA_MINUTOS: ler('ENTRADA_MINUTOS'), SESSAO_DIAS: ler('SESSAO_DIAS') };
+}
+const PRAZOS = prazosDoWorker();
+
 const SUBSTITUICOES = {
   '{{BASE}}': BASE,
   '{{VERSAO}}': VERSAO,
@@ -68,6 +90,8 @@ const SUBSTITUICOES = {
   '{{CONTACTO}}': config.contacto,
   '{{COR}}': config.cor,
   '{{ANO}}': String(new Date().getFullYear()),
+  '{{PRAZO_CODIGO_EMAIL}}': PRAZOS.ENTRADA_MINUTOS,
+  '{{PRAZO_SESSAO}}': PRAZOS.SESSAO_DIAS,
   '{{CONFIG}}': JSON.stringify({ base: BASE, api: config.api || '', versao: VERSAO }),
   /* Dados da entidade. Enquanto não estiverem preenchidos aparecem como
      marcador visível — nunca como texto plausível mas falso, que é o pior

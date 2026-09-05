@@ -88,11 +88,20 @@ prioridade: 0.4
       iniciativa.</p>
 
     <h2>5. Onde ficam os dados</h2>
-    <p>Os dados ficam alojados na infraestrutura da Cloudflare, Inc.
-      (base de dados D1 e Workers) e as páginas são servidas pelo GitHub
-      Pages (GitHub, Inc.). Ambos são subcontratantes com cláusulas
-      contratuais-tipo aprovadas pela Comissão Europeia. Se tiveres deixado
-      um email, o envio da mensagem é feito pela Resend, Inc.</p>
+    <p>A base de dados fica na infraestrutura da Cloudflare, Inc., numa
+      região da União Europeia (D1 e Workers, <code>weur</code>). As páginas
+      são servidas pelo GitHub Pages (GitHub, Inc.).</p>
+    <p>Quando pedes um código por email, a mensagem é entregue pela
+      Resend, Inc. Passamos-lhe a tua morada de email e o texto da mensagem —
+      que é o código e mais nada. A Resend envia a partir de um servidor
+      europeu, mas é uma empresa dos Estados Unidos e os registos de envio
+      ficam com ela; ou seja, há aqui uma transferência para fora do Espaço
+      Económico Europeu.</p>
+    <p>Os três são subcontratantes nossos, ao abrigo do artigo 28.º do RGPD,
+      e as transferências assentam nas cláusulas contratuais-tipo aprovadas
+      pela Comissão Europeia. Se preferires não passar por aqui, não deixes
+      email: a app funciona sem ele — só perdes a possibilidade de recuperar
+      os cartões noutro telemóvel.</p>
 
     <h2>6. Durante quanto tempo</h2>
     <ul>
@@ -100,8 +109,10 @@ prioridade: 0.4
         apagares a conta, desaparecem imediatamente.</li>
       <li><strong>Códigos já usados:</strong> 24 horas. Servem só para
         impedir que o mesmo código seja usado duas vezes.</li>
-      <li><strong>Sessões:</strong> 180 dias, ou até apagares a conta.</li>
-      <li><strong>Ligações de recuperação por email:</strong> 20 minutos.</li>
+      <li><strong>Sessões:</strong> {{PRAZO_SESSAO}} dias, ou até apagares a
+        conta.</li>
+      <li><strong>Códigos enviados por email:</strong> {{PRAZO_CODIGO_EMAIL}}
+        minutos. Depois disso deixam de valer e a linha é apagada.</li>
       <li><strong>Contas inactivas:</strong> um cartão sem qualquer
         movimento durante 24 meses pode ser eliminado.</li>
     </ul>
