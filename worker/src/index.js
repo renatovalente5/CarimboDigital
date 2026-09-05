@@ -25,6 +25,7 @@ const TOLERANCIA = 2;              // janelas de folga para relógios desencontr
 const SESSAO_DIAS = 180;
 const ENTRADA_MINUTOS = 15;
 const ENTRADA_TENTATIVAS = 5;
+const USADOS_HORAS = 24;           // quanto tempo se guarda um código já gasto
 
 /* =========================================================================
    Respostas
@@ -1060,7 +1061,7 @@ export default {
      `codigos_usados` cresce para sempre: são quatro linhas por minuto por
      cliente activo, e o plano gratuito do D1 tem 5 GB. */
   async scheduled(evento, env) {
-    const ontem = new Date(Date.now() - 86400000).toISOString();
+    const ontem = new Date(Date.now() - USADOS_HORAS * 3600000).toISOString();
     await env.DB.batch([
       env.DB.prepare('DELETE FROM codigos_usados WHERE usado_em < ?').bind(ontem),
       env.DB.prepare('DELETE FROM sessoes WHERE expira_em < ?').bind(agora()),

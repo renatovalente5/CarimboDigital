@@ -77,7 +77,11 @@ function prazosDoWorker() {
     }
     return m[1];
   };
-  return { ENTRADA_MINUTOS: ler('ENTRADA_MINUTOS'), SESSAO_DIAS: ler('SESSAO_DIAS') };
+  return {
+    ENTRADA_MINUTOS: ler('ENTRADA_MINUTOS'),
+    SESSAO_DIAS: ler('SESSAO_DIAS'),
+    USADOS_HORAS: ler('USADOS_HORAS'),
+  };
 }
 const PRAZOS = prazosDoWorker();
 
@@ -92,6 +96,7 @@ const SUBSTITUICOES = {
   '{{ANO}}': String(new Date().getFullYear()),
   '{{PRAZO_CODIGO_EMAIL}}': PRAZOS.ENTRADA_MINUTOS,
   '{{PRAZO_SESSAO}}': PRAZOS.SESSAO_DIAS,
+  '{{PRAZO_CODIGO_USADO}}': PRAZOS.USADOS_HORAS,
   '{{CONFIG}}': JSON.stringify({ base: BASE, api: config.api || '', versao: VERSAO }),
   /* Dados da entidade. Enquanto não estiverem preenchidos aparecem como
      marcador visível — nunca como texto plausível mas falso, que é o pior
