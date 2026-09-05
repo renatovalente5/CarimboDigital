@@ -592,6 +592,37 @@ export async function correr(palco, certo) {
     'voltar: com os cartões todos outra vez',
     `${await palco.contar('#principal .pilha > .cartao')} de ${esperados.length}`);
 
+  /* --- o ritmo da lista -------------------------------------------------- */
+
+  /* O «Juntar outro cartão» estava fora da pilha, como irmão dela. O `gap` é
+     da pilha, por isso ele ficava colado ao último cartão, sem um milímetro
+     de folga — e numa carteira com um cartão só o efeito era um bloco de cor
+     com uma aba tracejada agarrada em baixo.
+
+     Mede-se a folga entre cada item e o seguinte, e exige-se que sejam todas
+     iguais: uma lista com um espaçamento diferente no fim lê-se como duas
+     listas. */
+  const folgas = await palco.js(`
+    const itens = [...document.querySelectorAll('#principal .pilha > *')];
+    const r = [];
+    for (let i = 1; i < itens.length; i++) {
+      r.push({
+        entre: itens[i - 1].className.split(' ')[0] + '→' + itens[i].className.split(' ')[0],
+        px: Math.round(itens[i].getBoundingClientRect().top
+                       - itens[i - 1].getBoundingClientRect().bottom),
+      });
+    }
+    return r;`);
+  const distintas = new Set(folgas.map((f) => f.px));
+  certo(folgas.length >= 2 && distintas.size === 1 && folgas[0].px > 0,
+    'carteira: todos os itens da lista têm a mesma folga, incluindo o «juntar outro»',
+    folgas.map((f) => `${f.entre} ${f.px}px`).join(' · '));
+
+  certo((await palco.contar('#principal .pilha > .adicionar')) === 1,
+    'carteira: e o «juntar outro» está dentro da pilha, não pendurado a seguir a ela',
+    `${await palco.contar('#principal .pilha > .adicionar')} dentro, `
+    + `${await palco.contar('#principal > .adicionar')} fora`);
+
   /* --- falta um só carimbo ---------------------------------------------- */
 
   /* O singular é um caso à parte no código («falta 1 carimbo», não «faltam 1

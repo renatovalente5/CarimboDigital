@@ -256,9 +256,14 @@ async function ecraCarteira(principal) {
 
   const lista = el('div', { class: 'pilha' });
   for (const c of estado.cartoes) lista.append(cartaoCompacto(c));
-  principal.append(lista);
 
-  principal.append(el('button', {
+  /* O «juntar outro» vai DENTRO da pilha, e não a seguir a ela. Estava como
+     irmão: a pilha é que tem o `gap`, por isso ele ficava colado ao último
+     cartão, sem um milímetro de folga — e com um cartão só na carteira o
+     efeito era um bloco castanho com uma aba tracejada agarrada em baixo.
+     Aqui dentro, apanha o mesmo espaço que separa os cartões uns dos
+     outros, e a carteira lê-se como uma lista só. */
+  lista.append(el('button', {
     class: 'linha adicionar', aoClick: () => irPara('descobrir'),
   },
     el('span', { class: 'linha-icone', html: icone('mais', { tamanho: 20 }) }),
@@ -266,6 +271,8 @@ async function ecraCarteira(principal) {
       el('b', { texto: 'Juntar outro cartão' }),
       el('span', { texto: 'Ver os sítios que já usam o Carimbo Digital' })),
     el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
+
+  principal.append(lista);
 }
 
 /* =========================================================================
