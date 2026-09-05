@@ -65,6 +65,26 @@ jobs:
       - name: Bateria do Worker
         run: node worker/testes.mjs
 
+      # E a bateria de browser: abre um Chrome sem interface, carrega nos
+      # botões com o rato e lê o que aparece. Encontrou quarenta e dois
+      # defeitos que a leitura do código não tinha apanhado — botões tapados
+      # por avisos, foco que não entra nos painéis, texto cortado a 320 px,
+      # a câmara a expulsar o operador da sessão. Nada disso se vê num
+      # `node --check`.
+      - name: Construir para a bateria de browser
+        run: node scripts/gerar.mjs
+
+      - name: Bateria de browser
+        run: node scripts/bateria.mjs
+
+      - name: Guardar as fotografias de quem falhou
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: bateria
+          path: _dev/bateria/
+          if-no-files-found: ignore
+
   construir:
     name: Construir
     needs: provar
