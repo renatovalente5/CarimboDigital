@@ -132,15 +132,52 @@ o código é preciso já existir um operador. O convite é quem corta o nó.
 
 ### Emails
 
-`node scripts/email.mjs` configura o Email Routing da Cloudflare — põe
-`ola@`, `balcao@` e `privacidade@` a cair na caixa pessoal, e um apanha-tudo
-para não se perder nada. **Só funciona depois de o domínio estar na
-Cloudflare**; até lá o script diz-te o que falta em vez de falhar sem
-explicar.
+São duas metades separadas, e é preciso as duas.
 
-Para o Worker *enviar* emails (os códigos de entrada) falta uma chave da
-Resend em `RESEND_API_KEY`. Sem ela o resto funciona, mas ninguém recupera a
-conta por email nem entra no balcão sem convite.
+**Receber** — o Email Routing da Cloudflare põe `ola@`, `balcao@` e
+`privacidade@` a cair na caixa pessoal, mais um apanha-tudo. Gratuito.
+
+**Enviar** — os códigos de recuperação saem pela Resend (100/dia, 3 000/mês
+no plano gratuito). Precisa de provar que o domínio é nosso, com registos de
+DNS.
+
+Ambas só funcionam **depois de o domínio estar na Cloudflare**, ou seja
+depois de os servidores de nomes do registador apontarem para lá. Até esse
+dia o serviço funciona à mesma: quem perder o telemóvel é que perde os
+cartões, e o balcão entra por convite em vez de por email.
+
+Quando o domínio chegar, por esta ordem:
+
+```bash
+# 1. o domínio na Cloudflare (dash.cloudflare.com → Add a domain),
+#    e os servidores de nomes que ela dá metidos no registador
+
+# 2. as duas metades, num comando
+cd ~/Websites/CarimboDigital
+RESEND_API_KEY=re_... node scripts/email.mjs
+
+# 3. a chave no Worker — escrita por ti, para não passar por mais lado nenhum
+cd worker
+npx wrangler secret put RESEND_API_KEY
+npx wrangler deploy
+```
+
+O script regista o domínio na Resend, pede-lhe a lista de registos de DNS
+(SPF, DKIM e afins) e cria-os na Cloudflare — em vez de os copiar à mão de
+uma janela para a outra, que é onde se erra um carácter e se perdem duas
+horas. Depois pede a verificação.
+
+Falta sempre uma coisa que nenhum script pode fazer: abrir o email que a
+Cloudflare manda para confirmar o destino do reencaminhamento, e clicar.
+
+**Se um envio falhar**, o motivo fica na consola do Worker:
+
+```bash
+cd worker && npx wrangler tail
+```
+
+A app não finge que enviou: se o email não sair, diz-o e deixa tentar outra
+vez, em vez de mandar esperar por um código que nunca vem.
 
 **A jurisdição escolhe-se na criação e não se muda depois.** `--location=weur`
 põe a base de dados na Europa Ocidental. Para a garantia jurídica de
