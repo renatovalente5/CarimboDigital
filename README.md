@@ -141,6 +141,17 @@ São duas metades separadas, e é preciso as duas.
 no plano gratuito). Precisa de provar que o domínio é nosso, com registos de
 DNS.
 
+> **Porque não o Email Sending da própria Cloudflare**, já que o resto está
+> lá? Porque exige o plano **Workers Paid** (5 $/mês). No plano gratuito só
+> entrega a endereços previamente verificados na conta — o que serve para
+> avisos a nós próprios e não serve para recuperação de conta, onde o
+> destinatário é qualquer cliente. Verificado em setembro de 2026 contra a
+> documentação e contra a própria conta (a API responde `Unauthorized`).
+>
+> Se um dia houver Workers Paid por outra razão, vale a pena trocar: o envio
+> passa a ser uma ligação no `wrangler.toml` e desaparece uma chave de API e
+> um fornecedor externo.
+
 Ambas só funcionam **depois de o domínio estar na Cloudflare**, ou seja
 depois de os servidores de nomes do registador apontarem para lá. Até esse
 dia o serviço funciona à mesma: quem perder o telemóvel é que perde os
