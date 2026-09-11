@@ -278,7 +278,15 @@ export async function correr(palco, certo) {
      ======================================================================= */
 
   await palco.ir('/app/?demo=1');
-  const BASE = await palco.js("return (window.CARIMBO_CONFIG || {}).base || ''");
+  /* Lê-se o config a sério e afirma-se que existe. Com `|| ''` um config em
+     falta era indistinguível de um domínio próprio — e todas as afirmações
+     que dependem do prefixo passavam a comparar com uma string vazia, ou
+     seja, a não comparar nada. */
+  const CFG = await palco.js('return window.CARIMBO_CONFIG || null');
+  certo(CFG && typeof CFG.base === 'string',
+    'a app publica a sua configuração, com o prefixo do sítio lá dentro',
+    JSON.stringify(CFG));
+  const BASE = CFG ? CFG.base : null;
   const VERSAO = await palco.js("return (window.CARIMBO_CONFIG || {}).versao || null");
   await passarBoasVindas(palco);
   await palco.esperar('#barra', 10000);

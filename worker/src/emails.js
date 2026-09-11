@@ -37,6 +37,11 @@ const LETRA_CODIGO = "'SF Mono', SFMono-Regular, Menlo, Consolas, "
 /* Modo claro. Todos medidos contra o fundo em que assentam: o mais fraco
    (TINTA_3 no rodapé) dá 4,98 — a norma pede 4,5. O anterior, #8B8895,
    dava 3,32 e não passava; parecia bem no ecrã e não estava. */
+/* O endereço do serviço, num sítio só. Estava escrito à mão em três — no
+   rodapé do HTML e nas duas versões em texto — e um endereço repetido é um
+   endereço à espera de divergir. */
+const SITIO = 'carimbodigital.pt';
+
 const TINTA = '#17161C';
 const TINTA_2 = '#5B5966';
 const TINTA_3 = '#6E6B79';
@@ -174,7 +179,7 @@ const risca = () =>
 function molde({ titulo, preheader, corpo, entidade }) {
   const e = {
     nome: 'Renato Lima Valente',
-    sitio: 'carimbodigital.pt',
+    sitio: SITIO,
     ...entidade,
   };
 
@@ -345,7 +350,7 @@ export function emailCodigoCliente({ codigo, minutos = 15, entidade } = {}) {
       'código deixa de valer sozinho.',
       '',
       '—',
-      'Carimbo Digital · carimbodigital.pt',
+      `Carimbo Digital · ${SITIO}`,
     ].join('\n'),
   };
 }
@@ -390,7 +395,7 @@ export function emailCodigoBalcao({ codigo, minutos = 15, negocio, entidade } = 
       'código.',
       '',
       '—',
-      'Carimbo Digital · carimbodigital.pt',
+      `Carimbo Digital · ${SITIO}`,
     ].join('\n'),
   };
 }

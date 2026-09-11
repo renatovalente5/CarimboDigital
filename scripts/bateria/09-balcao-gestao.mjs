@@ -871,7 +871,10 @@ export async function correr(palco, certo) {
     'cartaz: carregar no botão manda mesmo abrir uma página',
     `abriu ${aberturas.length} janelas`);
 
-  const base = await palco.js('return (window.CARIMBO_CONFIG || {}).base || ""');
+  const cfg = await palco.js('return window.CARIMBO_CONFIG || null');
+  certo(cfg && typeof cfg.base === 'string',
+    'cartaz: a app sabe qual é o prefixo do sítio', JSON.stringify(cfg));
+  const base = cfg ? cfg.base : null;
   const aberto = aberturas[0] ? aberturas[0].url : '';
   certo(aberto.startsWith(`${base}/balcao/cartaz.html?`),
     'cartaz: o endereço é o do cartaz, com o prefixo do sítio',

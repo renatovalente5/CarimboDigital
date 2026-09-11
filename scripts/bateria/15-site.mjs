@@ -493,6 +493,16 @@ export async function correr(palco, certo) {
     certo(nus.length === 0,
       `ligações: todos os caminhos internos levam o prefixo ${BASE}`,
       nus.map((l) => `${l.onde}: ${l.cru}`).join(' · '));
+  } else {
+    /* Com domínio próprio a pergunta inverte-se — e tem de continuar a haver
+       uma. Este bloco ficava inteiro por correr, e um teste que não corre
+       parece um teste que passa. O que dá 404 agora é o contrário: um
+       caminho que ainda leve o prefixo antigo. */
+    const velhos = todas.filter((l) => l.mesmaOrigem && l.caminho
+      && l.caminho.startsWith('/CarimboDigital/'));
+    certo(velhos.length === 0,
+      'ligações: nenhum caminho interno ficou com o prefixo antigo',
+      velhos.map((l) => `${l.onde}: ${l.cru}`).join(' · '));
   }
 
   const internas = [...new Set(todas.filter((l) => l.mesmaOrigem && l.semAncora)

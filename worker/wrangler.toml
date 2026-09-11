@@ -15,7 +15,11 @@ compatibility_date = "2026-08-01"
 # servidor a sério. Não é o que protege a API: os testemunhos de sessão vão no
 # cabeçalho `authorization` e não em cookies, por isso um site alheio nunca os
 # envia sozinho. Isto é uma camada a mais, não a única.
-ORIGENS = "https://renatovalente5.github.io,https://carimbodigital.pt,https://www.carimbodigital.pt,http://localhost:4321"
+# O github.io saiu com a chegada do domínio próprio. Não era o endereço
+# deste projecto — era o da CONTA inteira, por isso qualquer outro site
+# publicado nela podia falar com esta API. E hoje aquele endereço já só
+# redirecciona para cá.
+ORIGENS = "https://carimbodigital.pt,https://www.carimbodigital.pt,http://localhost:4321"
 EMAIL_REMETENTE = "Carimbo Digital <ola@carimbodigital.pt>"
 
 [[d1_databases]]

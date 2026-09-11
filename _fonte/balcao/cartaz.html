@@ -137,7 +137,7 @@
     <p class="premio" id="premio">&nbsp;</p>
     <p class="passos">Aponta a câmara do telemóvel.<br>Não é preciso instalar nada.</p>
   </div>
-  <p class="rodape">carimbodigital.pt</p>
+  <p class="rodape">{{DOMINIO}}</p>
 </div>
 
 <p class="dica">Imprime em A4 e cola ao pé da caixa. O código leva o cliente
@@ -174,9 +174,13 @@
   folha.style.background = segura.cor;
   folha.style.color = segura.tinta;
 
+  /* O domínio vem do config, pelo marcador, como em todo o resto do site.
+     Estava escrito à mão em quatro sítios deste ficheiro — e um cartaz com o
+     endereço errado é papel colado a uma parede, que ninguém volta a rever. */
+  const SITIO = 'https://{{DOMINIO}}';
   const destino = slug
-    ? `https://carimbodigital.pt/app/?n=${encodeURIComponent(slug)}`
-    : 'https://carimbodigital.pt/app/';
+    ? `${SITIO}/app/?n=${encodeURIComponent(slug)}`
+    : `${SITIO}/app/`;
 
   const quadro = document.getElementById('quadro');
   try {
@@ -185,7 +189,7 @@
     quadro.innerHTML = qrParaSVG(destino, { nivel: 'H', margem: 4, cor: '#17161C' });
   } catch (erro) {
     quadro.innerHTML = '<div class="falhou">Não deu para desenhar o código. '
-      + 'Escreve carimbodigital.pt no cartaz.</div>';
+      + 'Escreve {{DOMINIO}} no cartaz.</div>';
   }
 
   document.getElementById('imprimir').addEventListener('click', () => window.print());

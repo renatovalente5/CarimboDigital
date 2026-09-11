@@ -642,11 +642,25 @@ function ecraPerfil(principal) {
   }
 }
 
-async function guardarConta() {
-  const painel = abrirPainel('Guardar a conta');
+/**
+ * O mesmo painel, dito ao contrário.
+ *
+ * Guardar e recuperar são o mesmo caminho — escrever a morada e confirmar o
+ * código — mas quem chega por aqui já tem conta e quer os cartões de volta.
+ * Chamar-lhe «Guardar a conta» fá-la-ia pensar que está a criar outra.
+ */
+function recuperarConta() {
+  return guardarConta({ recuperar: true });
+}
+
+async function guardarConta({ recuperar = false } = {}) {
+  const painel = abrirPainel(recuperar ? 'Recuperar os cartões' : 'Guardar a conta');
   painel.append(
-    el('p', { class: 'subtexto', texto: 'Deixa um email e enviamos um código de seis '
-      + 'algarismos. Se mudares de telemóvel, escreves o código e os cartões voltam todos.' }),
+    el('p', { class: 'subtexto', texto: recuperar
+      ? 'Escreve a morada de email que já usaste. Enviamos um código de seis '
+        + 'algarismos e os cartões voltam para este telemóvel.'
+      : 'Deixa um email e enviamos um código de seis '
+        + 'algarismos. Se mudares de telemóvel, escreves o código e os cartões voltam todos.' }),
     el('label', { class: 'campo' },
       el('span', { texto: 'Email' }),
       el('input', { type: 'email', inputmode: 'email', autocomplete: 'email',
@@ -1235,13 +1249,31 @@ function boasVindas() {
     if (passo < PASSOS.length - 1) { passo++; pintar(); vibrar(8); return; }
     guardar('visto-bv', true);
     caixa.hidden = true;
-    try { await entrar(); }
-    catch (e) { console.error(e); ecraSemLigacao(e); }
+    try {
+      await entrar();
+      /* Também aqui, e não só para quem já conhece a app: quem chega pelo
+         cartaz de um café é, por definição, quem nunca a abriu. O convite
+         ficava a ser lido apenas no ramo de quem já tinha visto as
+         boas-vindas — ou seja, nunca para o público a que o cartaz se
+         dirige. */
+      await seguirConvite();
+    } catch (e) { console.error(e); ecraSemLigacao(e); }
   });
-  caixa.querySelector('#bv-saltar').addEventListener('click', () => {
-    avisar(MODO === 'demo'
-      ? 'Na demonstração cada telemóvel tem a sua conta.'
-      : 'Abre no telemóvel antigo o Perfil › Guardar a conta.', 'neutro');
+
+  /* «Já tenho conta noutro telemóvel» dava um aviso e mais nada — e o aviso
+     mandava a pessoa fazer no telemóvel antigo uma coisa que ela pode já ter
+     feito. Agora que a recuperação por email funciona de verdade, o botão
+     abre-a: escreve-se a morada, chega o código, e os cartões voltam. */
+  caixa.querySelector('#bv-saltar').addEventListener('click', async () => {
+    if (MODO === 'demo') {
+      avisar('Na demonstração cada telemóvel tem a sua conta.', 'neutro');
+      return;
+    }
+    guardar('visto-bv', true);
+    caixa.hidden = true;
+    try { await entrar(); }
+    catch (e) { console.error(e); ecraSemLigacao(e); return; }
+    recuperarConta();
   });
   pintar();
 }

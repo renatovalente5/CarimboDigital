@@ -197,7 +197,13 @@ for (const ficheiro of paginas) {
     .split('{{RODAPE}}').join(parcial('rodape.html'))
     .split('{{TITULO}}').join(meta.titulo || config.nome)
     .split('{{RESUMO}}').join(meta.resumo || config.descricao)
-    .split('{{CANONICO}}').join(`https://${config.dominio}${rota}${rota ? '/' : '/'}`)
+    /* Uma página que não quer ser indexada também não tem canónico: o da
+       404 apontava para /404/, um endereço que responde 404. Dizer aos
+       motores «a versão oficial desta página é aquela» quando aquela não
+       existe é pior do que não dizer nada. */
+    .split('{{CANONICO_TAG}}').join(meta.naoIndexar
+      ? '' : `<link rel="canonical" href="https://${config.dominio}${rota}/">`)
+    .split('{{CANONICO}}').join(`https://${config.dominio}${rota}/`)
     .split('{{ROBOTS}}').join(meta.naoIndexar
       ? '\n<meta name="robots" content="noindex">' : '')
     .split('{{CLASSE}}').join(meta.classe || '')

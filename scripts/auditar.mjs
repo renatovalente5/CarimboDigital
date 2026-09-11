@@ -110,7 +110,22 @@ if (BASE) {
   }
   if (!nus) bem(`todos os caminhos absolutos começam por ${BASE}`);
 } else {
-  bem('com domínio próprio — não é preciso prefixo');
+  /* Com domínio próprio a pergunta inverte-se, e tem de continuar a haver
+     uma. Este ramo limitava-se a imprimir um ✓ — uma verificação que passa a
+     ser sempre verdadeira é pior do que não existir, porque ocupa o lugar de
+     uma que verificaria. O que se procura agora é o contrário: um caminho
+     que ainda leve o prefixo antigo dá 404 no domínio novo. */
+  let velhos = 0;
+  for (const ficheiro of ficheiros) {
+    if (!['.html', '.js', '.json', '.css', '.webmanifest', '.xml', '.txt'].includes(extname(ficheiro))) continue;
+    const texto = readFileSync(ficheiro, 'utf8');
+    for (const m of texto.matchAll(/["'(]\/CarimboDigital\//g)) {
+      falhar(`${ficheiro.slice(SAIDA.length + 1)}: ainda leva o prefixo /CarimboDigital/`);
+      velhos++;
+      break;
+    }
+  }
+  if (!velhos) bem('com domínio próprio, e nenhum caminho ficou com o prefixo antigo');
 }
 
 /* --- 4. cabeça das páginas ---------------------------------------------- */
@@ -283,7 +298,54 @@ console.log('\nIndexação');
   if (!mal) bem('as duas aplicações estão fora dos motores de busca');
 }
 
-/* --- 11. o JavaScript que se publica ao menos analisa ------------------
+/* --- 11. o domínio ------------------------------------------------------
+
+   O prefixo dos caminhos sai da existência de um ficheiro CNAME na raiz do
+   repositório. É um mecanismo bom e tem um ponto cego: se o CNAME existir
+   em disco mas não chegar ao que se publica, o site sai construído para a
+   raiz e o GitHub desliga o domínio próprio — ou, ao contrário, fica
+   construído com prefixo e servido na raiz. Nos dois casos o site está no
+   ar e partido, e nada reprova.
+
+   Aqui liga-se o ficheiro ao que o config diz, e o config ao que o Worker
+   aceita: três sítios que têm de concordar sobre o mesmo nome.
+   ---------------------------------------------------------------------- */
+console.log('\nDomínio');
+{
+  const cname = join(RAIZ, 'CNAME');
+  let mal = 0;
+  if (existsSync(cname)) {
+    const dito = readFileSync(cname, 'utf8').trim();
+    if (dito !== config.dominio) {
+      falhar(`o CNAME diz «${dito}» e o config diz «${config.dominio}»`); mal++;
+    }
+    if (!existsSync(join(SAIDA, 'CNAME'))) {
+      falhar('o CNAME não foi para o _site — o GitHub desliga o domínio próprio'); mal++;
+    } else if (readFileSync(join(SAIDA, 'CNAME'), 'utf8').trim() !== dito) {
+      falhar('o CNAME do _site não é o mesmo da raiz'); mal++;
+    }
+
+    /* A app fala com o Worker de outra origem, por isso o Worker tem de a
+       conhecer pelo nome. Nada ligava as duas coisas: o domínio podia mudar
+       e a lista ficar para trás, e o sintoma seria «Sem ligação ao servidor»
+       — que manda toda a gente procurar a rede em vez da causa. */
+    const toml = readFileSync(join(RAIZ, 'worker', 'wrangler.toml'), 'utf8');
+    const linha = (toml.match(/^ORIGENS\s*=\s*"([^"]*)"/m) || [])[1] || '';
+    const origens = linha.split(',').map((x) => x.trim());
+    for (const esperada of [`https://${dito}`, `https://www.${dito}`]) {
+      if (!origens.includes(esperada)) {
+        falhar(`o Worker não aceita a origem ${esperada} (ver worker/wrangler.toml)`); mal++;
+      }
+    }
+  }
+  if (!mal) {
+    bem(existsSync(cname)
+      ? `domínio ${config.dominio}: CNAME, config e origens do Worker de acordo`
+      : 'sem domínio próprio — o site vive debaixo do prefixo');
+  }
+}
+
+/* --- 12. o JavaScript que se publica ao menos analisa ------------------
    Um erro de sintaxe num módulo não parte a construção: o gerador copia
    ficheiros, não os lê. Parte a aplicação no browser, em silêncio, e
    descobre-se quando alguém a abre. Custa milissegundos verificar aqui.
@@ -312,7 +374,7 @@ console.log('\nJavaScript');
   if (!mal) bem(`${modulos.length} módulos de JavaScript analisam`);
 }
 
-/* --- 12. contraste da paleta -------------------------------------------
+/* --- 13. contraste da paleta -------------------------------------------
    Isto está aqui porque a paleta original tinha oito pares que não passavam
    e nenhum deles se via a olho: a legenda cinzenta parecia «cinzenta o
    suficiente». Passar o olho não mede nada — 3,0 e 4,6 são

@@ -7,8 +7,7 @@ balcão aponta a câmara, o carimbo aparece nos dois telemóveis.
 > A marca é um pedaço do próprio produto: três casas carimbadas e uma por
 > carimbar, com o mesmo tracejado que a app usa nas casas vazias.
 
-**Domínio:** `carimbodigital.pt` (comprado; à espera de atribuição).
-**No ar:** https://renatovalente5.github.io/CarimboDigital/
+**No ar:** https://carimbodigital.pt
 **API:** `https://carimbodigital-api.renato-lima-valente-dcb.workers.dev`
 
 ---
@@ -91,11 +90,17 @@ mete esse prefixo em todos os caminhos sozinho. **Assim que o domínio
 existir**, cria um ficheiro `CNAME` na raiz com o domínio lá dentro: o
 prefixo desaparece e tudo passa a apontar para a raiz.
 
-> **Compra o domínio antes de dar o link a alguém.** As contas dos clientes
-> são guardadas por origem (`localStorage` + `IndexedDB`). Mudar de
-> `renatovalente5.github.io/CarimboDigital` para `carimbodigital.pt` apaga todas as contas
-> criadas até lá. Com dois utilizadores não custa nada; com duzentos, custa
-> os duzentos.
+> **Já aconteceu, a 11 de Setembro de 2026.** O site vivia em
+> `renatovalente5.github.io/CarimboDigital` e passou a viver na raiz de
+> `carimbodigital.pt`. As contas dos clientes são guardadas por ORIGEM
+> (`localStorage` + `IndexedDB`), e a origem mudou: quem tivesse a app
+> instalada no endereço antigo abre o novo e encontra uma conta vazia. Os
+> cartões não se perderam — estão no servidor, presos à conta antiga — mas o
+> caminho de volta é a recuperação por email, e só serve a quem tenha
+> deixado a morada antes.
+>
+> Custou zero porque ainda ninguém a usava a sério. Se voltar a mudar de
+> endereço, já não é assim.
 
 ### A API (Cloudflare Worker)
 

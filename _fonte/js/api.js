@@ -158,6 +158,11 @@ export async function gerarCodigo(publico) {
 const TECTO_PEDIDO = 15000;
 
 function criarRemoto(base) {
+  /* Uma barra final no `api` do config transformava todos os pedidos em
+     `//v1/algo` — que o Worker não conhece, e que devolve 404 a tudo sem
+     que nada no ecrã explique porquê. */
+  base = String(base || '').replace(/\/+$/, '');
+
   async function pedir(caminho, { metodo = 'GET', corpo, sessao } = {}) {
     const cabecalhos = { 'content-type': 'application/json' };
     const t = sessao ?? ler(CHAVE_SESSAO);
