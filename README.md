@@ -109,8 +109,10 @@ prefixo desaparece e tudo passa a apontar para a raiz.
 de mexer no `worker/src/index.js`:
 
 ```bash
-cd worker && npx wrangler deploy
+cd worker && npx wrangler deploy --config ./wrangler.toml
 ```
+
+O `--config` não é decoração — ver «Aquilo em que se pode tropeçar».
 
 Se um dia for preciso recomeçar do zero:
 
@@ -122,7 +124,7 @@ npx wrangler d1 execute carimbodigital --remote --file=esquema.sql
 npx wrangler secret put CHAVE_MESTRA      # 32 bytes em base64url
 npx wrangler secret put CODIGO_FUNDADOR   # o convite para criar negócios
 npx wrangler secret put MAIL_TOKEN        # o correio, ver «Emails»
-npx wrangler deploy
+npx wrangler deploy --config ./wrangler.toml
 ```
 
 ### Criar um negócio
@@ -182,7 +184,7 @@ MAIL_TOKEN=... node scripts/email.mjs
 #    lado nenhum:
 cd worker
 npx wrangler secret put MAIL_TOKEN
-npx wrangler deploy
+npx wrangler deploy --config ./wrangler.toml
 
 # 4. e uma prova a sério, com o email a chegar à caixa:
 MAIL_TOKEN=... MAIL_CAIXA=AC... node scripts/email.mjs --enviar
@@ -251,6 +253,15 @@ tecto as consultas falham até à meia-noite UTC, em vez de serem toleradas.
 - **Links de email não funcionam dentro de uma app instalada no iOS.** Por
   isso a recuperação de conta é por **código de seis algarismos**, e não por
   ligação.
+- **Publica-se sempre com `--config ./wrangler.toml`.** O wrangler 4.131
+  estreou uma «autoconfig» que, quando não encontra configuração à primeira,
+  escreve uma por sua conta — e escreveu-a na **pasta-mãe** (`~/Websites/`),
+  com um Worker chamado `ebsites` e a pasta do projecto ao lado como assets.
+  A partir daí passou a publicar por esse ficheiro em vez deste. A publicação
+  falhou por acaso, num binário grande; se a pasta apanhada fosse pequena,
+  tinha corrido bem e publicado o site de outro projecto como um Worker novo.
+  Sintomas: o nome do Worker no output não é `carimbodigital-api`, ou fala de
+  ficheiros de outra pasta.
 - **O `_site/` não vai para o repositório.** É gerado.
 
 ## Estrutura
