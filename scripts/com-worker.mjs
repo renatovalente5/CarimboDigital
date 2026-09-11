@@ -63,6 +63,11 @@ function correrSQL(ficheiro) {
  */
 function prepararBase() {
   correrSQL('esquema.sql');
+  /* A semente é `INSERT OR IGNORE`, por isso corre sempre sem estragar nada.
+     Não estava aqui, e os testes locais passavam só porque a base guardava os
+     restos de corridas anteriores — numa máquina limpa, o programa `p1` que
+     metade deles carimba não existia. */
+  correrSQL('semear.sql');
   const pasta = join(WORKER, 'migracoes');
   if (!existsSync(pasta)) return;
   for (const f of readdirSync(pasta).filter((n) => n.endsWith('.sql')).sort()) {
