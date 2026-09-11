@@ -1,310 +1,191 @@
 #!/usr/bin/env node
 /* =========================================================================
-   Carimbo Digital — o email, as duas metades
+   Carimbo Digital — o email
 
-   RECEBER: o Email Routing da Cloudflare põe `ola@carimbodigital.pt` a cair
-   na caixa pessoal, sem alojamento de email e sem custo.
+   As duas metades vivem no mesmo sítio: `geral@carimbodigital.pt` é uma
+   caixa da Hostinger, que recebe o correio e por onde saem os códigos de
+   entrada. Nada sai da União Europeia e não há subcontratante nenhum a mais.
 
-   ENVIAR: os códigos de recuperação saem pela Resend, que precisa de provar
-   que o domínio é nosso — três registos de DNS. Como o DNS já está na
-   Cloudflare, este script pede a lista à Resend e cria-os lá, em vez de
-   obrigar a copiar valores à mão de uma janela para a outra (que é onde se
-   erra um carácter e se perdem duas horas).
+   Chegou-se aqui depois de a Resend estar planeada e quase montada. O que a
+   desfez foi descobrir que a Hostinger tem API de correio incluída no plano,
+   com mil a três mil envios por DIA — contra três mil por mês do plano
+   gratuito da Resend — e sem transferir nada para fora da Europa.
 
-   As duas metades só funcionam depois de o domínio estar na Cloudflare — ou
-   seja, depois de os servidores de nomes do registador apontarem para lá.
-   Antes disso o script diz o que falta em vez de falhar sem explicar.
+   O que este script faz:
 
-   Uso:  node scripts/email.mjs
-         node scripts/email.mjs --destino outro@email.pt
-         RESEND_API_KEY=re_... node scripts/email.mjs     (faz também o envio)
+   · confere o DNS do domínio, que é onde os erros são silenciosos: um SPF a
+     mais invalida o que lá estava, um DKIM em falta manda tudo para o spam,
+     e nada disto dá erro em lado nenhum — dá emails que não chegam, dias
+     depois;
+   · com um token, descobre o identificador da caixa (que vai para o
+     `MAIL_CAIXA` do wrangler.toml) e mostra a quota que resta;
+   · com `--enviar`, manda um email de prova a sério.
 
-   A autenticação da Cloudflare sai do wrangler (`npx wrangler login`), ou de
-   um token em CLOUDFLARE_API_TOKEN com Zone:Read, Zone:Edit (DNS) e
-   Email Routing:Edit.
+   Uso:
+     node scripts/email.mjs
+     MAIL_TOKEN=... node scripts/email.mjs
+     MAIL_TOKEN=... node scripts/email.mjs --enviar --destino outro@email.pt
 
-   Corre-se quantas vezes se quiser: não duplica nada.
+   O TOKEN NÃO SE GUARDA AQUI nem no repositório. Em produção vive num
+   segredo do Worker:  npx wrangler secret put MAIL_TOKEN
+
+   E convém saber o que ele abre: a API da Hostinger não tem âmbito
+   só-de-envio. O mesmo token lê, procura e apaga o correio desta caixa.
    ========================================================================= */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
+import { promises as dns } from 'node:dns';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
-const config = JSON.parse(readFileSync(join(AQUI, '..', '_fonte', 'config.json'), 'utf8'));
-
+const RAIZ = join(AQUI, '..');
+const config = JSON.parse(readFileSync(join(RAIZ, '_fonte', 'config.json'), 'utf8'));
 const DOMINIO = config.dominio;
-const argumentos = process.argv.slice(2);
-const iDestino = argumentos.indexOf('--destino');
-const DESTINO = iDestino >= 0 ? argumentos[iDestino + 1] : config.entidade?.email;
+const API = 'https://api.mail.hostinger.com/api/v1';
 
-/* As caixas que interessam. Tudo cai no mesmo sítio, mas com endereços
-   separados sabe-se de onde veio cada mensagem — e um dia é fácil mandar o
-   `balcao@` para outra pessoa sem mexer no resto. */
-const CAIXAS = ['ola', 'balcao', 'privacidade'];
+const args = process.argv.slice(2);
+const DESTINO = args.includes('--destino') ? args[args.indexOf('--destino') + 1] : config.contacto;
+const ENVIAR = args.includes('--enviar');
+const TOKEN = process.env.MAIL_TOKEN || '';
 
-if (!DESTINO) {
-  console.error('Falta o destino. Põe `entidade.email` no config.json ou usa --destino.');
-  process.exit(1);
-}
+/* Resolvedor público: o do sistema pode ter em cache o que havia antes de se
+   mexer no painel, e isso já valeu meia hora a olhar para um registo que
+   estava lá à frente. */
+dns.setServers(['1.1.1.1', '8.8.8.8']);
 
-/* --- autenticação -------------------------------------------------------- */
+let erros = 0, avisos = 0;
+const bem = (t) => console.log(`  ✓ ${t}`);
+const mal = (t, d = '') => { erros++; console.log(`  ✗ ${t}${d ? ` — ${d}` : ''}`); };
+const talvez = (t, d = '') => { avisos++; console.log(`  ! ${t}${d ? ` — ${d}` : ''}`); };
 
-function token() {
-  if (process.env.CLOUDFLARE_API_TOKEN) {
-    return { valor: process.env.CLOUDFLARE_API_TOKEN, origem: 'CLOUDFLARE_API_TOKEN' };
-  }
-  const p = join(homedir(), '.wrangler', 'config', 'default.toml');
-  if (existsSync(p)) {
-    const m = readFileSync(p, 'utf8').match(/oauth_token\s*=\s*"([^"]+)"/);
-    if (m) return { valor: m[1], origem: 'wrangler' };
-  }
-  return null;
-}
+const txt = async (n) => { try { return (await dns.resolveTxt(n)).map((p) => p.join('')); } catch { return []; } };
+const mx = async (n) => { try { return await dns.resolveMx(n); } catch { return []; } };
+const cname = async (n) => { try { return await dns.resolveCname(n); } catch { return []; } };
 
-const chave = token();
-if (!chave) {
-  console.error('Sem credenciais. Corre `npx wrangler login` ou define CLOUDFLARE_API_TOKEN.');
-  process.exit(1);
-}
+const pedir = async (caminho) => {
+  const r = await fetch(API + caminho, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const corpo = await r.json().catch(() => null);
+  return { estado: r.status, corpo };
+};
 
-const API = 'https://api.cloudflare.com/client/v4';
+console.log(`\nO email de ${DOMINIO}\n${'─'.repeat(52)}`);
 
-async function cf(caminho, { metodo = 'GET', corpo } = {}) {
-  const r = await fetch(API + caminho, {
-    method: metodo,
-    headers: {
-      authorization: `Bearer ${chave.valor}`,
-      'content-type': 'application/json',
-    },
-    body: corpo === undefined ? undefined : JSON.stringify(corpo),
-  });
-  const d = await r.json().catch(() => ({}));
-  return { ok: r.ok && d.success !== false, estado: r.status, dados: d };
-}
+/* --- o DNS --------------------------------------------------------------- */
+console.log('\nDNS');
+{
+  const registos = await mx(DOMINIO);
+  if (!registos.length) mal('sem MX — o domínio não recebe email nenhum');
+  else bem(`MX: ${registos.map((r) => `${r.exchange} (${r.priority})`).join(', ')}`);
 
-/* --- 1. a zona ----------------------------------------------------------- */
-
-console.log(`\nEmail Routing para ${DOMINIO} → ${DESTINO}`);
-console.log(`(credenciais: ${chave.origem})\n`);
-
-const zonas = await cf(`/zones?name=${encodeURIComponent(DOMINIO)}`);
-if (!zonas.ok) {
-  console.error('Não deu para consultar as zonas:',
-    JSON.stringify(zonas.dados.errors || zonas.dados).slice(0, 300));
-  process.exit(1);
-}
-const zona = zonas.dados.result?.[0];
-if (!zona) {
-  console.error(`O domínio ${DOMINIO} ainda não está nesta conta Cloudflare.\n`);
-  console.error('Primeiro:');
-  console.error('  1. dash.cloudflare.com → Add a domain → ' + DOMINIO);
-  console.error('  2. a Cloudflare dá dois servidores de nomes;');
-  console.error('     mete-os no registador onde compraste o domínio');
-  console.error('  3. espera pela propagação (costuma ser menos de uma hora)');
-  console.error('  4. volta a correr este script\n');
-  process.exit(2);
-}
-console.log(`✓ zona encontrada (${zona.status})`);
-if (zona.status !== 'active') {
-  console.log('  ! a zona ainda não está activa — os servidores de nomes podem');
-  console.log('    não ter propagado. O resto pode falhar; tenta outra vez daqui a pouco.');
-}
-
-/* --- 2. ligar o Email Routing -------------------------------------------- */
-
-const estado = await cf(`/zones/${zona.id}/email/routing`);
-if (estado.dados.result?.enabled) {
-  console.log('✓ Email Routing já estava ligado');
-} else {
-  const liga = await cf(`/zones/${zona.id}/email/routing/enable`, { metodo: 'POST', corpo: {} });
-  console.log(liga.ok ? '✓ Email Routing ligado'
-    : `✗ não deu para ligar: ${JSON.stringify(liga.dados.errors || liga.dados).slice(0, 200)}`);
-}
-
-/* --- 3. o destino (precisa de confirmação por email) --------------------- */
-
-const enderecos = await cf(`/zones/${zona.id}/email/routing/addresses`);
-const existente = (enderecos.dados.result || []).find((a) => a.email === DESTINO);
-if (existente) {
-  console.log(existente.verified
-    ? `✓ destino ${DESTINO} já confirmado`
-    : `! destino ${DESTINO} à espera de confirmação — abre o email da Cloudflare`);
-} else {
-  const novo = await cf(`/zones/${zona.id}/email/routing/addresses`, {
-    metodo: 'POST', corpo: { email: DESTINO },
-  });
-  console.log(novo.ok
-    ? `✓ destino ${DESTINO} adicionado — a Cloudflare enviou-lhe um email de confirmação`
-    : `✗ não deu para adicionar o destino: ${JSON.stringify(novo.dados.errors || novo.dados).slice(0, 200)}`);
-}
-
-/* --- 4. as regras -------------------------------------------------------- */
-
-const regras = await cf(`/zones/${zona.id}/email/routing/rules`);
-const jaExistem = new Set();
-for (const r of regras.dados.result || []) {
-  for (const m of r.matchers || []) if (m.value) jaExistem.add(m.value);
-}
-
-for (const caixa of CAIXAS) {
-  const endereco = `${caixa}@${DOMINIO}`;
-  if (jaExistem.has(endereco)) { console.log(`✓ ${endereco} já reencaminha`); continue; }
-  const r = await cf(`/zones/${zona.id}/email/routing/rules`, {
-    metodo: 'POST',
-    corpo: {
-      name: `${endereco} → ${DESTINO}`,
-      enabled: true,
-      matchers: [{ type: 'literal', field: 'to', value: endereco }],
-      actions: [{ type: 'forward', value: [DESTINO] }],
-    },
-  });
-  console.log(r.ok ? `✓ ${endereco} → ${DESTINO}`
-    : `✗ ${endereco}: ${JSON.stringify(r.dados.errors || r.dados).slice(0, 160)}`);
-}
-
-/* Apanha-tudo: o que chegar a um endereço que não existe não se perde. */
-const apanha = await cf(`/zones/${zona.id}/email/routing/rules/catch_all`);
-const jaApanha = apanha.dados.result?.enabled
-  && (apanha.dados.result.actions || []).some((a) => (a.value || []).includes(DESTINO));
-if (jaApanha) {
-  console.log('✓ apanha-tudo já estava a reencaminhar');
-} else {
-  const r = await cf(`/zones/${zona.id}/email/routing/rules/catch_all`, {
-    metodo: 'PUT',
-    corpo: {
-      name: 'Apanha-tudo',
-      enabled: true,
-      matchers: [{ type: 'all' }],
-      actions: [{ type: 'forward', value: [DESTINO] }],
-    },
-  });
-  console.log(r.ok ? '✓ apanha-tudo a reencaminhar'
-    : `✗ apanha-tudo: ${JSON.stringify(r.dados.errors || r.dados).slice(0, 160)}`);
-}
-
-/* --- 5. o DNS que isto precisa ------------------------------------------- */
-/* Com o domínio na Cloudflare os registos são postos automaticamente. Mostra-
-   se a lista para se poder confirmar, e para o caso de o DNS estar noutro
-   sítio. */
-const dns = await cf(`/zones/${zona.id}/email/routing/dns`);
-const necessarios = dns.dados.result?.filter?.((x) => x.required !== false) || dns.dados.result || [];
-if (necessarios.length) {
-  console.log('\nRegistos que o reencaminhamento precisa:');
-  for (const r of necessarios) {
-    console.log(`  ${r.type.padEnd(5)} ${(r.name || '@').padEnd(28)} ${r.content}`
-      + (r.priority !== undefined ? `  (prioridade ${r.priority})` : ''));
-  }
-}
-
-/* =========================================================================
-   ENVIAR — a Resend
-   ========================================================================= */
-
-const RESEND = process.env.RESEND_API_KEY;
-
-if (!RESEND) {
-  console.log('\n· Sem RESEND_API_KEY: a parte do envio fica por fazer.');
-  console.log('  Cria a chave em resend.com/api-keys e volta a correr com');
-  console.log('  RESEND_API_KEY=re_... node scripts/email.mjs');
-} else {
-  console.log('\nEnvio (Resend)');
-
-  async function resend(caminho, { metodo = 'GET', corpo } = {}) {
-    const r = await fetch('https://api.resend.com' + caminho, {
-      method: metodo,
-      headers: { authorization: `Bearer ${RESEND}`, 'content-type': 'application/json' },
-      body: corpo === undefined ? undefined : JSON.stringify(corpo),
-    });
-    const d = await r.json().catch(() => ({}));
-    return { ok: r.ok, estado: r.status, dados: d };
-  }
-
-  /* 1. o domínio já lá está? */
-  const lista = await resend('/domains');
-  if (!lista.ok) {
-    console.error(`✗ a Resend recusou a chave (${lista.estado}):`,
-      JSON.stringify(lista.dados).slice(0, 200));
-    process.exit(1);
-  }
-  let dominio = (lista.dados.data || []).find((d) => d.name === DOMINIO);
-
-  if (!dominio) {
-    /* O domínio de topo, e não um subdomínio.
-       A recomendação corrente é usar um subdomínio para isolar a reputação —
-       e faz sentido para quem envia campanhas. Aqui só saem códigos de
-       entrada, e o endereço que a pessoa vê importa mais do que o
-       isolamento: um código que chega de `ola@carimbodigital.pt` reconhece-se,
-       um que chega de `naoresponder@envio.carimbodigital.pt` parece burla.
-       O caminho de devolução da Resend fica num subdomínio dela à mesma, por
-       isso o isolamento que interessa continua a existir.
-
-       `eu-west-1` põe o envio na Irlanda. Atenção: os dados da conta e os
-       registos da Resend ficam nos Estados Unidos de qualquer maneira — está
-       na documentação deles e tem de constar dos subcontratantes. */
-    const criado = await resend('/domains', {
-      metodo: 'POST', corpo: { name: DOMINIO, region: 'eu-west-1' },
-    });
-    if (!criado.ok) {
-      console.error('✗ não deu para registar o domínio na Resend:',
-        JSON.stringify(criado.dados).slice(0, 250));
-      process.exit(1);
-    }
-    dominio = criado.dados;
-    console.log(`✓ domínio registado na Resend (${dominio.region || 'eu-west-1'})`);
+  const spf = (await txt(DOMINIO)).filter((t) => t.toLowerCase().startsWith('v=spf1'));
+  if (!spf.length) {
+    mal('sem SPF — o que sair desta caixa vai direito ao spam');
+  } else if (spf.length > 1) {
+    /* Dois SPF não são «mais protecção»: são nenhuma. A norma diz que um
+       domínio com mais do que um registo SPF é um erro permanente, e os
+       filtros tratam-no como se não existisse. */
+    mal(`${spf.length} registos SPF — a norma só permite um, e com dois nenhum vale`, spf.join(' | '));
   } else {
-    console.log(`✓ domínio já estava na Resend (${dominio.status})`);
+    bem(`SPF: ${spf[0]}`);
+    if (!/hostinger/i.test(spf[0])) {
+      talvez('o SPF não menciona a Hostinger, que é quem envia', spf[0]);
+    }
   }
 
-  /* 2. os registos que ela pede, criados na Cloudflare */
-  const detalhe = await resend(`/domains/${dominio.id}`);
-  const registos = detalhe.dados.records || dominio.records || [];
-  if (!registos.length) {
-    console.log('  ! a Resend não devolveu registos — confere em resend.com/domains');
+  /* O DKIM da Hostinger são três CNAME. Basta faltar um para a assinatura
+     rodar para uma chave que não existe e o email começar a chegar sem
+     assinatura — intermitentemente, que é o pior dos casos para diagnosticar. */
+  const chaves = ['a', 'b', 'c'];
+  const faltam = [];
+  for (const k of chaves) {
+    const r = await cname(`hostingermail-${k}._domainkey.${DOMINIO}`);
+    if (!r.length) faltam.push(k);
+  }
+  if (faltam.length) mal(`faltam ${faltam.length} dos 3 CNAME de DKIM da Hostinger`, `hostingermail-${faltam.join(', -')}`);
+  else bem('DKIM: os três CNAME da Hostinger estão lá');
+
+  const dmarc = (await txt(`_dmarc.${DOMINIO}`)).filter((t) => t.toLowerCase().startsWith('v=dmarc1'));
+  if (!dmarc.length) talvez('sem DMARC');
+  else {
+    bem(`DMARC: ${dmarc[0]}`);
+    if (/p=none/i.test(dmarc[0])) {
+      talvez('a política do DMARC é «none» — observa e não recusa nada',
+        'depois de os envios estabilizarem, subir para quarantine');
+    }
   }
 
-  const existentes = await cf(`/zones/${zona.id}/dns_records?per_page=200`);
-  const jaLaEsta = (r) => (existentes.dados.result || []).some((x) =>
-    x.type === r.type
-    && x.name === (r.name.endsWith(DOMINIO) ? r.name : `${r.name}.${DOMINIO}`).replace(/^@\./, '')
-    && String(x.content).replace(/^"|"$/g, '') === String(r.value).replace(/^"|"$/g, ''));
-
-  for (const r of registos) {
-    const nome = r.name === '@' || !r.name ? DOMINIO
-      : (r.name.endsWith(DOMINIO) ? r.name : `${r.name}.${DOMINIO}`);
-    if (jaLaEsta(r)) { console.log(`✓ ${r.type.padEnd(5)} ${nome} já existia`); continue; }
-    const criado = await cf(`/zones/${zona.id}/dns_records`, {
-      metodo: 'POST',
-      corpo: {
-        type: r.type, name: nome, content: r.value, ttl: 1,
-        ...(r.priority !== undefined && r.priority !== null ? { priority: r.priority } : {}),
-        /* Nunca com a nuvem laranja: um CNAME que passe pelo proxy da
-           Cloudflare deixa de devolver o valor que a Resend espera e a
-           verificação nunca conclui. Os registos de autenticação de email
-           são lidos por servidores de correio, não por browsers. */
-        ...(r.type === 'CNAME' ? { proxied: false } : {}),
-      },
-    });
-    console.log(criado.ok ? `✓ ${r.type.padEnd(5)} ${nome}`
-      : `✗ ${r.type} ${nome}: ${JSON.stringify(criado.dados.errors || criado.dados).slice(0, 160)}`);
+  /* Sobras da Resend. Ficaram a apontar para um serviço que já não se usa, e
+     um SPF de um remetente que não envia é uma autorização em branco. */
+  const restos = [];
+  for (const n of [`resend._domainkey.${DOMINIO}`, `send.${DOMINIO}`]) {
+    if ((await txt(n)).length || (await mx(n)).length) restos.push(n);
   }
-
-  /* Os dois MX não se atropelam, e vale a pena dizê-lo: o do Email Routing
-     fica no domínio de topo (a receber) e o da Resend num subdomínio de
-     devoluções (a enviar). São registos diferentes em nomes diferentes. */
-
-  /* 3. pedir a verificação */
-  const verifica = await resend(`/domains/${dominio.id}/verify`, { metodo: 'POST' });
-  console.log(verifica.ok
-    ? '✓ verificação pedida — costuma demorar alguns minutos'
-    : `! não deu para pedir a verificação: ${JSON.stringify(verifica.dados).slice(0, 160)}`);
-
-  console.log('\n  Depois de a Resend dizer «verified», falta pôr a chave no Worker:');
-  console.log('    cd worker && npx wrangler secret put RESEND_API_KEY');
-  console.log(`    npx wrangler deploy`);
+  if (restos.length) {
+    talvez('sobraram registos da Resend no DNS', `apagar: ${restos.join(', ')}`);
+  }
 }
 
-console.log('\nFalta só uma coisa, e não é aqui: abrir o email que a Cloudflare');
-console.log(`mandou para ${DESTINO} e clicar no link. Sem isso o reencaminhamento`);
-console.log('fica configurado mas não entrega nada.\n');
+/* --- a caixa ------------------------------------------------------------- */
+console.log('\nA caixa');
+if (!TOKEN) {
+  talvez('sem MAIL_TOKEN no ambiente — não dá para ver as caixas nem a quota',
+    'hPanel › Emails › API, e depois MAIL_TOKEN=... node scripts/email.mjs');
+} else {
+  const eu = await pedir('/me');
+  if (eu.estado === 401) {
+    mal('o token não foi aceite (401)', 'está gasto, ou é de outra conta');
+  } else if (eu.estado !== 200) {
+    mal(`a API respondeu ${eu.estado}`, JSON.stringify(eu.corpo).slice(0, 160));
+  } else {
+    const caixas = (eu.corpo && (eu.corpo.data?.mailboxes || eu.corpo.data)) || [];
+    const lista = Array.isArray(caixas) ? caixas : [caixas];
+    if (!lista.length) mal('o token não vê caixa nenhuma');
+    else {
+      bem(`${lista.length} caixa${lista.length > 1 ? 's' : ''}:`);
+      for (const c of lista) {
+        console.log(`      ${c.address}  →  MAIL_CAIXA = "${c.resourceId}"`);
+      }
+      const nossa = lista.find((c) => String(c.address || '').endsWith(`@${DOMINIO}`));
+      if (!nossa) {
+        talvez(`nenhuma caixa é de @${DOMINIO}`);
+      } else {
+        const q = await pedir(`/mailboxes/${nossa.resourceId}/quota`);
+        if (q.estado === 200) console.log(`      quota: ${JSON.stringify(q.corpo?.data ?? q.corpo)}`);
+      }
+    }
+  }
+}
+
+/* --- o envio a sério ----------------------------------------------------- */
+if (ENVIAR) {
+  console.log('\nEnvio de prova');
+  const caixa = process.env.MAIL_CAIXA;
+  if (!TOKEN || !caixa) {
+    mal('preciso de MAIL_TOKEN e MAIL_CAIXA',
+      'o MAIL_CAIXA é o identificador que aparece acima');
+  } else {
+    const { emailCodigoCliente } = await import('../worker/src/emails.js');
+    const m = emailCodigoCliente({ codigo: '424242', minutos: 15 });
+    const r = await fetch(`${API}/mailboxes/${caixa}/send`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        to: [DESTINO], displayName: 'Carimbo Digital',
+        subject: m.assunto, text: m.texto, html: m.html,
+      }),
+    });
+    /* 204 e não 200: a API responde sem corpo nenhum quando o email sai. */
+    if (r.status === 204 || r.ok) bem(`enviado para ${DESTINO}`);
+    else mal(`a Hostinger recusou (${r.status})`, (await r.text().catch(() => '')).slice(0, 200));
+  }
+}
+
+/* --- o resumo ------------------------------------------------------------ */
+console.log(`\n${'─'.repeat(52)}`);
+if (erros) {
+  console.log(`${erros} coisa${erros > 1 ? 's' : ''} em falta, ${avisos} a pensar.\n`);
+} else {
+  console.log(`Tudo no sítio${avisos ? `, com ${avisos} nota${avisos > 1 ? 's' : ''}` : ''}.\n`);
+}
+process.exit(erros ? 1 : 0);

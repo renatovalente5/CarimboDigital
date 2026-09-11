@@ -4,7 +4,7 @@ compatibility_date = "2026-08-01"
 
 # Os segredos NÃO vão aqui — este repositório é público. Põem-se com:
 #   npx wrangler secret put CHAVE_MESTRA
-#   npx wrangler secret put RESEND_API_KEY      (opcional)
+#   npx wrangler secret put MAIL_TOKEN           (para os emails)
 #
 # Para gerar a chave-mestra:
 #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
@@ -20,7 +20,20 @@ compatibility_date = "2026-08-01"
 # publicado nela podia falar com esta API. E hoje aquele endereço já só
 # redirecciona para cá.
 ORIGENS = "https://carimbodigital.pt,https://www.carimbodigital.pt,http://localhost:4321"
-EMAIL_REMETENTE = "Carimbo Digital <ola@carimbodigital.pt>"
+# O nome que aparece ao lado da morada. A morada em si não se escolhe aqui:
+# quem envia é a caixa identificada por MAIL_CAIXA, e o correio sai de lá.
+EMAIL_NOME = "Carimbo Digital"
+
+# A caixa de onde sai o correio, na API da Hostinger. Não é segredo — é um
+# identificador, e descobre-se com `node scripts/email.mjs`. O que é segredo
+# é o token, que vive fora daqui:
+#
+#   npx wrangler secret put MAIL_TOKEN
+#
+# Atenção ao que esse token abre: a API da Hostinger não tem âmbito
+# só-de-envio. O mesmo token lê, procura e apaga o correio de geral@. Nunca
+# entra no repositório, nem em variável de ambiente de CI que se possa ler.
+MAIL_CAIXA = ""
 
 [[d1_databases]]
 binding = "DB"

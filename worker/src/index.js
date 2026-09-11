@@ -440,41 +440,63 @@ async function carimbar(env, pedido, operador) {
    Email (opcional)
    ========================================================================= */
 
-async function enviarEmail(env, { para, assunto, texto, html, chaveUnica }) {
-  if (!env.RESEND_API_KEY) return { enviado: false, motivo: 'sem-chave' };
+/**
+ * Manda o email pela API de correio da Hostinger.
+ *
+ * Era a Resend. Trocou-se por três razões, e a primeira é a que pesa:
+ *
+ * · NÃO SAI DA UNIÃO EUROPEIA. A caixa está na Hostinger, em servidores
+ *   europeus, e o correio é enviado de lá. Com a Resend a morada, a data e o
+ *   estado de entrega ficavam guardados nos Estados Unidos — uma
+ *   transferência que a política de privacidade tinha de declarar, e um
+ *   subcontratante a mais para um serviço que manda seis algarismos.
+ * · JÁ ESTÁ PAGO, e a API vem incluída em todos os planos de email.
+ * · O TECTO É OUTRO: mil a três mil por dia contra três mil por MÊS.
+ *
+ * O que se perdeu, e convém saber: a Resend tinha chave de idempotência —
+ * um pedido repetido não mandava um segundo email. Aqui não há. Quem segura
+ * isso agora é o `podeEnviar()`, que recusa dois pedidos para a mesma morada
+ * a menos de 45 segundos um do outro.
+ *
+ * E uma nota de segurança que não se deve esquecer: este token abre a caixa
+ * toda — lê, procura, apaga. Não há âmbito só-de-envio nesta API. É por isso
+ * que ele vive num segredo do Worker e nunca no repositório.
+ */
+async function enviarEmail(env, { para, assunto, texto, html }) {
+  if (!env.MAIL_TOKEN || !env.MAIL_CAIXA) return { enviado: false, motivo: 'sem-chave' };
   try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${env.RESEND_API_KEY}`,
-        'content-type': 'application/json',
-        /* Se o pedido for repetido — a pessoa carrega duas vezes, a rede
-           engasga-se e o Worker tenta de novo — a Resend reconhece a chave e
-           não manda um segundo email. Vale 24 horas. */
-        ...(chaveUnica ? { 'Idempotency-Key': chaveUnica } : {}),
-      },
-      body: JSON.stringify({
-        from: env.EMAIL_REMETENTE || 'Carimbo Digital <ola@carimbodigital.pt>',
-        to: [para], subject: assunto,
-        /* As duas versões, sempre. A de texto não é um resto do passado: há
-           clientes que só mostram texto, os leitores de ecrã dão-se melhor
-           com ela, e um email só-HTML pontua pior nos filtros de spam. */
-        text: texto,
-        ...(html ? { html } : {}),
-      }),
-    });
-    if (r.ok) return { enviado: true };
+    const r = await fetch(
+      `https://api.mail.hostinger.com/api/v1/mailboxes/${env.MAIL_CAIXA}/send`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${env.MAIL_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: [para],
+          /* Não há campo `from`: quem envia é a própria caixa. O que se
+             escolhe é o nome que aparece ao lado da morada. */
+          displayName: env.EMAIL_NOME || 'Carimbo Digital',
+          subject: assunto,
+          /* As duas versões, sempre. A de texto não é um resto do passado: há
+             clientes que só mostram texto, os leitores de ecrã dão-se melhor
+             com ela, e um email só-HTML pontua pior nos filtros de spam. */
+          text: texto,
+          ...(html ? { html } : {}),
+        }),
+      });
+    /* 204 e não 200: a API responde sem corpo nenhum quando o email sai. */
+    if (r.status === 204 || r.ok) return { enviado: true };
 
-    /* Um envio recusado tem quase sempre uma razão concreta — chave errada,
-       domínio por verificar, destinatário fora do permitido. Registá-la é o
-       que evita meia hora à procura: vê-se com `npx wrangler tail`.
-       O motivo NÃO volta ao cliente: diria a um estranho como está montada
-       a casa. */
+    /* Um envio recusado tem quase sempre uma razão concreta — token errado,
+       caixa errada, tecto diário. Registá-la é o que evita meia hora à
+       procura: vê-se com `npx wrangler tail`. O motivo NÃO volta ao cliente:
+       diria a um estranho como está montada a casa. */
     const detalhe = await r.text().catch(() => '');
-    console.error('Resend recusou', r.status, detalhe.slice(0, 400));
+    console.error('Hostinger recusou', r.status, detalhe.slice(0, 400));
     return { enviado: false, motivo: 'recusado', estado: r.status };
   } catch (e) {
-    console.error('Resend inacessível:', e.message);
+    console.error('Correio inacessível:', e.message);
     return { enviado: false, motivo: 'rede' };
   }
 }
@@ -750,7 +772,6 @@ rota('POST', '/v1/cliente/email', async (env, pedido) => {
   const codigo = await emitirCodigo(env, { email: correio, alvo });
   const r = await enviarEmail(env, {
     para: correio,
-    chaveUnica: await resumo(`cliente|${alvo}|${codigo}`),
     ...emailCodigoCliente({ codigo, minutos: ENTRADA_MINUTOS }),
   });
   /* Devolve-se a verdade: é o email do próprio, e mandá-lo esperar por um
@@ -924,7 +945,6 @@ rota('POST', '/v1/balcao/entrar', async (env, pedido) => {
     ).bind(op.negocio_id).first();
     const r = await enviarEmail(env, {
       para: correio,
-      chaveUnica: await resumo(`balcao|${op.id}|${codigo}`),
       ...emailCodigoBalcao({
         codigo, minutos: ENTRADA_MINUTOS, negocio: negocio && negocio.nome,
       }),

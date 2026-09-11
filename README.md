@@ -121,7 +121,7 @@ npx wrangler d1 create carimbodigital --location=weur
 npx wrangler d1 execute carimbodigital --remote --file=esquema.sql
 npx wrangler secret put CHAVE_MESTRA      # 32 bytes em base64url
 npx wrangler secret put CODIGO_FUNDADOR   # o convite para criar negócios
-npx wrangler secret put RESEND_API_KEY    # opcional, para os emails
+npx wrangler secret put MAIL_TOKEN        # o correio, ver «Emails»
 npx wrangler deploy
 ```
 
@@ -137,88 +137,72 @@ o código é preciso já existir um operador. O convite é quem corta o nó.
 
 ### Emails
 
-São duas metades separadas, e é preciso as duas.
+Uma coisa só: `geral@carimbodigital.pt` é uma caixa da **Hostinger**, onde o
+domínio está alojado. Recebe o correio e é de lá que saem os códigos de
+entrada, pela API de correio que vem incluída no plano.
 
-**Receber** — o Email Routing da Cloudflare põe `ola@`, `balcao@` e
-`privacidade@` a cair na caixa pessoal, mais um apanha-tudo. Gratuito.
+Chegou-se aqui depois de a Resend estar planeada e quase montada. O que a
+desfez foram três factos, verificados em Setembro de 2026:
 
-**Enviar** — os códigos de recuperação saem pela Resend (100/dia, 3 000/mês
-no plano gratuito). Precisa de provar que o domínio é nosso, com registos de
-DNS.
+- **Não sai da União Europeia.** Com a Resend, a morada de quem pede o
+  código, a data e o estado de entrega ficavam guardados nos Estados Unidos —
+  a escolha de região só muda de onde o email *parte*, e mesmo essa é do
+  plano pago. Era uma transferência a declarar e um subcontratante a mais
+  para um serviço que manda seis algarismos.
+- **O tecto é outro:** mil a três mil por **dia** por caixa, contra três mil
+  por **mês** no plano gratuito da Resend.
+- **Já está pago**, e não é mais uma conta para manter.
 
-> **Porque não o Email Sending da própria Cloudflare**, já que o resto está
-> lá? Porque exige o plano **Workers Paid** (5 $/mês). No plano gratuito só
-> entrega a endereços previamente verificados na conta — o que serve para
-> avisos a nós próprios e não serve para recuperação de conta, onde o
-> destinatário é qualquer cliente. Verificado em setembro de 2026 contra a
-> documentação e contra a própria conta (a API responde `Unauthorized`).
+> **Porque não o Email Sending da própria Cloudflare**, já que o Worker está
+> lá? Porque exige o plano **Workers Paid**. No plano gratuito só entrega a
+> endereços previamente verificados na conta — o que serve para avisos a nós
+> próprios e não serve para recuperação de conta, onde o destinatário é
+> qualquer cliente. Verificado contra a documentação e contra a própria conta
+> (a API responde `Unauthorized`).
 >
-> Se um dia houver Workers Paid por outra razão, vale a pena trocar: o envio
-> passa a ser uma ligação no `wrangler.toml` e desaparece uma chave de API e
-> um fornecedor externo.
+> E porque não SMTP directo? Os Workers têm a porta 25 bloqueada, e as outras
+> obrigariam a escrever um cliente de SMTP à mão — algumas centenas de linhas
+> de protocolo cujos defeitos são silenciosos: um email que não chega.
 
-Ambas só funcionam **depois de o domínio estar na Cloudflare**, ou seja
-depois de os servidores de nomes do registador apontarem para lá. Até esse
-dia o serviço funciona à mesma: quem perder o telemóvel é que perde os
-cartões, e o balcão entra por convite em vez de por email.
+**O DNS não precisa de nada.** É a vantagem que decidiu isto: o SPF, os três
+CNAME de DKIM e o DMARC já lá estão desde que a caixa foi criada. Com a
+Resend eram mais três registos num subdomínio `send.`, e um deles é uma chave
+de duzentos caracteres que se cola à mão.
 
-**Dá para provar o percurso todo hoje**, antes do domínio: a Resend deixa
-enviar de `onboarding@resend.dev` — mas **só para o endereço da própria
-conta**. Chega para ver o email a chegar e a app a aceitar o código:
+Para pôr a funcionar:
 
 ```bash
+# 1. o token: hPanel › Emails › API. Ver o que ele abre, abaixo.
+#    Descobre o identificador da caixa e confere o DNS:
+MAIL_TOKEN=... node scripts/email.mjs
+
+# 2. o identificador vai para o wrangler.toml, em MAIL_CAIXA (não é segredo)
+
+# 3. o token vai para o Worker — escrito por ti, para não passar por mais
+#    lado nenhum:
 cd worker
-npx wrangler secret put RESEND_API_KEY
-# e temporariamente, no wrangler.toml:
-#   EMAIL_REMETENTE = "Carimbo Digital <onboarding@resend.dev>"
+npx wrangler secret put MAIL_TOKEN
 npx wrangler deploy
+
+# 4. e uma prova a sério, com o email a chegar à caixa:
+MAIL_TOKEN=... MAIL_CAIXA=AC... node scripts/email.mjs --enviar
 ```
 
-Depois é só pedir o código na app com o email da conta Resend. Para qualquer
-outro destinatário a Resend responde 403 — não é uma limitação a contornar,
-é o que aquele remetente é.
+> **O token abre a caixa toda.** A API da Hostinger não tem âmbito
+> só-de-envio: o mesmo token lê, procura e apaga o correio de `geral@`. É a
+> única coisa em que a Resend era melhor, onde a chave só servia para enviar.
+> Por isso ele vive num segredo do Worker, nunca no repositório, e nunca numa
+> variável de CI que se possa ler.
 
-Quando o domínio chegar, por esta ordem:
+**Duas coisas que se perderam com a troca**, e que convém ter presentes:
 
-```bash
-# 1. o domínio na Cloudflare (dash.cloudflare.com → Add a domain),
-#    e os servidores de nomes que ela dá metidos no registador
-
-# 2. as duas metades, num comando
-cd ~/Websites/CarimboDigital
-RESEND_API_KEY=re_... node scripts/email.mjs
-
-# 3. a chave no Worker — escrita por ti, para não passar por mais lado nenhum
-cd worker
-npx wrangler secret put RESEND_API_KEY
-npx wrangler deploy
-```
-
-O script regista o domínio na Resend, pede-lhe a lista de registos de DNS
-(SPF, DKIM e afins) e cria-os na Cloudflare — em vez de os copiar à mão de
-uma janela para a outra, que é onde se erra um carácter e se perdem duas
-horas. Depois pede a verificação.
-
-Três pormenores que o script já trata, e que dariam trabalho a descobrir:
-
-- **Os dois MX não se atropelam.** O do Email Routing fica no domínio de topo
-  (a receber) e o da Resend num subdomínio de devoluções (a enviar). São
-  registos diferentes em nomes diferentes.
-- **Nenhum registo pode ter a nuvem laranja.** Um CNAME que passe pelo proxy
-  da Cloudflare deixa de devolver o valor que a Resend espera, e a
-  verificação nunca conclui.
-- **Verifica-se o domínio de topo, não um subdomínio.** A recomendação
-  corrente é o subdomínio, para isolar reputação — faz sentido para quem
-  envia campanhas. Aqui só saem códigos de entrada, e um código que chega de
-  `ola@carimbodigital.pt` reconhece-se; de `naoresponder@envio.carimbodigital.pt`
-  parece burla.
-
-> **RGPD:** a Resend envia da Irlanda (`eu-west-1`) mas guarda os dados da
-> conta e os registos nos Estados Unidos. Tem de constar da lista de
-> subcontratantes na política de privacidade.
-
-Falta sempre uma coisa que nenhum script pode fazer: abrir o email que a
-Cloudflare manda para confirmar o destino do reencaminhamento, e clicar.
+- **Idempotência.** A Resend aceitava uma chave que impedia um pedido
+  repetido de mandar um segundo email. Aqui quem segura isso é o
+  `podeEnviar()` do Worker, que recusa dois pedidos para a mesma morada a
+  menos de 45 segundos um do outro.
+- **Uma cópia de cada envio fica em `INBOX.Sent`.** A API grava-a sempre. Ao
+  volume de códigos de entrada isso é inofensivo, e até útil para conferir;
+  se um dia o volume crescer, é uma caixa a encher.
 
 **Se um envio falhar**, o motivo fica na consola do Worker:
 
@@ -229,10 +213,12 @@ cd worker && npx wrangler tail
 A app não finge que enviou: se o email não sair, diz-o e deixa tentar outra
 vez, em vez de mandar esperar por um código que nunca vem.
 
-**A jurisdição escolhe-se na criação e não se muda depois.** `--location=weur`
-põe a base de dados na Europa Ocidental. Para a garantia jurídica de
-residência europeia usa-se `npx wrangler d1 create carimbodigital --jurisdiction eu` —
-mas isso é irreversível, por isso decide-se antes.
+**A jurisdição da base de dados escolhe-se na criação e não se muda depois.**
+`--location=weur` põe-na na Europa Ocidental. Para a garantia jurídica de
+residência europeia usa-se
+`npx wrangler d1 create carimbodigital --jurisdiction eu` — mas isso é
+irreversível, por isso decide-se antes.
+
 
 ## Contas grátis
 
@@ -241,7 +227,7 @@ mas isso é irreversível, por isso decide-se antes.
 | GitHub Pages | 100 GB/mês, 10 construções/hora | nunca, para um site destes |
 | Cloudflare Workers | 100 000 pedidos/dia | ~30 000 carimbos/dia |
 | Cloudflare D1 | 5 GB, 5 M linhas lidas/dia, 100 000 escritas/dia | um carimbo escreve 3 linhas |
-| Resend (email) | 100/dia, 3 000/mês | só se usa para recuperar contas |
+| Hostinger (email) | 1 000–3 000/dia por caixa, conforme o plano | só se usa para entrar e recuperar contas |
 
 Desde 1 de setembro de 2026 os limites do D1 são **impostos**: passado o
 tecto as consultas falham até à meia-noite UTC, em vez de serem toleradas.
