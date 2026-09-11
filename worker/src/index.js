@@ -488,12 +488,25 @@ async function enviarEmail(env, { para, assunto, texto, html }) {
     /* 204 e não 200: a API responde sem corpo nenhum quando o email sai. */
     if (r.status === 204 || r.ok) return { enviado: true };
 
-    /* Um envio recusado tem quase sempre uma razão concreta — token errado,
-       caixa errada, tecto diário. Registá-la é o que evita meia hora à
-       procura: vê-se com `npx wrangler tail`. O motivo NÃO volta ao cliente:
-       diria a um estranho como está montada a casa. */
+    /* Um envio recusado tem quase sempre uma razão concreta. Registá-la é o
+       que evita meia hora à procura: vê-se com `npx wrangler tail`. O motivo
+       NÃO volta ao cliente: diria a um estranho como está montada a casa.
+
+       Os três estados que esta API usa querem dizer coisas diferentes, e a
+       diferença é a diferença entre ir ao sítio certo e andar às voltas:
+       401 é a credencial (e o engano do costume é ter-se criado o token da
+       API de alojamento em vez do de Agentic mail); 403 é um token bom para
+       outra caixa; 422 é o corpo do pedido, ou seja, culpa nossa. */
+    const porque = {
+      401: 'credencial recusada — o MAIL_TOKEN é da API de correio '
+         + '(hPanel › Emails › o domínio › Agentic mail › API) e não da de alojamento?',
+      403: 'o token não manda nesta caixa — o MAIL_CAIXA é de outra, '
+         + 'ou o token foi criado só para algumas',
+      422: 'o pedido não passou na validação — isto é defeito nosso, não da conta',
+      429: 'depressa de mais para o que a Hostinger aceita',
+    }[r.status];
     const detalhe = await r.text().catch(() => '');
-    console.error('Hostinger recusou', r.status, detalhe.slice(0, 400));
+    console.error('Hostinger recusou', r.status, porque || '', detalhe.slice(0, 400));
     return { enviado: false, motivo: 'recusado', estado: r.status };
   } catch (e) {
     console.error('Correio inacessível:', e.message);

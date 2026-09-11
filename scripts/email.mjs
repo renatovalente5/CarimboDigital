@@ -7,9 +7,14 @@
    entrada. Nada sai da União Europeia e não há subcontratante nenhum a mais.
 
    Chegou-se aqui depois de a Resend estar planeada e quase montada. O que a
-   desfez foi descobrir que a Hostinger tem API de correio incluída no plano,
-   com mil a três mil envios por DIA — contra três mil por mês do plano
-   gratuito da Resend — e sem transferir nada para fora da Europa.
+   desfez foi descobrir que a Hostinger expõe a caixa por API — a funcionalidade
+   chama-se Agentic Mail e vem em todos os planos de email deles — e assim não
+   há mais um subcontratante nem nada a sair da Europa.
+
+   Quanto a quantos emails por dia: a especificação NÃO publica número nenhum.
+   Diz que há limites e que ao excedê-los se recebe 429, e que o IP pode ser
+   bloqueado temporariamente se isso se repetir. Não escrevo aqui um número que
+   não consigo citar — se um dia isto crescer, o que manda é o 429.
 
    O que este script faz:
 
@@ -26,11 +31,23 @@
      MAIL_TOKEN=... node scripts/email.mjs
      MAIL_TOKEN=... node scripts/email.mjs --enviar --destino outro@email.pt
 
+   ONDE SE CRIA O TOKEN — e há dois, que é o erro fácil de cometer:
+
+   · o token da API GERAL da Hostinger (alojamento, domínios, DNS, facturação)
+     cria-se em hpanel.hostinger.com/api. Serve developers.hostinger.com. NÃO
+     serve para nada disto: a api.mail.hostinger.com devolve-lhe 401;
+   · o token da API DE CORREIO, que é o que aqui se quer, vive noutro sítio:
+       hPanel › Emails › carimbodigital.pt › Agentic mail › API
+       › «Create API token» › escolher as caixas › copiar NA HORA.
+     Só é mostrado uma vez, e está preso a uma encomenda de correio.
+
    O TOKEN NÃO SE GUARDA AQUI nem no repositório. Em produção vive num
    segredo do Worker:  npx wrangler secret put MAIL_TOKEN
 
-   E convém saber o que ele abre: a API da Hostinger não tem âmbito
-   só-de-envio. O mesmo token lê, procura e apaga o correio desta caixa.
+   E convém saber o que ele abre: não há âmbito só-de-envio. As permissões são
+   «manage all SMTP/IMAP actions» — o mesmo token lê, procura e apaga o correio
+   das caixas a que der acesso. Ao criá-lo, escolher «Selected mailboxes» e
+   marcar só esta.
    ========================================================================= */
 
 import { readFileSync } from 'node:fs';
@@ -130,11 +147,20 @@ console.log('\nDNS');
 console.log('\nA caixa');
 if (!TOKEN) {
   talvez('sem MAIL_TOKEN no ambiente — não dá para ver as caixas nem a quota',
-    'hPanel › Emails › API, e depois MAIL_TOKEN=... node scripts/email.mjs');
+    'hPanel › Emails › o domínio › Agentic mail › API');
 } else {
   const eu = await pedir('/me');
   if (eu.estado === 401) {
-    mal('o token não foi aceite (401)', 'está gasto, ou é de outra conta');
+    /* O engano quase certo. Há dois tokens na Hostinger e só um serve aqui:
+       o de hpanel.hostinger.com/api é da API de alojamento e é recusado por
+       esta. O desta API cria-se em Agentic mail › API, e está preso a uma
+       encomenda de correio. */
+    mal('o token não foi aceite (401)',
+      'é o token da API de ALOJAMENTO? o desta API cria-se em '
+      + 'hPanel › Emails › o domínio › Agentic mail › API');
+  } else if (eu.estado === 403) {
+    mal('o token é válido mas não manda nesta caixa (403)',
+      'foi criado com «Selected mailboxes» e esta não está marcada');
   } else if (eu.estado !== 200) {
     mal(`a API respondeu ${eu.estado}`, JSON.stringify(eu.corpo).slice(0, 160));
   } else {
