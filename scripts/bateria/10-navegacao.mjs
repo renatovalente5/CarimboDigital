@@ -732,6 +732,45 @@ export async function correr(palco, certo) {
     'balcão: e não apaga a marca de quem já entrou — em produção isso é ter de entrar outra vez pelo email',
     `carimbo-demo:balcao-entrou = ${arranque.entrou}`);
 
+  /* =======================================================================
+     O voltar com a app ainda por montar
+
+     O `popstate` dispara a qualquer momento — a meio das boas-vindas, com o
+     ecrã de entrada à frente, ou já com a página a ser desmontada. E o
+     `irPara` dos dois apps começava por mexer no `#principal` sem perguntar
+     se ele existe.
+
+     Isto rebentou no CI e não aqui: uma excepção por apanhar, «Cannot set
+     properties of null», que não mostra nada a ninguém e só aparece na
+     consola. Um defeito que só se vê numa máquina não é um defeito menor —
+     é o mesmo defeito, a acontecer menos vezes.
+     ======================================================================= */
+
+  for (const [onde, caminho] of [['app', '/app/?demo=1'], ['balcão', '/balcao/?demo=1']]) {
+    await palco.ir(caminho);
+    /* Deliberadamente SEM passar as boas-vindas nem entrar: é este o estado
+       em que a app ainda não tem `#principal`. */
+    const desmontado = await palco.js(`
+      return { principal: !!document.querySelector('#principal'),
+               barra: !!document.querySelector('#barra') }`);
+
+    const antes = (await palco.js('return window.__erros || 0')) || 0;
+    await palco.js(`
+      window.__erros = 0;
+      window.addEventListener('error', () => { window.__erros++; });
+      window.addEventListener('unhandledrejection', () => { window.__erros++; });
+      /* Cinco, para atravessar os ramos todos do tratador. */
+      for (let i = 0; i < 5; i++) dispatchEvent(new PopStateEvent('popstate', { state: null }));
+      await new Promise((r) => setTimeout(r, 400));
+      return true`);
+    const depois = await palco.js('return window.__erros');
+
+    certo(depois === antes,
+      `${onde}: o voltar com a app por montar não rebenta`,
+      `${depois} excepções, com principal=${desmontado.principal} barra=${desmontado.barra}`);
+  }
+
   /* Deixa-se o balcão a funcionar, para quem vier a seguir. */
+  await palco.ir('/balcao/?demo=1');
   await entrarNoBalcao(palco);
 }

@@ -789,10 +789,17 @@ async function irPara(nome) {
      trabalhar em segundo plano gasta bateria e acende a luz do telemóvel sem
      razão nenhuma. */
   if (leitor) { leitor.parar(); leitor = null; }
-  estado.ecra = nome;
+  /* O `#principal` está no HTML e existe quase sempre — mas não sempre: o
+     apanhador de erros do arranque substitui o `body` inteiro por uma
+     mensagem, e a partir daí não há `#principal` nenhum. Um `popstate` que
+     chegue depois disso não pode rebentar por cima do erro que já aconteceu. */
   const principal = $('#principal');
+  if (!principal || !$('#barra')) return;
+
+  estado.ecra = nome;
   principal.innerHTML = '';
-  $('#topo-titulo').textContent = ECRAS[nome].titulo;
+  const titulo = $('#topo-titulo');
+  if (titulo) titulo.textContent = ECRAS[nome].titulo;
   desenharBarra();
   try {
     await ECRAS[nome].render(principal);

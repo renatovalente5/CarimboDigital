@@ -890,10 +890,23 @@ async function abrirCodigo() {
   travaEcra = await manterEcraAceso();
 
   async function pintar() {
+    /* `gerarCodigo` assina com HMAC, e isso é mesmo assíncrono. Quem fechar
+       a folha durante essa espera deixa este código a escrever num
+       `#codigo-qr` que já não existe — «Cannot set properties of null», uma
+       excepção por apanhar que ninguém vê e que só aparece em máquinas
+       lentas, onde a janela é maior. O `clearTimeout` do fechar não a
+       apanha: o ciclo já estava dentro do await.
+
+       Guarda-se o nó ANTES de esperar e confirma-se que ainda está no
+       documento depois. É o mesmo padrão do `ev.currentTarget` e do arranque
+       da câmara — em três sítios diferentes, a mesma armadilha. */
+    const destino = $('#codigo-qr');
     const { texto, expiraEm } = await gerarCodigo(estado.cliente.publico);
-    $('#codigo-qr').innerHTML = qrParaSVG(texto, { nivel: 'Q', margem: 2 });
+    if (!destino.isConnected) return expiraEm;
+    destino.innerHTML = qrParaSVG(texto, { nivel: 'Q', margem: 2 });
     const restante = Math.max(0, expiraEm - Date.now()) / 1000;
     const arco = anel.querySelector('.frente');
+    if (!arco) return expiraEm;
     arco.style.transition = 'none';
     arco.style.strokeDashoffset = String(81.7 * (1 - restante / JANELA));
     requestAnimationFrame(() => {
@@ -905,6 +918,9 @@ async function abrirCodigo() {
 
   async function ciclo() {
     const expiraEm = await pintar();
+    /* E não se marca a volta seguinte se a folha já fechou, senão fica um
+       relógio a rodar por cima de um ecrã que não existe. */
+    if (!folha.isConnected) return;
     cronometroCodigo = setTimeout(ciclo, Math.max(300, expiraEm - Date.now() + 60));
   }
   ciclo();
@@ -1050,7 +1066,12 @@ async function irPara(nome, { historico = true } = {}) {
      Tinha começado por embrulhar isto numa caixa `.ecra` por dentro do
      `#principal`. Funcionava e partia tudo o que fosse `#principal > algo`:
      um filho directo deixa de o ser quando se lhe põe um pai. */
+  /* O `#principal` está no HTML e existe quase sempre — mas não sempre: o
+     apanhador de erros do arranque substitui o `body` inteiro por uma
+     mensagem, e a partir daí não há `#principal` nenhum. Um `popstate` que
+     chegue depois disso não pode rebentar por cima do erro que já aconteceu. */
   const velho = $('#principal');
+  if (!velho) return;
   const principal = el('main', { id: 'principal', class: 'coluna', tabindex: '-1' });
   velho.replaceWith(principal);
   window.scrollTo({ top: 0, behavior: 'instant' });

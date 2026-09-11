@@ -401,4 +401,39 @@ export async function correr(palco, certo) {
     depoisDaSegunda.join(', '));
 
   await palco.captura('03-codigo-fechado');
+
+  /* --- fechar a meio de uma pintura --------------------------------------
+     Fica para o fim de propósito: mexe no `crypto.subtle` da página e deixa
+     a folha aberta, e nenhuma das duas coisas convém a quem vier a seguir.
+     ---------------------------------------------------------------------- */
+
+  /* A corrida que rebentou no CI e não aqui: `gerarCodigo` assina com HMAC,
+     e isso é mesmo assíncrono. Quem feche a folha durante essa espera deixa
+     o ciclo a escrever num `#codigo-qr` que já não existe.
+
+     Provoca-se de propósito, atrasando a assinatura meio segundo: numa
+     máquina lenta a janela abre sozinha, numa rápida tem de se abrir à mão,
+     senão o teste passa por a corrida não chegar a acontecer. */
+  await palco.js(`
+    window.__erros = 0;
+    addEventListener('error', () => { window.__erros++; });
+    addEventListener('unhandledrejection', () => { window.__erros++; });
+    const original = crypto.subtle.sign.bind(crypto.subtle);
+    crypto.subtle.sign = async (...a) => {
+      await new Promise((r) => setTimeout(r, 500));
+      return original(...a);
+    };
+    return true`);
+
+  await palco.clicar('.barra-item.barra-centro');
+  await palco.esperar('#folha-codigo', 4000);
+  /* Cedo: a assinatura demora 500 ms e nós fechamos aos 150. */
+  await dorme(150);
+  await palco.clicar('.codigo-fechar');
+  await palco.sumir('#folha-codigo', 4000);
+  await dorme(1500);
+
+  certo((await palco.js('return window.__erros')) === 0,
+    'fechar a folha a meio de uma pintura não deixa nada a rebentar por baixo',
+    `${await palco.js('return window.__erros')} excepções`);
 }
