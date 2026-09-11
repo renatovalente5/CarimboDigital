@@ -114,6 +114,14 @@ cd worker && npx wrangler deploy --config ./wrangler.toml
 
 O `--config` não é decoração — ver «Aquilo em que se pode tropeçar».
 
+**Publica-se daqui, e só daqui. Não há workflow para a API,** e a ausência é
+uma decisão: os tokens de Workers do Cloudflare não se conseguem limitar a um
+Worker — são da conta inteira. Um token guardado neste repositório podia
+reescrever os outros cinco Workers da conta, um deles o que trata de
+pagamentos noutro projecto. Aqui no Mac o wrangler entra por OAuth e não fica
+chave guardada em lado nenhum. E publicar a API a meio de um serviço é coisa
+que se quer decidir, não sofrer — um botão não ajudava nisso.
+
 Se um dia for preciso recomeçar do zero:
 
 ```bash
