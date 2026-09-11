@@ -174,10 +174,15 @@ minutos), o uso único e o contador: cinco enganos e o código morre.
 **Enviar email não é gratuito em todo o lado.** O Cloudflare Email Sending
 precisa do plano pago de 5 $/mês para destinatários arbitrários. As opções a
 zero: Brevo (300/dia, mas carimba «Sent with Brevo» no rodapé), Mailjet
-(200/dia), **Resend (100/dia, 3 000/mês)** — que é a que está ligada —,
-SMTP2GO (1 000/mês), Scaleway TEM (300/mês, francesa). O SendGrid acabou com o
-plano gratuito em Maio de 2025; a AWS SES não tem plano gratuito para contas
-criadas depois de 15 de Julho de 2025.
+(200/dia), Resend (100/dia, 3 000/mês), SMTP2GO (1 000/mês), Scaleway TEM
+(300/mês, francesa). O SendGrid acabou com o plano gratuito em Maio de 2025; a
+AWS SES não tem plano gratuito para contas criadas depois de 15 de Julho de
+2025.
+
+**Nenhuma delas é a que ficou.** O correio sai da própria caixa do domínio,
+`geral@carimbodigital.pt`, pela API de correio da Hostinger (Agentic Mail) —
+que já se paga no plano de email do domínio. Assim não há mais um
+subcontratante e nada sai da União Europeia. Ver o README, secção do email.
 
 SMS está fora: ~0,05 € por mensagem para Portugal, o que a mil entradas por
 mês dá 50 €/mês — infinito, quando o orçamento é zero.
