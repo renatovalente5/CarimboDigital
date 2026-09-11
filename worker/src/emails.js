@@ -176,7 +176,14 @@ const risca = () =>
    O molde
    ========================================================================= */
 
-function molde({ titulo, preheader, corpo, entidade }) {
+/* A razão por que o email chegou. Vai no rodapé, e é diferente conforme o
+   email: dizer «alguém pediu um código nesta morada» num aviso que ninguém
+   pediu é escrever uma falsidade no sítio onde a pessoa vai procurar se isto
+   é a sério. */
+const PORQUE_RECEBEU = 'Este email foi enviado porque alguém pediu um código '
+  + 'nesta morada. Não enviamos publicidade.';
+
+function molde({ titulo, preheader, corpo, entidade, porque = PORQUE_RECEBEU }) {
   const e = {
     nome: 'Renato Lima Valente',
     sitio: SITIO,
@@ -221,6 +228,10 @@ function molde({ titulo, preheader, corpo, entidade }) {
     .t1        { color: #F4F2F7 !important; }
     .t2        { color: #A9A6B4 !important; }
     .t3, .t3 a { color: #918E9B !important; }
+    /* Uma palavra destacada dentro de um parágrafo. Em claro é a tinta cheia;
+       sem esta linha, em escuro ficava tinta escura sobre fundo escuro e a
+       frase desaparecia do meio do texto — invisível, não ilegível. */
+    .forte     { color: #F4F2F7 !important; }
     .risca     { background: #2E2B37 !important; }
     .codigo-caixa { background: #241D46 !important; }
     .codigo    { color: #F4F2F7 !important; }
@@ -287,8 +298,7 @@ ${corpo}
                    line-height:1.65;color:${TINTA_3};mso-line-height-rule:exactly">
       ${seguro(e.nome)} ·
       <a href="https://${seguro(e.sitio)}" style="color:${TINTA_3};text-decoration:underline">${seguro(e.sitio)}</a><br>
-      Este email foi enviado porque alguém pediu um código nesta morada.
-      Não enviamos publicidade.
+      ${seguro(porque)}
     </td></tr>
 
   </table>
@@ -348,6 +358,70 @@ export function emailCodigoCliente({ codigo, minutos = 15, entidade } = {}) {
       '',
       'Se não foste tu a pedir isto, ignora este email — não acontece nada, e o',
       'código deixa de valer sozinho.',
+      '',
+      '—',
+      `Carimbo Digital · ${SITIO}`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Aviso de que a conta vai ser apagada por estar parada.
+ *
+ * Escrito para ser lido por quem não se lembra de ter isto. Por isso diz o que
+ * é, quanto tempo falta, e o que fazer — que é uma coisa só: abrir a app. Não
+ * pede que se carregue em lado nenhum: um email que manda clicar num botão
+ * para «manter a conta activa» é exactamente a forma de um email de burla, e
+ * este vai para pessoas que não falam com o serviço há dois anos.
+ *
+ * Também não leva ligação para apagar já. Quem quiser apagar tem o botão no
+ * perfil, e uma ligação de apagar num email é uma ligação que qualquer pessoa
+ * que leia o email por cima do ombro pode carregar.
+ */
+export function emailContaAApagar({ dias = 30, meses = 24, entidade } = {}) {
+  const corpo = [
+    h1('Os teus carimbos vão desaparecer'),
+    espaco(14),
+    p(`Há ${meses} meses que ninguém abre esta conta do Carimbo Digital e `
+      + 'ninguém lhe carimba um cartão. Guardar dados de quem já não os usa é '
+      + 'coisa que não se faz — por isso vamos apagá-la.'),
+    espaco(18),
+    p(`<strong class="forte" style="color:${TINTA}">Tens ${dias} dias.</strong> Para a `
+      + 'manteres, basta abrires a app: mais nada, e não é preciso carregar em '
+      + 'coisa nenhuma neste email.'),
+    espaco(22),
+    risca(),
+    espaco(18),
+    miudo('Quando a conta for apagada, vão com ela os cartões, os carimbos e os '
+      + 'prémios por levantar. Não há como os trazer de volta.'),
+    espaco(10),
+    miudo(`Se preferires apagá-la já, está no perfil da app, em «Apagar a conta».`),
+  ].join('\n');
+
+  return {
+    assunto: `A tua conta Carimbo Digital vai ser apagada em ${dias} dias`,
+    html: molde({
+      titulo: 'A tua conta Carimbo Digital vai ser apagada',
+      preheader: `Abre a app nos próximos ${dias} dias e fica tudo como estava.`,
+      corpo,
+      entidade,
+      porque: 'Este email foi enviado porque esta morada está ligada a uma conta '
+        + 'do Carimbo Digital que vai ser apagada. Não enviamos publicidade.',
+    }),
+    texto: [
+      'Os teus carimbos vão desaparecer',
+      '',
+      `Há ${meses} meses que ninguém abre esta conta do Carimbo Digital e`,
+      'ninguém lhe carimba um cartão. Guardar dados de quem já não os usa é',
+      'coisa que não se faz — por isso vamos apagá-la.',
+      '',
+      `Tens ${dias} dias. Para a manteres, basta abrires a app: mais nada, e`,
+      'não é preciso carregar em coisa nenhuma neste email.',
+      '',
+      'Quando a conta for apagada, vão com ela os cartões, os carimbos e os',
+      'prémios por levantar. Não há como os trazer de volta.',
+      '',
+      'Se preferires apagá-la já, está no perfil da app, em «Apagar a conta».',
       '',
       '—',
       `Carimbo Digital · ${SITIO}`,

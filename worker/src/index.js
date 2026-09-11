@@ -25,7 +25,7 @@
                            é segredo e está no wrangler.toml.
    ========================================================================= */
 
-import { emailCodigoCliente, emailCodigoBalcao } from './emails.js';
+import { emailCodigoCliente, emailCodigoBalcao, emailContaAApagar } from './emails.js';
 
 const JANELA = 15;                 // segundos de vida de um código
 const TOLERANCIA = 2;              // janelas de folga para relógios desencontrados
@@ -35,6 +35,14 @@ const ENTRADA_TENTATIVAS = 5;
 const USADOS_HORAS = 24;           // quanto tempo se guarda um código já gasto
 const ENVIOS_HORA = 5;             // códigos por morada, por hora
 const ENVIOS_INTERVALO = 45;       // segundos entre dois pedidos para a mesma morada
+
+/* Contas paradas. O RGPD (art. 5.º, n.º 1, alínea e) não deixa guardar dados
+   pessoais mais tempo do que o preciso, e uma conta que ninguém abre há dois
+   anos é exactamente isso — sobretudo quando tem uma morada de email colada.
+   Estes dois números são a fonte da verdade: a política de privacidade
+   lê-os daqui na construção do site, e se desaparecerem a construção morre. */
+const INACTIVA_MESES = 24;         // sem dar sinal este tempo, a conta é apagada
+const AVISO_DIAS = 30;             // com aviso por email, este tempo antes
 
 /* =========================================================================
    Respostas
@@ -185,7 +193,32 @@ async function lerSessao(env, pedido) {
 async function exigirCliente(env, pedido) {
   const s = await lerSessao(env, pedido);
   if (!s || s.tipo !== 'cliente') throw new Falha('Sessão inválida', { estado: 401 });
+  await marcarVisto(env, s.id);
   return s.id;
+}
+
+/**
+ * Guarda que a conta deu sinal de vida.
+ *
+ * Existia uma coluna `visto_em` desde o primeiro dia e nada lhe tocava depois
+ * do registo — ficava presa à data em que a conta nasceu. Quem quisesse apagar
+ * contas paradas por essa coluna apagava toda a gente ao fim de dois anos,
+ * incluindo quem usasse a app todas as semanas.
+ *
+ * Escreve-se no máximo uma vez por dia. Sem essa condição, abrir a app passava
+ * a custar uma escrita por pedido, e o plano gratuito do D1 dá 100 000 por dia
+ * — que é o mesmo tecto do Workers, mas gasto muito mais depressa. Com ela, a
+ * linha só é escrita quando o dia mudou; nos outros casos o UPDATE não
+ * encontra nada e não escreve.
+ */
+async function marcarVisto(env, clienteId) {
+  const ontem = new Date(Date.now() - 86400000).toISOString();
+  /* O `avisada_em` cai aqui de propósito: quem voltou deixou de estar parado,
+     e se um dia voltar a parar tem direito a um aviso novo em vez de ser
+     apagado em silêncio por causa de um aviso de há dois anos. */
+  await env.DB.prepare(
+    'UPDATE clientes SET visto_em = ?, avisada_em = NULL WHERE id = ? AND (visto_em IS NULL OR visto_em < ?)'
+  ).bind(agora(), clienteId, ontem).run();
 }
 
 async function exigirOperador(env, pedido) {
@@ -836,11 +869,19 @@ rota('GET', '/v1/cliente/dados', async (env, pedido) => {
   return { geradoEm: agora(), cliente, cartoes: detalhados, movimentos, premios };
 });
 
-rota('DELETE', '/v1/cliente', async (env, pedido) => {
-  const clienteId = await exigirCliente(env, pedido);
-  /* As chaves estrangeiras estão em CASCADE, mas o D1 só as aplica com
-     PRAGMA foreign_keys ligado — que nem sempre está. Apaga-se à mão, pela
-     ordem certa, para não ficarem órfãos na base de dados. */
+/**
+ * Apaga uma conta e tudo o que pende dela.
+ *
+ * Tem dois chamadores — o botão «Apagar a conta» no perfil e a limpeza das
+ * contas paradas — e é de propósito que é um só sítio: duas listas de tabelas
+ * escritas à mão divergem à primeira tabela nova, e o que fica para trás numa
+ * delas são dados pessoais de alguém que pediu para desaparecer.
+ *
+ * As chaves estrangeiras estão em CASCADE, mas o D1 só as aplica com
+ * PRAGMA foreign_keys ligado — que nem sempre está. Apaga-se à mão, pela
+ * ordem certa, para não ficarem órfãos na base de dados.
+ */
+async function apagarCliente(env, clienteId) {
   const cartoes = (await env.DB.prepare('SELECT id FROM cartoes WHERE cliente_id = ?').bind(clienteId).all()).results;
   const instrucoes = [];
   for (const c of cartoes) {
@@ -854,6 +895,11 @@ rota('DELETE', '/v1/cliente', async (env, pedido) => {
     env.DB.prepare('DELETE FROM clientes WHERE id = ?').bind(clienteId),
   );
   await env.DB.batch(instrucoes);
+}
+
+rota('DELETE', '/v1/cliente', async (env, pedido) => {
+  const clienteId = await exigirCliente(env, pedido);
+  await apagarCliente(env, clienteId);
   return { apagado: true };
 });
 
@@ -1323,5 +1369,78 @@ export default {
       env.DB.prepare('DELETE FROM envios WHERE em < ?')
         .bind(new Date(Date.now() - 86400000).toISOString()),
     ]);
+    await limparContasParadas(env);
   },
 };
+
+/* =========================================================================
+   Contas paradas
+
+   O RGPD não deixa guardar dados pessoais mais tempo do que o preciso, e uma
+   conta que ninguém abre há dois anos é isso mesmo. Há duas passagens, e
+   correm por esta ordem: primeiro avisa-se quem deixou email, `AVISO_DIAS`
+   antes; depois apaga-se quem já passou dos `INACTIVA_MESES`.
+
+   O QUE CONTA COMO SINAL DE VIDA, e é aqui que está a parte que se esquece:
+   não é só abrir a app. Quem passa no café e leva um carimbo nunca toca na
+   app — quem carimba é o balcão, com a sessão do balcão, e o `visto_em` do
+   cliente não mexe. Por isso a pergunta olha para as duas coisas: a conta e
+   os cartões dela. Apagar por uma só apagava clientes fiéis que não gostam
+   de mexer no telemóvel.
+   ========================================================================= */
+
+/** Quantos meses para trás, em ISO. Os meses do JavaScript tratam do resto. */
+function mesesAtras(meses) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - meses);
+  return d.toISOString();
+}
+
+/** As contas sem sinal de vida desde `limite`. */
+async function contasParadas(env, limite, extra = '') {
+  return (await env.DB.prepare(
+    `SELECT c.id, c.email, c.email_verificado, c.avisada_em
+       FROM clientes c
+      WHERE COALESCE(c.visto_em, c.criado_em) < ?1
+        AND NOT EXISTS (
+          SELECT 1 FROM cartoes k
+           WHERE k.cliente_id = c.id
+             AND COALESCE(k.ultimo_em, k.aderiu_em) >= ?1
+        )
+        ${extra}`
+  ).bind(limite).all()).results;
+}
+
+async function limparContasParadas(env) {
+  const limiteApagar = mesesAtras(INACTIVA_MESES);
+  const limiteAvisar = new Date(
+    new Date(mesesAtras(INACTIVA_MESES)).getTime() + AVISO_DIAS * 86400000
+  ).toISOString();
+
+  /* 1. Avisar. Só quem deixou email — a quem não deixou não há por onde falar,
+        e é o preço de uma conta sem morada nenhuma. O `avisada_em` impede que
+        o aviso saia outra vez todos os dias durante um mês. */
+  const aAvisar = await contasParadas(env, limiteAvisar,
+    'AND c.email IS NOT NULL AND c.email_verificado = 1 AND c.avisada_em IS NULL');
+  for (const conta of aAvisar) {
+    const r = await enviarEmail(env, {
+      para: conta.email,
+      ...emailContaAApagar({ dias: AVISO_DIAS, meses: INACTIVA_MESES }),
+    });
+    /* Só se marca como avisada se o email saiu mesmo. Se a marca fosse posta
+       à frente do envio, uma falha de correio calava o aviso para sempre e a
+       conta era apagada sem ninguém ter sido avisado de nada. */
+    if (r.enviado) {
+      await env.DB.prepare('UPDATE clientes SET avisada_em = ? WHERE id = ?')
+        .bind(agora(), conta.id).run();
+    }
+  }
+
+  /* 2. Apagar. Uma a uma, e não num DELETE só: cada conta arrasta cartões,
+        movimentos, prémios, sessões e entradas, e quem sabe essa lista é o
+        `apagarCliente` — o mesmo que corre quando alguém carrega no botão. */
+  const aApagar = await contasParadas(env, limiteApagar);
+  for (const conta of aApagar) await apagarCliente(env, conta.id);
+
+  return { avisadas: aAvisar.length, apagadas: aApagar.length };
+}

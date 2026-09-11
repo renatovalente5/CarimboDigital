@@ -26,11 +26,12 @@ const DESTINO = join(AQUI, '..', '_dev', 'emails');
 
 /* --- os emails a ver ----------------------------------------------------- */
 
-const { emailCodigoCliente, emailCodigoBalcao } = await import('../worker/src/emails.js');
+const { emailCodigoCliente, emailCodigoBalcao, emailContaAApagar } = await import('../worker/src/emails.js');
 
 const CASOS = [
   { nome: 'cliente', email: emailCodigoCliente({ codigo: '318204', minutos: 15 }) },
   { nome: 'balcao', email: emailCodigoBalcao({ codigo: '705193', minutos: 15, negocio: 'Café Torrado' }) },
+  { nome: 'conta-a-apagar', email: emailContaAApagar({ dias: 30, meses: 24 }) },
 ];
 
 /* --- escrever os ficheiros ----------------------------------------------- */

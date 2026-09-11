@@ -13,7 +13,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -42,19 +42,42 @@ export function garantirSegredos({ fundador = 'TESTE1' } = {}) {
  * ficar para trás, e a bateria a rebentar com «no such table» — que parece
  * um defeito do código e é só uma migração por aplicar.
  */
-function prepararBase() {
+function correrSQL(ficheiro) {
   try {
     execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
-      '--local', '--file=esquema.sql'], { cwd: WORKER, stdio: 'ignore' });
+      '--local', `--file=${ficheiro}`], { cwd: WORKER, stdio: 'ignore' });
   } catch {
     /* Se falhar, o arranque a seguir dirá porquê com mais clareza. */
+  }
+}
+
+/**
+ * Prepara a base local.
+ *
+ * O `esquema.sql` é todo `CREATE TABLE IF NOT EXISTS`, o que o torna seguro de
+ * correr sempre — e cego a colunas novas. Numa base que já existia, uma coluna
+ * acrescentada ao esquema nunca lá aparecia, e os testes falhavam com um 500
+ * que não tinha nada que ver com o que estavam a provar. Por isso as migrações
+ * correm a seguir, cada uma por sua conta: numa base nova o `ALTER TABLE` dá
+ * «duplicate column name», que aqui é o sinal de que já está aplicada.
+ */
+function prepararBase() {
+  correrSQL('esquema.sql');
+  const pasta = join(WORKER, 'migracoes');
+  if (!existsSync(pasta)) return;
+  for (const f of readdirSync(pasta).filter((n) => n.endsWith('.sql')).sort()) {
+    correrSQL(`migracoes/${f}`);
   }
 }
 
 export async function comWorker(tarefa, { porta = 8787, tecto = 90000 } = {}) {
   garantirSegredos();
   prepararBase();
-  const processo = spawn('npx', ['--yes', 'wrangler', 'dev', '--local', '--port', String(porta)], {
+  /* O `--test-scheduled` abre um `GET /__scheduled` que dispara o cron à mão.
+     Sem ele, a limpeza diária — que apaga contas — só se provava esperando
+     por ela, e uma regra que apaga dados de pessoas é a última que se quer
+     deixar por provar. A rota só existe no `wrangler dev`, nunca em produção. */
+  const processo = spawn('npx', ['--yes', 'wrangler', 'dev', '--local', '--test-scheduled', '--port', String(porta)], {
     cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
   });
   let registo = '';

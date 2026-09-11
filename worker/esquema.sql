@@ -67,9 +67,16 @@ CREATE TABLE IF NOT EXISTS clientes (
   email             TEXT,
   email_verificado  INTEGER NOT NULL DEFAULT 0,
   criado_em         TEXT NOT NULL,
-  visto_em          TEXT
+  visto_em          TEXT,
+  -- Quando saiu o aviso de que a conta ia ser apagada por estar parada.
+  -- Volta a NULL assim que a pessoa aparece: quem voltou tem direito a um
+  -- aviso novo da próxima vez, e não a ser apagado por causa de um antigo.
+  avisada_em        TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_clientes_email ON clientes(email);
+-- A limpeza diária pergunta por contas paradas: sem isto é uma varredura à
+-- tabela toda, e as «linhas lidas» do D1 contam as percorridas, não as devolvidas.
+CREATE INDEX IF NOT EXISTS ix_clientes_visto ON clientes(visto_em);
 
 -- --- cartões ------------------------------------------------------------
 

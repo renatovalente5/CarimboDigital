@@ -721,6 +721,128 @@ grupo('Emails');
 
 /* --------------------------------------------------------------------- */
 
+grupo('Contas paradas');
+{
+  /* Dispara a limpeza diária à mão. O `--test-scheduled` do wrangler dev abre
+     esta rota; em produção ela não existe, quem chama é o cron. */
+  const limpeza = () => pedir('/__scheduled?cron=17+4+*+*+*');
+
+  const haMeses = (m) => {
+    const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString();
+  };
+
+  /* Lê as linhas a sério, em vez de procurar texto na saída do comando.
+     A primeira versão disto perguntava se a saída continha «│ 1 », à espera
+     de uma tabela desenhada — e o wrangler devolve JSON. Nenhuma das buscas
+     dava positivo nunca, e metade das afirmações passava por isso mesmo:
+     `!existe(...)` é verdade quando a pergunta está partida. */
+  const consulta = (instrucao) => {
+    /* O wrangler escreve um cabeçalho com o sol e a versão antes do JSON.
+       Corta-se a partir do primeiro `[`, que é onde o resultado começa. */
+    const saida = sql(instrucao);
+    const i = saida.indexOf('[');
+    if (i < 0) throw new Error(`sem resultado em: ${saida.slice(0, 200)}`);
+    return JSON.parse(saida.slice(i))[0].results;
+  };
+  const umValor = (instrucao) => {
+    const linhas = consulta(instrucao);
+    return linhas.length ? Object.values(linhas[0])[0] : undefined;
+  };
+  const existe = (id) => umValor(`SELECT COUNT(*) n FROM clientes WHERE id = '${id}'`) === 1;
+  const campo = (id, nome) => umValor(`SELECT ${nome} v FROM clientes WHERE id = '${id}'`);
+
+  /* A guarda da guarda: se a leitura estiver partida, o resto desta secção
+     não prova nada — e prova-o em silêncio, dizendo que está tudo bem. */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    certo(existe(r.dados.cliente.id), 'a leitura da base funciona (senão o resto não prova nada)');
+    await pedir('/v1/cliente', { metodo: 'DELETE', sessao: r.dados.sessao });
+    certo(!existe(r.dados.cliente.id), 'e vê a diferença quando a conta desaparece');
+  }
+
+  /* --- abrir a app conta como sinal de vida --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    sql(`UPDATE clientes SET visto_em = '${haMeses(10)}' WHERE id = '${id}'`);
+    await pedir('/v1/cliente/cartoes', { sessao: r.dados.sessao });
+    certo(campo(id, 'visto_em') > haMeses(1), 'abrir a app actualiza o visto_em');
+  }
+
+  /* --- uma conta parada há dois anos é apagada --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    sql(`UPDATE clientes SET criado_em = '${haMeses(30)}', visto_em = '${haMeses(26)}' WHERE id = '${id}'`);
+    await limpeza();
+    certo(!existe(id), 'uma conta parada há 26 meses é apagada');
+  }
+
+  /* --- e leva os cartões e os movimentos com ela --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: r.dados.sessao, corpo: { programaId: 'p1' } });
+    sql(`UPDATE clientes SET visto_em = '${haMeses(26)}' WHERE id = '${id}'`);
+    sql(`UPDATE cartoes SET aderiu_em = '${haMeses(26)}', ultimo_em = NULL WHERE cliente_id = '${id}'`);
+    await limpeza();
+    certo(umValor(`SELECT COUNT(*) n FROM cartoes WHERE cliente_id = '${id}'`) === 0,
+      'e os cartões dela vão atrás');
+  }
+
+  /* --- O CASO QUE SE ESQUECE: quem é carimbado ao balcão nunca abre a app.
+         Quem carimba é o operador, com a sessão dele, e o visto_em do cliente
+         não mexe. Se a regra olhasse só para a conta, apagava um cliente que
+         passa no café todas as semanas. --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: r.dados.sessao, corpo: { programaId: 'p1' } });
+    sql(`UPDATE clientes SET criado_em = '${haMeses(30)}', visto_em = '${haMeses(26)}' WHERE id = '${id}'`);
+    sql(`UPDATE cartoes SET ultimo_em = '${haMeses(1)}' WHERE cliente_id = '${id}'`);
+    await limpeza();
+    certo(existe(id), 'um cartão carimbado há um mês salva a conta, mesmo sem abrir a app');
+  }
+
+  /* --- o aviso, e a garantia de que um envio falhado não o gasta ---
+         Aqui não há canal de email: o `.dev.vars` dos testes não tem
+         MAIL_TOKEN nem MAIL_CAIXA, e o envio devolve «sem-chave». É o caso
+         que interessa provar, porque é o que acontece quando o correio está
+         em baixo: a conta NÃO pode ficar marcada como avisada, senão o aviso
+         perdia-se e ela era apagada 30 dias depois sem ninguém saber. --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    sql(`UPDATE clientes SET email = 'parado@exemplo.pt', email_verificado = 1,
+         criado_em = '${haMeses(30)}', visto_em = '${haMeses(23)}' WHERE id = '${id}'`);
+    await limpeza();
+    certo(existe(id), 'aos 23 meses a conta ainda lá está');
+    certo(campo(id, 'avisada_em') == null,
+      'e um aviso que não chegou a sair não fica marcado como dado');
+  }
+
+  /* --- quem volta limpa a marca, e tem direito a aviso novo da próxima --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    sql(`UPDATE clientes SET avisada_em = '${haMeses(1)}', visto_em = '${haMeses(23)}' WHERE id = '${id}'`);
+    await pedir('/v1/cliente/cartoes', { sessao: r.dados.sessao });
+    certo(campo(id, 'avisada_em') == null, 'voltar à app apaga a marca do aviso');
+  }
+
+  /* --- uma conta sem email é apagada na mesma, só que sem aviso --- */
+  {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    sql(`UPDATE clientes SET criado_em = '${haMeses(30)}', visto_em = '${haMeses(23)}' WHERE id = '${id}'`);
+    await limpeza();
+    certo(existe(id) && campo(id, 'avisada_em') == null,
+      'sem email não há aviso, e a conta fica à espera do prazo');
+  }
+}
+
+/* --------------------------------------------------------------------- */
+
 console.log(`\n${passou} passaram, ${falhou} falharam.`);
 if (falhou) {
   console.log('\nFalhas:');
