@@ -15,14 +15,18 @@
    Uso:  node scripts/capturar.mjs [endereço-base]
    ========================================================================= */
 
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { abrirChrome, novoSeparador, esperarCarregada, encontrarChrome, esperar } from './chrome.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const DESTINO = join(AQUI, '..', '_dev', 'capturas');
-const BASE = process.argv[2] || 'http://localhost:4321/CarimboDigital';
+/* O prefixo sai do mesmo sítio que o do gerador: com domínio próprio o site
+   vive na raiz, sem ele vive em /CarimboDigital/. Estava escrito à mão aqui,
+   e no dia em que o domínio entrou as treze capturas passaram a ser de 404. */
+const PREFIXO = existsSync(join(AQUI, '..', 'CNAME')) ? '' : '/CarimboDigital';
+const BASE = process.argv[2] || `http://localhost:4321${PREFIXO}`;
 
 
 

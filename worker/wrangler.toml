@@ -10,7 +10,6 @@ compatibility_date = "2026-08-01"
 #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 [vars]
-SITIO = "https://renatovalente5.github.io/CarimboDigital"
 # Vírgulas a separar. Vazio = aceita qualquer origem (só para desenvolver).
 # O localhost está aqui de propósito, para se poder desenvolver contra o
 # servidor a sério. Não é o que protege a API: os testemunhos de sessão vão no
