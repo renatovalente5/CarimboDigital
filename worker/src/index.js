@@ -14,8 +14,15 @@
      CHAVE_MESTRA        — 32 bytes em base64url; deriva os segredos dos
                            dispositivos. Se mudar, todos os códigos deixam de
                            valer (por isso há `chave_versao` na tabela).
-     RESEND_API_KEY      — opcional; sem ela não se enviam emails e a app
-                           continua a funcionar sem recuperação por email.
+     CODIGO_FUNDADOR     — quem pode abrir um balcão novo. Sem ele as
+                           inscrições estão fechadas.
+     MAIL_TOKEN          — opcional; o token da API de correio da Hostinger
+                           (hPanel › Emails › o domínio › Agentic mail › API,
+                           e não o de hpanel.hostinger.com/api, que é de outra
+                           API e leva 401). Sem ele não se enviam emails e a
+                           app continua a funcionar, só sem recuperação de
+                           conta por email. Anda a par do MAIL_CAIXA, que não
+                           é segredo e está no wrangler.toml.
    ========================================================================= */
 
 import { emailCodigoCliente, emailCodigoBalcao } from './emails.js';

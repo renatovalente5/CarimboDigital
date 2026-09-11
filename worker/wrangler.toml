@@ -24,16 +24,22 @@ ORIGENS = "https://carimbodigital.pt,https://www.carimbodigital.pt,http://localh
 # quem envia é a caixa identificada por MAIL_CAIXA, e o correio sai de lá.
 EMAIL_NOME = "Carimbo Digital"
 
-# A caixa de onde sai o correio, na API da Hostinger. Não é segredo — é um
-# identificador, e descobre-se com `node scripts/email.mjs`. O que é segredo
-# é o token, que vive fora daqui:
+# A caixa de onde sai o correio, na API da Hostinger: geral@carimbodigital.pt.
+# Não é segredo — é um identificador de recurso, e descobre-se a qualquer
+# momento com `node scripts/email.mjs`. O que é segredo é o token, que vive
+# fora daqui:
 #
 #   npx wrangler secret put MAIL_TOKEN
 #
-# Atenção ao que esse token abre: a API da Hostinger não tem âmbito
-# só-de-envio. O mesmo token lê, procura e apaga o correio de geral@. Nunca
-# entra no repositório, nem em variável de ambiente de CI que se possa ler.
-MAIL_CAIXA = ""
+# E é o token de correio, não o de alojamento: cria-se em
+# hPanel › Emails › carimbodigital.pt › Agentic mail › API. O de
+# hpanel.hostinger.com/api é de outra API e leva 401 aqui.
+#
+# Atenção ao que esse token abre: não há âmbito só-de-envio. As permissões são
+# «manage all SMTP/IMAP actions» — o mesmo token lê, procura e apaga o correio
+# de geral@. Nunca entra no repositório, nem em variável de ambiente de CI que
+# se possa ler.
+MAIL_CAIXA = "AC253ee5cda0314af28894c3718af1"
 
 [[d1_databases]]
 binding = "DB"
