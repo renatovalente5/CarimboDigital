@@ -95,6 +95,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # O histórico todo, e não o clone raso de um commit que vem por
+          # omissão. O sitemap tira o `lastmod` de cada página da data do
+          # último commit que lhe tocou — e num clone raso só existe um
+          # commit, pelo que todas as páginas diziam ter mudado no instante
+          # da construção. Um `lastmod` assim ensina o motor de busca a
+          # ignorar o campo. O repositório é pequeno; buscar tudo não custa.
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22

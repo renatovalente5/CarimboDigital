@@ -5,3 +5,9 @@ node_modules/
 .dev.vars
 worker/.wrangler/
 _dev/
+
+# Configuração de MCP com credenciais lá dentro. O ficheiro é local à máquina
+# e NUNCA entra no repositório — este é público, e um token commitado é um
+# token comprometido, mesmo que se apague no commit seguinte.
+.claude.json
+.mcp.json

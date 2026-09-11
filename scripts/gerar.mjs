@@ -58,6 +58,25 @@ function listar(pasta) {
   return saida;
 }
 
+/* Um clone raso tem git a funcionar e um histórico de um commit só. O
+   `git log -1 -- ficheiro` responde com gosto: o tal commit único, para
+   TODOS os ficheiros, com a data em que o CI o foi buscar. É pior do que
+   não ter data nenhuma, porque parece uma data.
+
+   Foi o que aconteceu: o `actions/checkout` clona raso por omissão, e a
+   primeira publicação saiu com as quatro páginas a dizerem que tinham sido
+   alteradas no mesmo segundo — o segundo da construção. O workflow passou a
+   pedir o histórico todo (`fetch-depth: 0`), e esta pergunta fica aqui para
+   o dia em que alguém lho voltar a tirar. */
+const RASO = (() => {
+  try {
+    return execFileSync('git', ['rev-parse', '--is-shallow-repository'],
+      { cwd: RAIZ, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() === 'true';
+  } catch {
+    return false;
+  }
+})();
+
 /**
  * A data do último commit que tocou num ficheiro, em ISO.
  *
@@ -67,6 +86,7 @@ function listar(pasta) {
  * ele deixa de olhar para o campo.
  */
 function ultimaAlteracao(ficheiro) {
+  if (RASO) return null;
   try {
     const d = execFileSync('git', ['log', '-1', '--format=%cI', '--', ficheiro],
       { cwd: RAIZ, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
