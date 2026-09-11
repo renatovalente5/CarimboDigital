@@ -289,7 +289,7 @@ export async function correr(palco, certo) {
   const BASE = CFG ? CFG.base : null;
   const VERSAO = await palco.js("return (window.CARIMBO_CONFIG || {}).versao || null");
   await passarBoasVindas(palco);
-  await palco.esperar('#barra', 10000);
+  await palco.esperar('#barra .barra-item', 10000);
 
   const swApp = await swPronto(palco, 20000);
   certo(!swApp.erro, 'app: o service worker instala-se e fica activo',
@@ -600,7 +600,7 @@ export async function correr(palco, certo) {
      ======================================================================= */
 
   await palco.ir('/app/');
-  await palco.esperar('#barra', 10000);
+  await palco.esperar('#barra .barra-item', 10000);
   await esperarControlador(palco, 10000);
 
   const cortados = await cortarRede(palco, true);
@@ -688,7 +688,7 @@ export async function correr(palco, certo) {
      ======================================================================= */
 
   await palco.ir('/app/');
-  await palco.esperar('#barra', 10000);
+  await palco.esperar('#barra .barra-item', 10000);
   await esperarControlador(palco, 10000);
 
   const MARCA = 'PAGINA-DE-JANEIRO';
@@ -752,7 +752,7 @@ export async function correr(palco, certo) {
     }
     return true`);
   await palco.recarregar();
-  await palco.esperar('#barra', 10000);
+  await palco.esperar('#barra .barra-item', 10000);
 
   const swOutraVez = await swPronto(palco, 20000);
   certo(!swOutraVez.erro,

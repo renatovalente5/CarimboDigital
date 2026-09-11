@@ -41,7 +41,7 @@ async function selos(palco) {
 export async function correr(palco, certo) {
   await palco.ir('/app/?demo=1');
   await passarBoasVindas(palco);
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
 
   const antes = await palco.contar(NA_CARTEIRA);
   certo(antes === SEMEADOS,
@@ -208,7 +208,7 @@ export async function correr(palco, certo) {
     localStorage.setItem(chave, JSON.stringify(e));
     return true;`);
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.clicar(DESCOBRIR);
 
   const novoAlvo = `[aria-label="Juntar o cartão de ${QUIOSQUE}"]`;
@@ -254,7 +254,7 @@ export async function correr(palco, certo) {
     localStorage.setItem(chave, JSON.stringify(e));
     return true;`);
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
 
   await palco.clicar(DESCOBRIR);
   await palco.esperar('#principal h1');

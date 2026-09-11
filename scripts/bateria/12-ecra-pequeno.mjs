@@ -375,7 +375,7 @@ async function appDoCliente(palco, certo, l) {
   await medir(palco, certo, 'app · boas-vindas', l);
 
   await passarBoasVindas(palco);
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.esperar('#principal .pilha .cartao', 10000);
 
   await medir(palco, certo, 'app · carteira', l);
@@ -487,7 +487,7 @@ async function balcao(palco, certo, l, publico) {
   await palco.captura(`12-balcao-entrada-${l}`);
 
   await palco.clicar('#entrada-acoes .btn-cheio');
-  await palco.esperar('#barra', 10000);
+  await palco.esperar('#barra .barra-item', 10000);
   await palco.esperar('#visor-estado', 8000);
   /* Sem câmara no browser da bateria o visor fica na mensagem de recusa —
      que é justamente o estado em que este ecrã tem mais texto. */

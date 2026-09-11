@@ -45,7 +45,7 @@ async function entrarNaApp(palco) {
   for (let i = 0; i < 8 && (await palco.visivel('#boas-vindas')); i++) {
     await palco.clicar('#bv-seguinte');
   }
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.esperar('.pilha .cartao');
 }
 

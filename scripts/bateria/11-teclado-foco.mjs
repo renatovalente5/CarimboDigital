@@ -346,7 +346,7 @@ export async function correr(palco, certo) {
     pontos ? `role=${pontos.papel}, filhos=[${pontos.filhos.join(', ')}]` : 'não há pontos');
 
   await passarBoasVindas(palco);
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.esperar('#principal .pilha .cartao', 10000);
   await recolherAlvos(palco, alvosApp, 'carteira');
 
@@ -533,7 +533,7 @@ export async function correr(palco, certo) {
      faz o BROWSER focar o alvo do fragmento — o que mascarava, com um foco
      que não é da app, onde o foco fica mesmo ao fechar um painel. */
   await palco.ir('/app/?demo=1');
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.clicar('.barra-item:nth-child(5)');
   await palco.esperar('#principal .linha-perigo');
 

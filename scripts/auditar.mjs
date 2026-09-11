@@ -374,7 +374,46 @@ console.log('\nJavaScript');
   if (!mal) bem(`${modulos.length} módulos de JavaScript analisam`);
 }
 
-/* --- 13. contraste da paleta -------------------------------------------
+/* --- 13. dados estruturados --------------------------------------------
+   Um JSON-LD com um erro de sintaxe é ignorado em silêncio pelo motor de
+   busca: não há aviso, não há erro, simplesmente não conta. E um que
+   publique dados pessoais a mais não se desfaz — fica em caches que não
+   controlamos.
+   ---------------------------------------------------------------------- */
+console.log('\nDados estruturados');
+{
+  let mal = 0, achados = 0;
+  for (const pagina of paginas) {
+    const html = readFileSync(pagina, 'utf8');
+    const nome = pagina.slice(SAIDA.length + 1);
+    const bloco = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    if (!bloco) {
+      if (!/name="robots" content="noindex"/.test(html)) {
+        falhar(`${nome}: sem dados estruturados`); mal++;
+      }
+      continue;
+    }
+    achados++;
+    let dados;
+    try { dados = JSON.parse(bloco[1]); }
+    catch (e) { falhar(`${nome}: o JSON-LD não analisa — ${e.message}`); mal++; continue; }
+    if (dados['@context'] !== 'https://schema.org') {
+      falhar(`${nome}: o @context do JSON-LD não é o do schema.org`); mal++;
+    }
+    /* O NIF e a morada de casa ficam nas páginas legais, em texto. Aqui
+       seriam dados de um particular entregues em formato de máquina. */
+    const cru = JSON.stringify(dados);
+    if (config.entidade?.nif && cru.includes(config.entidade.nif)) {
+      falhar(`${nome}: o NIF está nos dados estruturados`); mal++;
+    }
+    if (config.entidade?.morada && cru.includes(config.entidade.morada)) {
+      falhar(`${nome}: a morada está nos dados estruturados`); mal++;
+    }
+  }
+  if (!mal) bem(`${achados} páginas com dados estruturados, todas analisam`);
+}
+
+/* --- 14. contraste da paleta -------------------------------------------
    Isto está aqui porque a paleta original tinha oito pares que não passavam
    e nenhum deles se via a olho: a legenda cinzenta parecia «cinzenta o
    suficiente». Passar o olho não mede nada — 3,0 e 4,6 são

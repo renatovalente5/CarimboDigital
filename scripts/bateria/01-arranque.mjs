@@ -33,7 +33,7 @@ export async function correr(palco, certo) {
   certo(passos > 0 && passos < 8,
     `app do cliente: as boas-vindas acabam (${passos} passos)`, `passos=${passos}`);
 
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   const separadores = await palco.textos('.barra-item');
   certo(separadores.length === 5,
     `app do cliente: a barra tem 5 separadores`, `tem ${separadores.length}: ${separadores}`);

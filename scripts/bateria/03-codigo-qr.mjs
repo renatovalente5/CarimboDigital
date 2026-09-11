@@ -149,7 +149,7 @@ function lerAnel(palco) {
 export async function correr(palco, certo) {
   await palco.ir('/app/?demo=1');
   await passarBoasVindas(palco);
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
 
   /* Um separador escondido não pinta nem corre `requestAnimationFrame`, e
      este módulo vive de comparar desenhos ao longo do tempo: se a página

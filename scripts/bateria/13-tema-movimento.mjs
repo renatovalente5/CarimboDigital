@@ -363,7 +363,7 @@ export async function correr(palco, certo) {
   await palco.tema('light');
   await palco.ir('/app/?demo=1');
   await passarBoasVindas(palco);
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
 
   const abriuClaro = await olharTema(palco);
   certo(abriuClaro.fundo === PAPEL_CLARO && abriuClaro.tinta === TINTA_CLARA,
@@ -373,7 +373,7 @@ export async function correr(palco, certo) {
      meio. É o caso da pessoa que tem o modo escuro ligado desde sempre. */
   await palco.tema('dark');
   await palco.ir('/app/?demo=1');
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.captura('13-app-escuro-do-sistema');
 
   const sistemaEscuro = await olharTema(palco);
@@ -457,7 +457,7 @@ export async function correr(palco, certo) {
     JSON.stringify(contraCorrente));
 
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   const depoisDaRecarga = await olharTema(palco);
   certo(depoisDaRecarga.dataset === 'claro' && depoisDaRecarga.guardado === '"claro"',
     'recarregar: a escolha continua guardada', JSON.stringify(depoisDaRecarga));
@@ -494,7 +494,7 @@ export async function correr(palco, certo) {
   await palco.tema('light');
   await palco.js(`localStorage.setItem('carimbo-demo:tema', '"escuro"'); return true`);
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   const arranqueEscuro = await palco.js('return window.__pintura');
   certo(arranqueEscuro && arranqueEscuro.temaNoNascimento === 'escuro',
     'arranque escuro: o tema já está no <html> quando o <body> nasce',
@@ -539,7 +539,7 @@ export async function correr(palco, certo) {
   await palco.tema('dark');
   await palco.js(`localStorage.setItem('carimbo-demo:tema', '"claro"'); return true`);
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   const arranqueClaro = await palco.js('return window.__pintura');
   certo(arranqueClaro && arranqueClaro.corpoNasceu === PAPEL_CLARO
     && arranqueClaro.primeiroFrame === PAPEL_CLARO,
@@ -586,7 +586,7 @@ export async function correr(palco, certo) {
   await palco.tema('light');
   await palco.movimento('no-preference');
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
 
   const comMovimento = await sondarTodos(palco);
   const infinitasNormais = comMovimento.sondas.filter((s) => s.voltas === 'infinite');

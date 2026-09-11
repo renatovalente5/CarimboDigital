@@ -106,7 +106,7 @@ export async function correr(palco, certo) {
   /* --- chegar ao perfil -------------------------------------------------- */
   await palco.ir('/app/?demo=1');
   await passarBoasVindas(palco);
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.clicar(PERFIL);
   await palco.esperar('#principal .identidade-numero');
 
@@ -259,7 +259,7 @@ export async function correr(palco, certo) {
 
   /* --- e aguenta-se depois de recarregar --------------------------------- */
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   await palco.clicar(PERFIL);
   await palco.esperar(LINHA_CONTA);
   certo((await palco.texto(LINHA_CONTA)).includes(EMAIL),
@@ -316,7 +316,7 @@ export async function correr(palco, certo) {
   }, palco.sessao);
 
   await palco.recarregar();
-  await palco.esperar('#barra');
+  await palco.esperar('#barra .barra-item');
   certo(await temaNoHtml() === 'escuro',
     'tema: a escolha aguenta-se depois de recarregar', String(await temaNoHtml()));
 

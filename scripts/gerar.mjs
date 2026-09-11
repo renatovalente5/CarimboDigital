@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, statSync,
 import { join, dirname, relative, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
@@ -55,6 +56,24 @@ function listar(pasta) {
     else saida.push(caminho);
   }
   return saida;
+}
+
+/**
+ * A data do último commit que tocou num ficheiro, em ISO.
+ *
+ * Sem git — um clone sem histórico, um zip — devolve null, e o sitemap sai
+ * sem `lastmod`. Não ter a data é melhor do que inventá-la: a data de hoje
+ * em todas as páginas diz ao motor que o site inteiro muda todos os dias, e
+ * ele deixa de olhar para o campo.
+ */
+function ultimaAlteracao(ficheiro) {
+  try {
+    const d = execFileSync('git', ['log', '-1', '--format=%cI', '--', ficheiro],
+      { cwd: RAIZ, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return d || null;
+  } catch {
+    return null;
+  }
 }
 
 const VERSAO = versao();
@@ -169,6 +188,59 @@ for (const app of ['app', 'balcao']) {
   }
 }
 
+/* =========================================================================
+   Dados estruturados
+
+   Diz aos motores de busca o que isto é, em vez de os deixar adivinhar pelo
+   texto. Duas coisas, e só duas, porque são as que correspondem à verdade:
+
+   · uma Organization, que é quem responde pelo serviço — e é a mesma
+     identidade que está nas páginas legais, tirada do mesmo config, para não
+     haver duas versões da mesma pessoa;
+   · uma WebApplication, porque é o que o produto é: uma app que corre no
+     browser, de graça, em português.
+
+   Não se inventa o que não se tem. Sem avaliações não há `aggregateRating` —
+   um rating inventado é o género de coisa que faz um site perder os
+   resultados enriquecidos todos de uma vez, e com razão.
+   ========================================================================= */
+
+function dadosEstruturados(rota) {
+  const sitio = `https://${config.dominio}`;
+  const entidade = config.entidade || {};
+
+  const organizacao = {
+    '@type': 'Organization',
+    '@id': `${sitio}/#entidade`,
+    name: config.nome,
+    url: sitio,
+    email: entidade.email || config.contacto,
+    logo: `${sitio}/icones/512.png`,
+    /* Sem NIF e sem morada, de propósito. A lei obriga a identificação a
+       constar do site, e ela consta — nas páginas legais, em texto, que é
+       onde alguém a vai procurar. Pô-la também aqui era entregá-la em
+       formato de máquina a quem raspa sítios, e isto é a casa e o número de
+       contribuinte de um particular, não de uma empresa. */
+  };
+
+  /* Só na página inicial: repetir a ficha do produto em todas as páginas não
+     acrescenta nada e dilui qual delas é a página do produto. */
+  const aplicacao = rota === '' ? [{
+    '@type': 'WebApplication',
+    '@id': `${sitio}/#app`,
+    name: config.nome,
+    url: `${sitio}/app/`,
+    description: config.descricao,
+    applicationCategory: 'LifestyleApplication',
+    operatingSystem: 'Web',
+    inLanguage: 'pt-PT',
+    publisher: { '@id': `${sitio}/#entidade` },
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+  }] : [];
+
+  return { '@context': 'https://schema.org', '@graph': [organizacao, ...aplicacao] };
+}
+
 /* --- páginas do site ----------------------------------------------------- */
 const parcial = (nome) => preencher(readFileSync(join(FONTE, 'parciais', nome), 'utf8'));
 const MOLDE = readFileSync(join(FONTE, 'parciais', 'molde.html'), 'utf8');
@@ -206,6 +278,11 @@ for (const ficheiro of paginas) {
     .split('{{CANONICO}}').join(`https://${config.dominio}${rota}/`)
     .split('{{ROBOTS}}').join(meta.naoIndexar
       ? '\n<meta name="robots" content="noindex">' : '')
+    /* Uma página que não quer ser indexada também não precisa de se
+       descrever a quem não a vai indexar. */
+    .split('{{DADOS_ESTRUTURADOS}}').join(meta.naoIndexar ? ''
+      : `<script type="application/ld+json">\n${
+        JSON.stringify(dadosEstruturados(rota), null, 2)}\n</script>`)
     .split('{{CLASSE}}').join(meta.classe || '')
     .split('{{CORPO}}').join(preencher(corpo));
 
@@ -214,7 +291,16 @@ for (const ficheiro of paginas) {
      Anunciá-la no sitemap dizia aos motores «esta página é conteúdo», e o
      canónico dela dizia-lhes que era a página inicial. */
   if (!meta.semSitemap) {
-    rotas.push({ rota: `${rota}/`, prioridade: meta.prioridade || (rota ? '0.6' : '1.0') });
+    rotas.push({
+      rota: `${rota}/`,
+      prioridade: meta.prioridade || (rota ? '0.6' : '1.0'),
+      /* A data da última alteração da FONTE desta página, tirada do git. É o
+         único campo do sitemap que o Google diz usar — o `priority` e o
+         `changefreq` são ignorados há anos. E tem de ser honesta: um
+         `lastmod` que muda a cada construção, sem o conteúdo mudar, ensina o
+         motor a não acreditar nele. */
+      alterada: ultimaAlteracao(ficheiro),
+    });
   }
 }
 
@@ -375,6 +461,7 @@ escrever(join(SAIDA, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n`
   + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
   + rotas.map((r) => `  <url><loc>https://${config.dominio}${r.rota}</loc>`
+      + (r.alterada ? `<lastmod>${r.alterada}</lastmod>` : '')
       + `<priority>${r.prioridade}</priority></url>`).join('\n')
   + `\n</urlset>\n`);
 

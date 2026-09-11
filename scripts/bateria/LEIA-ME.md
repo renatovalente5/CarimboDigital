@@ -87,3 +87,8 @@ que apanha a promessa que morre dentro de um clique.
    O `#boas-vindas` continua no DOM depois de fechado.
 5. Os separadores da barra não têm `id`: são `.barra-item`, pela ordem
    Carteira, Descobrir, Código, Prémios, Perfil.
+6. **Espera pelo conteúdo, não pelo contentor.** O `#barra`, o `#principal`
+   e o `#topo` estão no HTML estático: um `esperar('#barra')` devolve na
+   hora, com a barra ainda vazia, e o que vier a seguir lê zero separadores.
+   Espera-se por `#barra .barra-item`. Isto passou meses a passar aqui e a
+   reprovar no CI, onde a app demora mais um pouco a montar.
