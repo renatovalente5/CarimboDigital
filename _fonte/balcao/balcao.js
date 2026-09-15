@@ -686,23 +686,68 @@ async function ecraPrograma(principal) {
       el('span', { texto: 'Regras (a letra pequena)' }),
       el('textarea', { id: 'f-regras', maxlength: '240' }, p.regras || '')));
 
-  /* Cor */
-  const cores = ['#17161C', '#3B2417', '#12232E', '#B0446A', '#C9821F', '#1E7A6B',
-                 '#5AAEE0', '#5A31E8', '#B03A2E', '#2E5E3A', '#6B4E9B', '#A8632B'];
+  /* --- Cor -------------------------------------------------------------
+
+     DOZE CORES NÃO CHEGAM, e a falta não era visível até um negócio a sério
+     chegar. A barbearia tem `#EE9125`, medido na folha de estilo do site
+     deles, e esse laranja não está na paleta. O que acontecia a quem abria
+     este ecrã: nenhuma cor aparecia escolhida — porque nenhuma correspondia —
+     e o gesto natural é carregar numa. Nesse instante a cor de marca era
+     substituída por uma das doze, sem aviso, e **sem forma nenhuma de a
+     recompor pela interface**. Foi exactamente o que se passou: o cartão da
+     barbearia foi parar a um verde.
+
+     A correcção tem duas metades, e ambas são precisas:
+
+     · a cor ACTUAL entra sempre na paleta, mesmo não sendo uma das doze,
+       marcada como escolhida. Quem chega vê o que tem, e não um vazio que
+       convida a carregar;
+     · e há um selector de cor a sério ao lado, para se poder pôr a cor exacta
+       da marca em vez da mais parecida. `input type=color` é o control que
+       todos os telemóveis sabem abrir.
+     --------------------------------------------------------------------- */
+  const SUGESTOES = ['#17161C', '#3B2417', '#12232E', '#B0446A', '#C9821F', '#1E7A6B',
+                     '#5AAEE0', '#5A31E8', '#B03A2E', '#2E5E3A', '#6B4E9B', '#A8632B'];
+  const corActual = String(estado.negocio.cor || '#17161C').toUpperCase();
+  const cores = SUGESTOES.some((c) => c.toUpperCase() === corActual)
+    ? SUGESTOES : [corActual, ...SUGESTOES];
+
   const paleta = el('div', { class: 'paleta' });
-  for (const c of cores) {
+  const escolher = (c) => {
+    estado.negocio.cor = c;
+    for (const o of paleta.querySelectorAll('.paleta-cor')) {
+      o.dataset.ativo = o.dataset.cor.toLowerCase() === c.toLowerCase() ? 'sim' : 'nao';
+    }
+    if (afinador.value.toLowerCase() !== c.toLowerCase()) afinador.value = c;
+    desenharPrevia(previa);
+  };
+
+  /* O selector fino. Declarado antes do ciclo porque o `escolher` lhe toca. */
+  const afinador = el('input', {
+    id: 'f-cor', type: 'color', value: corActual,
+    'aria-label': 'Escolher a cor exacta da marca',
+  });
+  afinador.addEventListener('input', () => {
+    const c = afinador.value.toUpperCase();
+    /* Se a cor afinada não estiver na paleta, entra nela — senão o ecrã
+       mostrava uma coisa e o cartão outra. */
+    if (!paleta.querySelector(`[data-cor="${c}"]`)) paleta.prepend(botaoDeCor(c));
+    escolher(c);
+  });
+
+  function botaoDeCor(c) {
     const b = el('button', { class: 'paleta-cor', estilo: { background: c },
                              'aria-label': `Cor ${c}`, type: 'button' });
-    b.dataset.ativo = c.toLowerCase() === String(estado.negocio.cor).toLowerCase() ? 'sim' : 'nao';
-    b.addEventListener('click', () => {
-      estado.negocio.cor = c;
-      for (const o of paleta.querySelectorAll('.paleta-cor')) o.dataset.ativo = 'nao';
-      b.dataset.ativo = 'sim';
-      desenharPrevia(previa);
-    });
-    paleta.append(b);
+    b.dataset.cor = c;
+    b.dataset.ativo = c.toLowerCase() === corActual.toLowerCase() ? 'sim' : 'nao';
+    b.addEventListener('click', () => escolher(c));
+    return b;
   }
-  form.append(el('div', { class: 'campo' }, el('span', { texto: 'Cor' }), paleta));
+  for (const c of cores) paleta.append(botaoDeCor(c));
+
+  form.append(el('div', { class: 'campo' },
+    el('span', { texto: 'Cor' }),
+    el('div', { class: 'cor-linha' }, paleta, afinador)));
 
   /* Selo */
   const selos = el('div', { class: 'selos' });

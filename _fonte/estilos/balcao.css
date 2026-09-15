@@ -279,3 +279,14 @@
    botão através de `.click()`, que funciona em campos de ficheiro escondidos
    assim em todos os browsers — e quem recebe o foco é o botão, que se vê. */
 .campo input.escondido, .escondido { display: none; }
+
+/* A cor: as sugestões e o afinador lado a lado. O afinador é um
+   `input type=color`, que cada sistema desenha à sua maneira — por isso
+   dá-se-lhe apenas tamanho e um contorno, e deixa-se o resto em paz. */
+.cor-linha { display: flex; gap: 10px; align-items: flex-start; }
+.cor-linha .paleta { flex: 1 1 auto; min-width: 0; }
+#f-cor {
+  flex: 0 0 auto; width: 40px; height: 40px; padding: 2px;
+  border: 1px solid var(--linha); border-radius: 10px;
+  background: var(--papel-2); cursor: pointer;
+}

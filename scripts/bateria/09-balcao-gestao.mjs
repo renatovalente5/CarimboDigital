@@ -419,6 +419,41 @@ export async function correr(palco, certo) {
      que a pré-visualização passe a ter uma imagem. Sem isto, o caminho todo —
      ler, cortar ao centro, reduzir a 512 px, gravar — ficava por percorrer.
      -------------------------------------------------------------------- */
+  /* --- a cor ------------------------------------------------------------
+     A paleta tinha doze cores fixas e mais nada. Um negócio cuja cor de marca
+     não fosse uma das doze abria este ecrã com NADA seleccionado — e o gesto
+     natural é carregar numa, o que substituía a cor medida por uma parecida,
+     sem aviso e sem forma de a recompor. Aconteceu a sério: o cartão de uma
+     barbearia de laranja foi parar a um verde.
+     --------------------------------------------------------------------- */
+  {
+    /* Põe-se uma cor que de certeza não está na paleta e recarrega-se. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#EE9125';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    /* Recarrega-se para o balcão reler o negócio do armazenamento. Com sessão
+       guardada ele entra directo, sem passar pelo ecrã de entrada — esperar
+       por esse ecrã aqui era esperar por uma coisa que não vem. */
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+
+    const activa = await palco.js(
+      `const b = document.querySelector('.paleta-cor[data-ativo="sim"]');
+       return b ? b.dataset.cor : null;`);
+    certo(String(activa).toUpperCase() === '#EE9125',
+      'uma cor que não é das sugeridas aparece na paleta, e escolhida',
+      String(activa));
+    certo(await palco.ver('#f-cor'),
+      'e há um selector de cor a sério, para se pôr a cor exacta da marca');
+    certo((await palco.valor('#f-cor')).toLowerCase() === '#ee9125',
+      'que abre já na cor que o negócio tem', String(await palco.valor('#f-cor')));
+  }
+
   certo(await palco.ver('#logo-previa'), 'O cartão: há sítio para o logótipo');
   const botaoLogo = (await palco.textos('.logo-accoes .btn'))[0];
   certo(/escolher|trocar/i.test(String(botaoLogo)),
@@ -690,7 +725,13 @@ export async function correr(palco, certo) {
   const corAntes = (await lerPrevia(palco)).m;
   const cores = await palco.js(
     "return [...document.querySelectorAll('.paleta-cor')].map((b) => b.getAttribute('aria-label'))");
-  certo(cores.length === 12, 'O cartão: a paleta oferece doze cores', String(cores.length));
+  /* Doze sugestões MAIS a cor que o negócio já tem, quando ela não é uma
+     delas. É esse décimo-terceiro lugar que impede a cor de marca de se
+     perder: sem ele, a paleta abria sem nada escolhido e o primeiro toque
+     substituía-a. */
+  certo(cores.length === 12 || cores.length === 13,
+    'O cartão: a paleta oferece as doze sugestões, mais a cor actual se for outra',
+    String(cores.length));
 
   const escolhida = cores.find((c) => c.toLowerCase() !== `cor ${gravado.cor}`.toLowerCase());
   await palco.clicar(`.paleta-cor[aria-label="${escolhida}"]`);
