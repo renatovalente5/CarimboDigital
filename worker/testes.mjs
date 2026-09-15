@@ -1463,6 +1463,35 @@ grupo('A Wallet, de ponta a ponta');
   }
 
   {
+    /* A CLASSE TAMBÉM TEM DE ACOMPANHAR. Era escrita uma vez e nunca mais:
+       o dono mudava o nome do cartão ou a cor no balcão, e quem já tinha o
+       passe guardado continuava a ver o antigo para sempre — porque quem tem
+       o passe não volta a abrir a app. O que ele vê é o que a Google tem. */
+    await limpar();
+    await pedir('/v1/balcao/negocio', { metodo: 'PUT', sessao: sessaoBalcao,
+      corpo: { nome: 'Café Rebaptizado', cor: '#EE9125' } });
+    await assentar();
+    const patchClasse = (await visto()).find(
+      (x) => x.metodo === 'PATCH' && x.caminho.includes('/loyaltyClass/'));
+    certo(patchClasse, 'mudar o nome do negócio vai à classe da Wallet',
+      JSON.stringify((await visto()).map((x) => `${x.metodo} ${x.caminho}`)).slice(0, 200));
+    certo(patchClasse && patchClasse.corpo.issuerName === 'Café Rebaptizado',
+      'com o nome novo', patchClasse && patchClasse.corpo.issuerName);
+    certo(patchClasse && patchClasse.corpo.hexBackgroundColor === '#EE9125',
+      'e com a cor nova — que é o que estava errado no primeiro cartão a sério',
+      patchClasse && patchClasse.corpo.hexBackgroundColor);
+
+    await limpar();
+    await pedir('/v1/balcao/programas', { metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { id: 'p1', nome: 'Cartão com nome novo', premio: 'Outro prémio' } });
+    await assentar();
+    const patchP = (await visto()).find(
+      (x) => x.metodo === 'PATCH' && x.caminho.includes('/loyaltyClass/'));
+    certo(patchP && patchP.corpo.programName === 'Cartão com nome novo',
+      'e mudar o nome do cartão também', patchP && patchP.corpo.programName);
+  }
+
+  {
     /* APAGAR A CONTA TEM DE MATAR O PASSE, e antes de apagar a linha: depois
        já não há por onde saber que ele existia, e ficava na carteira da
        pessoa para sempre com um saldo velho. */
@@ -1474,7 +1503,14 @@ grupo('A Wallet, de ponta a ponta');
       JSON.stringify(await visto()).slice(0, 160));
   }
 
-  sql(`UPDATE programas SET arrefecimento = 3600 WHERE id = 'p1'`);
+  /* REPÕE-SE O QUE ESTE BLOCO MEXEU. A base local sobrevive entre corridas, e
+     os testes que leem o nome do negócio correm ANTES deste — mas na corrida
+     SEGUINTE encontravam «Café Rebaptizado» e falhavam sem haver defeito
+     nenhum. Um teste que estraga o estado de outro só se nota à segunda vez,
+     que é quando já ninguém liga o resultado à causa. */
+  sql(`UPDATE programas SET arrefecimento = 3600, nome = 'Cartão do café',
+       premio = 'Um café por conta da casa' WHERE id = 'p1'`);
+  sql(`UPDATE negocios SET nome = 'O Meu Café', cor = '#3B2417' WHERE id = 'n1'`);
 }
 
 /* --------------------------------------------------------------------- */

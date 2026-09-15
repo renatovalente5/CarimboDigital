@@ -26,6 +26,7 @@
 import { emailCodigoCliente, emailCodigoBalcao, emailContaAApagar } from './emails.js';
 import {
   assinarRS256, classeDePrograma, objetoDeCartao, ligacaoDeGravacao, actualizacaoDeSaldo,
+  actualizacaoDeClasse,
 } from './wallet.js';
 
 const JANELA = 15;                 // segundos de vida de um código
@@ -1227,7 +1228,7 @@ rota('GET', '/v1/balcao/negocio', async (env, pedido) => {
   };
 });
 
-rota('PUT', '/v1/balcao/negocio', async (env, pedido) => {
+rota('PUT', '/v1/balcao/negocio', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
   if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
   const d = await corpoJSON(pedido);
@@ -1253,6 +1254,10 @@ rota('PUT', '/v1/balcao/negocio', async (env, pedido) => {
             telefone = COALESCE(?, telefone) WHERE id = ?`
   ).bind(nome, cor, corta(d.morada, 120), corta(d.localidade, 60),
          corta(d.telefone, 30), op.negocio_id).run();
+  /* O nome e a cor vivem também na classe da Wallet. Sem isto, quem já tem o
+     passe guardado fica a ver o nome antigo para sempre — e não volta a abrir
+     a app para descobrir que mudou. */
+  await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
   return env.DB.prepare('SELECT * FROM negocios WHERE id = ?').bind(op.negocio_id).first();
 });
 
@@ -1465,6 +1470,44 @@ rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/wallet$/, async (env, pedido, [
 });
 
 /**
+ * Manda para a Google o que mudou na CLASSE — nome, cor, prémio, logótipo.
+ *
+ * Sem isto, a classe era escrita uma vez e nunca mais: o dono mudava o nome do
+ * cartão no balcão e quem tivesse o passe guardado continuava a ver o antigo,
+ * para sempre. Quem tem o passe não volta a abrir a app — o que ele vê é o que
+ * a Google tem.
+ *
+ * Como o espelho do saldo, corre fora do caminho da resposta e engole o erro:
+ * gravar o nome novo no D1 não pode falhar porque a Google não respondeu.
+ */
+/** Todas as classes de um negócio — o nome, a cor e o logótipo são dele. */
+async function espelharClassesDoNegocio(env, negocioId, pedido, ctx) {
+  if (!walletLigada(env) || !ctx) return;
+  const ps = (await env.DB.prepare(
+    'SELECT id FROM programas WHERE negocio_id = ? AND wallet_classe IS NOT NULL'
+  ).bind(negocioId).all()).results;
+  const origem = origemDaAPI(pedido);
+  for (const p of ps) ctx.waitUntil(espelharClasse(env, p.id, origem));
+}
+
+async function espelharClasse(env, programaId, origemAPI) {
+  if (!walletLigada(env)) return;
+  try {
+    const p = await env.DB.prepare('SELECT * FROM programas WHERE id = ?').bind(programaId).first();
+    if (!p || !p.wallet_classe) return;
+    const n = await env.DB.prepare('SELECT * FROM negocios WHERE id = ?').bind(p.negocio_id).first();
+    await googlePedir(env, `/loyaltyClass/${env.GOOGLE_EMISSOR}.${p.id}`, {
+      metodo: 'PATCH',
+      corpo: actualizacaoDeClasse(p, n, {
+        logotipo: n.logotipo ? `${origemAPI}/v1/negocio/${n.slug}/logotipo` : null,
+      }),
+    });
+  } catch (erro) {
+    console.error('wallet: não deu para actualizar a classe', programaId, String(erro));
+  }
+}
+
+/**
  * Manda o saldo novo para a Google, sem fazer ninguém esperar.
  *
  * Chamado com `ctx.waitUntil()` a partir de carimbar, resgatar e anular. O
@@ -1519,7 +1562,7 @@ function tipoDaImagem(base64) {
   return null;
 }
 
-rota('PUT', '/v1/balcao/logotipo', async (env, pedido) => {
+rota('PUT', '/v1/balcao/logotipo', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
   if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
   const d = await corpoJSON(pedido, LOGOTIPO_MAX);
@@ -1529,6 +1572,7 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido) => {
   if (d.logotipo === null || d.logotipo === '') {
     await env.DB.prepare('UPDATE negocios SET logotipo = NULL, logotipo_em = NULL WHERE id = ?')
       .bind(op.negocio_id).run();
+    await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
     return { logotipo: null };
   }
 
@@ -1548,6 +1592,7 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido) => {
 
   await env.DB.prepare('UPDATE negocios SET logotipo = ?, logotipo_em = ? WHERE id = ?')
     .bind(`${tipo};${base64}`, agora(), op.negocio_id).run();
+  await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
   return { logotipo: true, tipo };
 });
 
@@ -1573,7 +1618,7 @@ rota('GET', /^\/v1\/negocio\/([a-z0-9-]{1,40})\/logotipo$/, async (env, pedido, 
   });
 });
 
-rota('POST', '/v1/balcao/programas', async (env, pedido) => {
+rota('POST', '/v1/balcao/programas', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
   if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
   const d = await corpoJSON(pedido);
@@ -1610,6 +1655,10 @@ rota('POST', '/v1/balcao/programas', async (env, pedido) => {
   const programas = (await env.DB.prepare(
     'SELECT * FROM programas WHERE negocio_id = ? AND ativo = 1'
   ).bind(op.negocio_id).all()).results;
+  /* O nome do cartão, o prémio e as regras vivem também na classe da Wallet.
+     Mudá-los aqui sem os mandar para lá deixava o passe a dizer o que já não
+     é verdade. */
+  await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
   return programas.map(moldarPrograma);
 });
 

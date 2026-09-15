@@ -135,6 +135,35 @@ export function classeDePrograma(programa, negocio, { emissor, logotipo }) {
   };
 }
 
+/**
+ * O que se envia para ACTUALIZAR uma classe que já existe.
+ *
+ * A classe era criada uma vez e nunca mais tocada — e isso deixa o cartão na
+ * carteira a mentir no dia em que o dono muda o nome do cartão, o prémio ou a
+ * cor no balcão. Quem tem o passe guardado não volta a abrir a app; o que ele
+ * vê é o que a Google tem.
+ *
+ * Vai por PATCH e não por PUT: o PUT apaga tudo o que não for enviado, e a
+ * classe tem campos que a Google escreve por sua conta — o `reviewStatus`
+ * entre eles, que passa sozinho a `approved`.
+ */
+export function actualizacaoDeClasse(programa, negocio, { logotipo } = {}) {
+  return {
+    issuerName: String(negocio.nome).slice(0, 60),
+    programName: String(programa.nome).slice(0, 60),
+    hexBackgroundColor: /^#[0-9a-fA-F]{6}$/.test(String(negocio.cor || ''))
+      ? negocio.cor : '#5A31E8',
+    ...(logotipo ? { programLogo: { sourceUri: { uri: logotipo } } } : {}),
+    ...(programa.regras ? {
+      textModulesData: [{
+        header: 'Como funciona',
+        body: String(programa.regras).slice(0, 240),
+        id: 'regras',
+      }],
+    } : {}),
+  };
+}
+
 /* =========================================================================
    O objecto: o cartão de uma pessoa
    ========================================================================= */
