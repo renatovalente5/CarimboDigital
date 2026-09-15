@@ -78,21 +78,37 @@ const comHifen = (c) => c.replace(/(.{4})(?=.)/g, '$1-');
 const ARGS = process.argv.slice(2);
 const LOCAL = ARGS.includes('--local');
 
+function correr(args) {
+  const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+    LOCAL ? '--local' : '--remote', '--config', './wrangler.toml', '--json', ...args],
+    { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  const i = saida.indexOf('[');
+  if (i < 0) throw new Error(`o wrangler não devolveu resultado:\n${saida.slice(0, 400)}`);
+  return JSON.parse(saida.slice(i));
+}
+
+/** Escrever. Vai por ficheiro, que aguenta várias instruções e textos longos. */
 function sql(instrucao) {
   const pasta = mkdtempSync(join(tmpdir(), 'carimbo-'));
   const ficheiro = join(pasta, 'q.sql');
   writeFileSync(ficheiro, instrucao);
-  try {
-    const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
-      LOCAL ? '--local' : '--remote', '--config', './wrangler.toml', '--json', `--file=${ficheiro}`],
-      { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
-    const i = saida.indexOf('[');
-    if (i < 0) throw new Error(`o wrangler não devolveu resultado:\n${saida.slice(0, 400)}`);
-    return JSON.parse(saida.slice(i));
-  } finally {
-    try { unlinkSync(ficheiro); } catch { /* o sistema limpa a pasta */ }
-  }
+  try { return correr([`--file=${ficheiro}`]); }
+  finally { try { unlinkSync(ficheiro); } catch { /* o sistema limpa a pasta */ } }
 }
+
+/**
+ * Ler. Vai por `--command`, e a diferença não é de estilo.
+ *
+ * Com `--remote --file=`, o wrangler devolve um RESUMO — «Total queries
+ * executed», «Rows read» — em vez das linhas. Com `--command` devolve os
+ * dados. E localmente devolve dados nos dois casos, o que faz disto o pior
+ * género de diferença: o `listar` corria bem em desenvolvimento e rebentava
+ * contra a produção, com um `Cannot read properties of undefined`.
+ *
+ * O `--command` não tem parâmetros ligados, por isso tudo o que aqui entrar
+ * tem de passar pelo `texto()`.
+ */
+const ler = (instrucao) => correr(['--command', instrucao]);
 
 const linhas = (r) => (r[r.length - 1] && r[r.length - 1].results) || [];
 
@@ -150,7 +166,7 @@ function criar() {
 }
 
 function listar() {
-  const r = linhas(sql(
+  const r = linhas(ler(
     `SELECT c.resumo, c.etiqueta, c.email, c.usos, c.usos_max, c.expira_em, c.revogado_em,
             (SELECT GROUP_CONCAT(n.nome, ', ') FROM negocios n WHERE n.convite = c.resumo) AS nasceu
        FROM convites c ORDER BY c.criado_em DESC LIMIT 60;`));
@@ -175,7 +191,7 @@ function revogar() {
     console.error('\n✗ Falta a ref: node scripts/convite.mjs revogar 3f9a1c22\n');
     process.exit(1);
   }
-  const alvo = linhas(sql(`SELECT resumo, etiqueta, revogado_em FROM convites
+  const alvo = linhas(ler(`SELECT resumo, etiqueta, revogado_em FROM convites
     WHERE resumo LIKE ${texto(`${ref}%`)} LIMIT 2;`));
   if (!alvo.length) { console.error(`\n✗ Não há convite nenhum que comece por ${ref}.\n`); process.exit(1); }
   if (alvo.length > 1) { console.error(`\n✗ ${ref} casa com mais do que um. Escreve mais caracteres.\n`); process.exit(1); }
