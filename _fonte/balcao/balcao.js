@@ -575,27 +575,102 @@ function reduzirLogotipo(ficheiro) {
       const img = new Image();
       img.onerror = () => recusar(new Error('Isso não parece uma imagem.'));
       img.onload = () => {
-        /* Corte quadrado ao CENTRO. Um logótipo ao alto encolhido à força
-           fica deformado, e o telemóvel encaixa-o num círculo por cima. */
-        const lado = Math.min(img.width, img.height);
-        const x = (img.width - lado) / 2;
-        const y = (img.height - lado) / 2;
+        /* Mede-se numa cópia pequena. A imagem inteira espremida num quadrado
+           deforma-a, mas aqui ninguém olha para a forma — olha-se para as
+           cores, e essas não mudam por a imagem estar esticada. */
+        const M = 128;
+        const medida = document.createElement('canvas');
+        medida.width = M; medida.height = M;
+        const mctx = medida.getContext('2d', { willReadFrequently: true });
+        mctx.drawImage(img, 0, 0, M, M);
+        const px = mctx.getImageData(0, 0, M, M).data;
+        const em = (x, y) => (y * M + x) * 4;
+        const pixel = (x, y) => { const i = em(x, y); return [px[i], px[i + 1], px[i + 2], px[i + 3]]; };
+
+        /* A COR DA MOLDURA: os quatro cantos. Se concordarem, o ficheiro tem
+           uma cor de fundo própria — transparente ou não — e é por ela que se
+           apara o que sobra e se preenche o que falta. Dois transparentes são
+           iguais seja qual for o RGB por baixo, que os editores não garantem. */
+        const iguais = (a, b) => (a[3] < 32 && b[3] < 32)
+          || (Math.abs(a[0] - b[0]) < 12 && Math.abs(a[1] - b[1]) < 12
+            && Math.abs(a[2] - b[2]) < 12 && Math.abs(a[3] - b[3]) < 12);
+        const cantos = [pixel(0, 0), pixel(M - 1, 0), pixel(0, M - 1), pixel(M - 1, M - 1)];
+        const moldura = cantos.every((c) => iguais(c, cantos[0])) ? cantos[0] : null;
+
+        /* APARA-SE A MOLDURA antes de encolher. Quase todos os ficheiros de
+           logótipo trazem margem a mais — e sem a tirar, o desenho fica ainda
+           mais pequeno dentro do círculo do que precisava de ficar. */
+        let x0 = 0; let y0 = 0; let x1 = M - 1; let y1 = M - 1;
+        if (moldura) {
+          const daMoldura = (x, y) => iguais(pixel(x, y), moldura);
+          const linhaSo = (y) => { for (let x = 0; x < M; x += 1) if (!daMoldura(x, y)) return false; return true; };
+          const colunaSo = (x) => { for (let y = 0; y < M; y += 1) if (!daMoldura(x, y)) return false; return true; };
+          while (y0 < y1 && linhaSo(y0)) y0 += 1;
+          while (y1 > y0 && linhaSo(y1)) y1 -= 1;
+          while (x0 < x1 && colunaSo(x0)) x0 += 1;
+          while (x1 > x0 && colunaSo(x1)) x1 -= 1;
+        }
+
+        /* O FUNDO ESCOLHE-SE A OLHAR PARA O LOGÓTIPO, e isto levou voltas.
+
+           Primeiro pus fundo branco — e o primeiro logótipo a sério que
+           apanhei, o da barbearia, é BRANCO sobre transparente, feito para
+           fundos escuros. Desaparecia por completo.
+
+           Depois tirei o fundo e deixei a transparência. Mas a Google desenha
+           o `programLogo` dentro de um círculo BRANCO, e o logótipo branco
+           voltou a sumir-se — desta vez no cartão a sério, que é onde dói.
+
+           A resposta tem dois ramos. Se o ficheiro já traz fundo próprio e
+           opaco, é esse que se usa: quem desenhou o logótipo já escolheu o
+           fundo em que ele se lê, e não há que inventar melhor. Se o fundo é
+           transparente, mede-se a luminosidade do que está lá desenhado e
+           escolhe-se o que contrasta — claro assenta na cor da marca, escuro
+           assenta em branco. */
+        let soma = 0; let visiveis = 0;
+        for (let y = y0; y <= y1; y += 1) {
+          for (let x = x0; x <= x1; x += 1) {
+            const p = pixel(x, y);
+            if (p[3] < 32) continue;
+            /* Luminosidade percebida: o verde pesa muito mais do que o azul. */
+            soma += (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]);
+            visiveis += 1;
+          }
+        }
+        const claro = visiveis > 0 && (soma / visiveis) > 140;
+        const fundo = (moldura && moldura[3] >= 32)
+          ? `rgb(${moldura[0]},${moldura[1]},${moldura[2]})`
+          : (claro ? (estado.negocio.cor || '#17161C') : '#FFFFFF');
+
         const tela = document.createElement('canvas');
         tela.width = LOGOTIPO_LADO;
         tela.height = LOGOTIPO_LADO;
         const ctx = tela.getContext('2d');
-        /* A TRANSPARÊNCIA FICA. Eu tinha posto fundo branco aqui, com o
-           argumento de que um PNG transparente sobre um cartão escuro se
-           some. Está ao contrário: o primeiro logótipo a sério que apanhei —
-           o da barbearia — é BRANCO sobre transparente, feito para fundos
-           escuros, e um fundo branco fá-lo-ia desaparecer por completo.
+        ctx.fillStyle = fundo;
+        ctx.fillRect(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
 
-           Quem decide o que está por trás é a superfície: na Wallet o
-           logótipo assenta na cor do negócio (`hexBackgroundColor`), e no
-           cartão da app também. Achatar contra branco aqui tirava essa
-           escolha a toda a gente, para sempre, por causa de um palpite. */
+        /* CABE INTEIRO, E DENTRO DO CÍRCULO. Antes cortava-se um quadrado ao
+           centro, e um logótipo em palavra larga — que é o que quase toda a
+           gente tem: o nome do café escrito — perdia as pontas. «TITI
+           BARBERSHOP» ficava «I BARBER».
+
+           E não basta caber no quadrado: a Google desenha isto dentro de um
+           CÍRCULO, e os cantos do quadrado ficam de fora. Um rectângulo cabe
+           num círculo quando a sua DIAGONAL não passa o diâmetro — por isso é
+           pela diagonal que se encolhe, e não pelo lado maior. Os 0,92 são
+           folga para o desenho não encostar à borda. */
+        const fx = (x0 / M) * img.width;
+        const fy = (y0 / M) * img.height;
+        const fl = ((x1 - x0 + 1) / M) * img.width;
+        const fa = ((y1 - y0 + 1) / M) * img.height;
+        const escala = (LOGOTIPO_LADO * 0.92) / Math.hypot(fl, fa);
+        const largura = Math.max(1, Math.round(fl * escala));
+        const altura = Math.max(1, Math.round(fa * escala));
         ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, x, y, lado, lado, 0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
+        ctx.drawImage(img, fx, fy, fl, fa,
+          Math.round((LOGOTIPO_LADO - largura) / 2),
+          Math.round((LOGOTIPO_LADO - altura) / 2),
+          largura, altura);
         resolve(tela.toDataURL('image/png'));
       };
       img.src = leitor.result;

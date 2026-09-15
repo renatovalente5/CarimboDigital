@@ -149,6 +149,16 @@ export function classeDePrograma(programa, negocio, { emissor, logotipo }) {
  */
 export function actualizacaoDeClasse(programa, negocio, { logotipo } = {}) {
   return {
+    /* O `reviewStatus` TEM de ir, e nesta forma. Uma classe que a Google já
+       aprovou recusa o PATCH com «Invalid review status "APPROVED". Use
+       "UNDER_REVIEW" instead» — não basta omiti-lo, porque então fica o valor
+       antigo e é esse que ela rejeita.
+
+       Repare-se na grafia: ao CRIAR, a Google aceita `underReview`; ao
+       ACTUALIZAR, exige `UNDER_REVIEW`. São a mesma coisa escrita de duas
+       maneiras, e trocá-las dá um 400 que só se descobre contra a Google a
+       sério. */
+    reviewStatus: 'UNDER_REVIEW',
     issuerName: String(negocio.nome).slice(0, 60),
     programName: String(programa.nome).slice(0, 60),
     hexBackgroundColor: /^#[0-9a-fA-F]{6}$/.test(String(negocio.cor || ''))

@@ -1489,6 +1489,64 @@ grupo('A Wallet, de ponta a ponta');
       (x) => x.metodo === 'PATCH' && x.caminho.includes('/loyaltyClass/'));
     certo(patchP && patchP.corpo.programName === 'Cartão com nome novo',
       'e mudar o nome do cartão também', patchP && patchP.corpo.programName);
+    /* Uma classe que a Google já aprovou recusa o PATCH com «Invalid review
+       status "APPROVED". Use "UNDER_REVIEW" instead» — e não basta omitir o
+       campo, porque então fica o valor antigo e é esse que ela rejeita. Ao
+       criar aceita `underReview`; ao actualizar exige `UNDER_REVIEW`. */
+    certo(patchP && patchP.corpo.reviewStatus === 'UNDER_REVIEW',
+      'e leva o reviewStatus na forma que a Google exige ao actualizar',
+      patchP && String(patchP.corpo.reviewStatus));
+  }
+
+  {
+    /* O ENDEREÇO DO LOGÓTIPO LEVA A VERSÃO COLADA.
+
+       A Google guarda o `programLogo` numa cache própria, à chave do
+       ENDEREÇO, e o Worker serve essa imagem com `immutable` por um ano — que
+       é dizer-lhe «não voltes a perguntar». Sem o `?v=`, trocar o logótipo no
+       balcão não mudava nada no cartão de ninguém: media-se a cópia em
+       `lh3.googleusercontent.com` e ela continuava a ser a do primeiro dia.
+       Foi o que aconteceu com o primeiro negócio a sério.
+
+       A data põe-se à mão em vez de se depender do relógio: duas gravações no
+       mesmo milissegundo davam a mesma versão, e um teste que falha de vez em
+       quando não prova nada. */
+    sql(`UPDATE negocios SET logotipo_em = '2026-01-02T03:04:05.678Z' WHERE id = 'n1'`);
+    await limpar();
+    await pedir('/v1/balcao/negocio', { metodo: 'PUT', sessao: sessaoBalcao,
+      corpo: { nome: 'O Meu Café', cor: '#EE9125' } });
+    await assentar();
+    const comVersao = (await visto()).find(
+      (x) => x.metodo === 'PATCH' && x.caminho.includes('/loyaltyClass/'));
+    const uriA = comVersao && comVersao.corpo.programLogo
+      && comVersao.corpo.programLogo.sourceUri.uri;
+    certo(String(uriA).startsWith(`${BASE}/v1/negocio/`)
+       && String(uriA).endsWith('/logotipo?v=20260102030405678'),
+      'o endereço do logótipo leva a versão — senão a Google nunca mais o relê',
+      String(uriA));
+
+    sql(`UPDATE negocios SET logotipo_em = '2026-03-04T05:06:07.890Z' WHERE id = 'n1'`);
+    await limpar();
+    await pedir('/v1/balcao/negocio', { metodo: 'PUT', sessao: sessaoBalcao,
+      corpo: { nome: 'O Meu Café', cor: '#EE9125' } });
+    await assentar();
+    const depois = (await visto()).find(
+      (x) => x.metodo === 'PATCH' && x.caminho.includes('/loyaltyClass/'));
+    const uriB = depois && depois.corpo.programLogo && depois.corpo.programLogo.sourceUri.uri;
+    certo(uriB && uriB !== uriA, 'e muda quando a imagem muda', `${uriA} → ${uriB}`);
+
+    /* E pelo gesto de verdade: o dono a carregar outra imagem no balcão. */
+    await limpar();
+    const g = await pedir('/v1/balcao/logotipo', { metodo: 'PUT', sessao: sessaoBalcao,
+      corpo: { logotipo: `data:image/png;base64,${PNG}` } });
+    certo(g.estado === 200, 'o dono grava um logótipo novo', String(g.estado));
+    await assentar();
+    const aoGravar = (await visto()).find(
+      (x) => x.metodo === 'PATCH' && x.caminho.includes('/loyaltyClass/'));
+    const uriC = aoGravar && aoGravar.corpo.programLogo
+      && aoGravar.corpo.programLogo.sourceUri.uri;
+    certo(uriC && uriC !== uriB && /\?v=\d+$/.test(uriC),
+      'gravar no balcão dá logo um endereço novo à Google', String(uriC));
   }
 
   {

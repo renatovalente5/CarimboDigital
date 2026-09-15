@@ -494,6 +494,162 @@ export async function correr(palco, certo) {
       'reduzido a 512 px, e quadrado — que é o que a Google quer',
       JSON.stringify(guardado));
   }
+
+  {
+    /* O FUNDO ESCOLHE-SE A OLHAR PARA O LOGÓTIPO. Um logótipo BRANCO sobre
+       transparente — que é o caso do da barbearia, feito para fundos escuros —
+       desaparece por completo no círculo branco em que a Google o desenha. E
+       um escuro desaparecia se o fundo fosse a cor da marca, se ela também for
+       escura. Mede-se a luminosidade e escolhe-se o que contrasta. */
+    const corDeFundo = async (rgbaDoLogotipo) => palco.js(`
+      const tela = document.createElement('canvas');
+      tela.width = 8; tela.height = 8;
+      const c = tela.getContext('2d');
+      c.fillStyle = 'rgba(${rgbaDoLogotipo})';
+      c.fillRect(2, 2, 4, 4);          /* o desenho, com margem transparente */
+      const png = tela.toDataURL('image/png');
+      const bin = atob(png.split(',')[1]);
+      const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'l.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 900));
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n.logotipo; });
+      const t2 = document.createElement('canvas');
+      t2.width = img.width; t2.height = img.height;
+      t2.getContext('2d').drawImage(img, 0, 0);
+      /* O canto, que é onde estava a transparência. */
+      const p = t2.getContext('2d').getImageData(2, 2, 1, 1).data;
+      return [p[0], p[1], p[2], p[3]];`);
+
+    const claro = await corDeFundo('255,255,255,1');
+    certo(Array.isArray(claro) && claro[3] === 255 && !(claro[0] > 240 && claro[1] > 240 && claro[2] > 240),
+      'um logótipo CLARO não fica sobre branco — senão desaparecia no círculo da Google',
+      JSON.stringify(claro));
+
+    const escuro = await corDeFundo('20,20,20,1');
+    certo(Array.isArray(escuro) && escuro[0] > 240 && escuro[1] > 240 && escuro[2] > 240,
+      'e um logótipo ESCURO assenta em branco', JSON.stringify(escuro));
+  }
+
+  {
+    /* O LOGÓTIPO TEM DE CABER INTEIRO — e isto era um defeito a sério.
+
+       O balcão cortava um QUADRADO AO CENTRO. Quase toda a gente tem por
+       logótipo o nome escrito, que é uma imagem larga e baixa: «TITI
+       BARBERSHOP» cortado ao centro fica «I BARBER». E o dono não via nada de
+       errado no balcão — via no telemóvel de um cliente, semanas depois.
+
+       Conduz-se com uma imagem larga que tem marcas nas DUAS pontas: se
+       alguma delas não chegar ao outro lado, foi cortada.
+
+       E não basta caber no quadrado. A Google desenha isto dentro de um
+       CÍRCULO; o que fica nos cantos do quadrado desaparece na mesma. Por
+       isso mede-se também a distância ao centro do pixel desenhado mais
+       afastado — tem de ficar dentro do raio. */
+    const pontas = await palco.js(`
+      const tela = document.createElement('canvas');
+      tela.width = 240; tela.height = 40;
+      const c = tela.getContext('2d');
+      c.fillStyle = '#FF0000'; c.fillRect(0, 0, 20, 40);      /* ponta esquerda */
+      c.fillStyle = '#0000FF'; c.fillRect(220, 0, 20, 40);    /* ponta direita */
+      c.fillStyle = '#404040'; c.fillRect(20, 16, 200, 8);    /* o meio */
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'largo.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1200));
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n.logotipo; });
+      const t2 = document.createElement('canvas');
+      t2.width = img.width; t2.height = img.height;
+      t2.getContext('2d').drawImage(img, 0, 0);
+      const d = t2.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+      const meio = img.width / 2;
+      let vermelhos = 0; let azuis = 0; let maisLonge = 0;
+      const fundo = [d[0], d[1], d[2]];
+      for (let y = 0; y < img.height; y += 1) {
+        for (let x = 0; x < img.width; x += 1) {
+          const i = (y * img.width + x) * 4;
+          const r = d[i]; const g = d[i + 1]; const b = d[i + 2];
+          if (r > 200 && g < 70 && b < 70) vermelhos += 1;
+          if (b > 200 && r < 70 && g < 70) azuis += 1;
+          const igualAoFundo = Math.abs(r - fundo[0]) < 12
+            && Math.abs(g - fundo[1]) < 12 && Math.abs(b - fundo[2]) < 12;
+          if (!igualAoFundo) {
+            const dist = Math.hypot(x + 0.5 - meio, y + 0.5 - meio);
+            if (dist > maisLonge) maisLonge = dist;
+          }
+        }
+      }
+      return { lado: img.width, vermelhos, azuis, maisLonge: Math.round(maisLonge) };`);
+
+    certo(pontas && pontas.vermelhos > 0 && pontas.azuis > 0,
+      'um logótipo largo mantém as DUAS pontas — não se corta um quadrado ao centro',
+      JSON.stringify(pontas));
+    certo(pontas && pontas.maisLonge <= pontas.lado / 2,
+      'e o desenho fica todo dentro do círculo em que a Google o encaixa',
+      JSON.stringify(pontas));
+  }
+
+  {
+    /* QUEM JÁ TRAZ FUNDO PRÓPRIO FICA COM ELE. Um ficheiro opaco já foi
+       desenhado por alguém que escolheu o fundo em que aquilo se lê — pôr-lhe
+       branco à volta punha uma moldura que ninguém pediu. E a margem que ele
+       traz apara-se, senão o desenho encolhe dentro do círculo sem precisar. */
+    const proprio = await palco.js(`
+      const tela = document.createElement('canvas');
+      tela.width = 64; tela.height = 64;
+      const c = tela.getContext('2d');
+      c.fillStyle = '#008000'; c.fillRect(0, 0, 64, 64);     /* o fundo dele */
+      c.fillStyle = '#FFFFFF'; c.fillRect(24, 24, 16, 16);   /* a marca */
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'opaco.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1200));
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n.logotipo; });
+      const t2 = document.createElement('canvas');
+      t2.width = img.width; t2.height = img.height;
+      const cc = t2.getContext('2d');
+      cc.drawImage(img, 0, 0);
+      const canto = cc.getImageData(2, 2, 1, 1).data;
+      const centro = cc.getImageData(img.width / 2, img.height / 2, 1, 1).data;
+      /* Quanto do lado é que a marca ocupa depois de aparada a moldura. */
+      const d = cc.getImageData(0, 0, img.width, img.height).data;
+      let esq = img.width; let dir = 0;
+      for (let x = 0; x < img.width; x += 1) {
+        const i = ((img.height / 2 | 0) * img.width + x) * 4;
+        if (d[i] > 200 && d[i + 1] > 200 && d[i + 2] > 200) { if (x < esq) esq = x; if (x > dir) dir = x; }
+      }
+      return { canto: [canto[0], canto[1], canto[2], canto[3]],
+               centro: [centro[0], centro[1], centro[2]],
+               marca: dir - esq + 1, lado: img.width };`);
+
+    certo(proprio && proprio.canto[1] > 100 && proprio.canto[0] < 60 && proprio.canto[2] < 60,
+      'um logótipo que já traz fundo próprio fica com esse fundo, e não com branco',
+      JSON.stringify(proprio && proprio.canto));
+    certo(proprio && proprio.marca > proprio.lado * 0.4,
+      'e a margem que o ficheiro trazia é aparada — senão a marca encolhia sem precisar',
+      JSON.stringify(proprio));
+  }
+
   /* Esta frase é a promessa que as afirmações da grelha, mais abaixo, vão
      cobrar. Se um dia sair da página, elas deixam de ter em que se apoiar. */
   certo((await palco.texto('#principal .subtexto')).includes('É assim que os clientes o vêem'),

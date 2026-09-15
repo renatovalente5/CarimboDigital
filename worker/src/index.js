@@ -1410,14 +1410,49 @@ async function googlePedir(env, caminho, { metodo = 'GET', corpo } = {}) {
  */
 const origemDaAPI = (pedido) => new URL(pedido.url).origin;
 
+/**
+ * O endereço do logótipo, com a versão colada.
+ *
+ * O `?v=` não é enfeite: é o que faz a Google ver uma imagem nova. Ela guarda
+ * o `programLogo` numa cache própria, à chave do ENDEREÇO — e este endereço
+ * responde `immutable` por um ano, que é literalmente dizer-lhe «não voltes a
+ * perguntar». Trocar o logótipo no D1 e recriar a classe não mexia nisso: a
+ * Google continuava a servir os bytes do primeiro dia, e o cartão ficava com
+ * o logótipo antigo para sempre, sem erro nenhum a dizer porquê.
+ *
+ * Medido: o logótipo do Titi mudou para branco-sobre-laranja no D1, a classe
+ * foi recriada, e a cópia em `lh3.googleusercontent.com` continuava
+ * transparente. Só um endereço diferente a obriga a ir buscar outra vez.
+ *
+ * A versão vem do `logotipo_em`, que já existia para isto e muda a cada
+ * gravação. Os traços e os dois-pontos saem porque não acrescentam nada.
+ */
+function enderecoDoLogotipo(negocio, origemAPI) {
+  if (!negocio || !negocio.logotipo) return null;
+  const base = `${origemAPI}/v1/negocio/${negocio.slug}/logotipo`;
+  const versao = String(negocio.logotipo_em || '').replace(/\D/g, '');
+  return versao ? `${base}?v=${versao}` : base;
+}
+
 /** Garante que a classe do programa existe lá fora. Uma vez por programa. */
 async function garantirClasse(env, programa, negocio, origemAPI) {
   if (programa.wallet_classe) return;
-  const logotipo = `${origemAPI}/v1/negocio/${negocio.slug}/logotipo`;
+  const logotipo = enderecoDoLogotipo(negocio, origemAPI);
   const classe = classeDePrograma(programa, negocio, {
     emissor: env.GOOGLE_EMISSOR, logotipo,
   });
-  await googlePedir(env, '/loyaltyClass', { metodo: 'POST', corpo: classe });
+  const r = await googlePedir(env, '/loyaltyClass', { metodo: 'POST', corpo: classe });
+  /* Se já existia lá fora, actualiza-se em vez de se dar por feito. O 409
+     acontece de duas maneiras: duas pessoas a pedir o passe do mesmo café ao
+     mesmo tempo, e — a que interessa — uma classe criada numa vida anterior,
+     com dados que entretanto mudaram. Tratar o 409 como sucesso deixava a
+     classe congelada no que tinha no dia em que nasceu, e sem forma de a
+     corrigir a não ser à mão. */
+  if (r && r.jaExistia) {
+    await googlePedir(env, `/loyaltyClass/${env.GOOGLE_EMISSOR}.${programa.id}`, {
+      metodo: 'PATCH', corpo: actualizacaoDeClasse(programa, negocio, { logotipo }),
+    });
+  }
   await env.DB.prepare('UPDATE programas SET wallet_classe = ? WHERE id = ?')
     .bind(agora(), programa.id).run();
 }
@@ -1498,9 +1533,7 @@ async function espelharClasse(env, programaId, origemAPI) {
     const n = await env.DB.prepare('SELECT * FROM negocios WHERE id = ?').bind(p.negocio_id).first();
     await googlePedir(env, `/loyaltyClass/${env.GOOGLE_EMISSOR}.${p.id}`, {
       metodo: 'PATCH',
-      corpo: actualizacaoDeClasse(p, n, {
-        logotipo: n.logotipo ? `${origemAPI}/v1/negocio/${n.slug}/logotipo` : null,
-      }),
+      corpo: actualizacaoDeClasse(p, n, { logotipo: enderecoDoLogotipo(n, origemAPI) }),
     });
   } catch (erro) {
     console.error('wallet: não deu para actualizar a classe', programaId, String(erro));
@@ -1610,9 +1643,11 @@ rota('GET', /^\/v1\/negocio\/([a-z0-9-]{1,40})\/logotipo$/, async (env, pedido, 
   return new Response(bytes, {
     headers: {
       'content-type': tipo,
-      /* Um ano. O conteúdo muda e o endereço não — mas quem precisa de ver a
-         mudança é a Google, e essa relê quando a classe é actualizada. Para o
-         resto do mundo, um logótipo de um café não muda. */
+      /* Um ano, e `immutable` a sério: quem escreve o endereço cola-lhe o
+         `?v=` do `logotipo_em` (ver `enderecoDoLogotipo`), por isso a imagem
+         por detrás de um endereço destes nunca muda. Já foi ao contrário —
+         endereço estável e conteúdo a mudar — e custou um logótipo velho
+         preso na cache da Google, que honra o `immutable` à letra. */
       'cache-control': 'public, max-age=31536000, immutable',
     },
   });
