@@ -477,7 +477,11 @@ async function ecraHoje(principal) {
       el('div', { class: 'linha' },
         el('span', { class: 'linha-icone linha-icone-marca', html: icone('lampada', { tamanho: 20 }) }),
         el('span', { class: 'linha-texto' },
-          el('b', { texto: `${r.quaseLa} cliente(s) a dois carimbos do prémio` }),
+          /* «a dois» era mentira a metade deles: o servidor conta os cartões a
+             UM OU DOIS carimbos do fim (`BETWEEN 1 AND 2` no resumo), e quem
+             está a um ouvia do balcão que lhe faltavam dois. Numa loja isso é
+             a diferença entre o cliente voltar hoje ou não voltar. */
+          el('b', { texto: `${r.quaseLa} cliente(s) a um ou dois carimbos do prémio` }),
           el('span', { texto: 'São os que voltam se lhes disseres. Diz-lhes ao balcão.' }))),
       el('div', { class: 'linha' },
         el('span', { class: 'linha-icone', html: icone('relogio', { tamanho: 20 }) }),

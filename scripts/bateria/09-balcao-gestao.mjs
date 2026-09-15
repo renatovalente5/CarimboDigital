@@ -483,8 +483,13 @@ export async function correr(palco, certo) {
 
   /* Os dois números que mudam decisões. */
   const conselhos = await palco.textos('#principal .seccao:nth-of-type(1) .linha b');
-  certo(conselhos[0] === '2 cliente(s) a dois carimbos do prémio',
-    'Hoje: conta os clientes a dois carimbos do prémio (8/10 e 9/10)',
+  /* O 8/10 está a dois e o 9/10 está a UM. O servidor conta os dois
+     (`BETWEEN 1 AND 2`), e era isso que o texto tinha de dizer — dizia «a
+     dois», e quem estivesse a um ouvia do balcão que lhe faltavam dois. O
+     próprio nome deste teste já dizia «8/10 e 9/10»: a regra estava certa
+     na cabeça de quem o escreveu e errada no ecrã. */
+  certo(conselhos[0] === '2 cliente(s) a um ou dois carimbos do prémio',
+    'Hoje: conta os clientes a um ou dois carimbos do prémio (8/10 e 9/10)',
     String(conselhos[0]));
   certo(conselhos[1] === '1 cliente(s) sem aparecer há 2 meses',
     'Hoje: e o que não aparece há dois meses', String(conselhos[1]));
@@ -810,7 +815,7 @@ export async function correr(palco, certo) {
      estar a dois do prémio. */
   await irAo(palco, 'hoje');
   const conselhosDepois = await palco.textos('#principal .seccao:nth-of-type(1) .linha b');
-  certo(conselhosDepois[0] === '1 cliente(s) a dois carimbos do prémio',
+  certo(conselhosDepois[0] === '1 cliente(s) a um ou dois carimbos do prémio',
     'gravar: o «Hoje» recalcula com o objectivo novo (só o cartão de 4/6 está a dois)',
     String(conselhosDepois[0]));
 
