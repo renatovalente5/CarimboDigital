@@ -36,6 +36,15 @@ const USADOS_HORAS = 24;           // quanto tempo se guarda um código já gast
 const ENVIOS_HORA = 5;             // códigos por morada, por hora
 const ENVIOS_INTERVALO = 45;       // segundos entre dois pedidos para a mesma morada
 
+/* Tectos do que um negócio pode escrever. Não é desconfiança do dono do café:
+   é que tudo isto é pintado na lista pública, a toda a gente, e uma conta
+   legítima chega para encher o ecrã dos outros — de propósito ou por engano.
+   O `descobrir` percorre negócio a negócio e programa a programa, e as
+   «linhas lidas» do D1 gratuito acabam aos cinco milhões por dia. */
+const PROGRAMAS_MAX = 12;          // cartões diferentes por negócio
+const DESCOBRIR_MAX = 200;         // negócios devolvidos na lista pública
+const TIPOS = ['carimbos', 'pontos'];
+
 /* Contas paradas. O RGPD (art. 5.º, n.º 1, alínea e) não deixa guardar dados
    pessoais mais tempo do que o preciso, e uma conta que ninguém abre há dois
    anos é exactamente isso — sobretudo quando tem uma morada de email colada.
@@ -759,9 +768,15 @@ rota('POST', '/v1/cliente/aderir', async (env, pedido) => {
 });
 
 rota('GET', '/v1/descobrir', async (env) => {
+  /* Com tecto. Isto é uma consulta por negócio e outra por programa, e corre a
+     cada abertura da app — sem `LIMIT`, o custo da lista pública cresce com o
+     que os negócios lá puserem, e as «linhas lidas» do D1 gratuito acabam aos
+     cinco milhões por dia. Quando houver mais de duzentos negócios, isto passa
+     a ser procura e mapa, não uma lista; o tecto é o aviso de que chegou essa
+     hora. */
   const negocios = (await env.DB.prepare(
-    "SELECT * FROM negocios WHERE estado = 'ativo' ORDER BY nome"
-  ).all()).results;
+    "SELECT * FROM negocios WHERE estado = 'ativo' ORDER BY nome LIMIT ?"
+  ).bind(DESCOBRIR_MAX).all()).results;
   const saida = [];
   for (const n of negocios) {
     const programas = (await env.DB.prepare(
@@ -1084,37 +1099,80 @@ function arrefecimentoValido(valor) {
   return Math.min(86400, Math.round(n));
 }
 
+/**
+ * Os campos de um programa, limpos.
+ *
+ * Existe porque os dois ramos da rota — criar e actualizar — tinham cada um a
+ * sua versão disto, e afastaram-se: o de actualização cortava o nome a 60 e o
+ * prémio a 120, e o de criação escrevia `d.nome || 'Cartão'` em cru. As regras
+ * não eram cortadas em nenhum dos dois. Duas cópias da mesma limpeza divergem
+ * sempre; a defesa é não haver duas.
+ *
+ * O `tipo` é o que mais importa validar, e não é óbvio porquê: é ele que
+ * decide, lá no carimbar, se a quantidade é forçada a 1. Um valor que não seja
+ * «carimbos» nem «pontos» deixava a porta aberta a carimbos de quantidade
+ * arbitrária.
+ */
+function camposDoPrograma(d, antigo = null) {
+  const texto = (v, cai, max) => {
+    const t = String(v ?? '').trim();
+    return (t || String(cai ?? '')).slice(0, max);
+  };
+  const tipo = TIPOS.includes(d.tipo) ? d.tipo : (antigo ? antigo.tipo : 'carimbos');
+  /* O selo é o nome de um ícone. Um nome que a app não conheça desenha nada —
+     o que é feio mas inofensivo; o que não pode é ser um texto qualquer a
+     caminho do HTML, nem ter tamanho livre. */
+  const selo = /^[a-z][a-z0-9-]{0,19}$/.test(String(d.selo || ''))
+    ? d.selo : (antigo ? antigo.selo : 'carimbo');
+  return {
+    nome: texto(d.nome, antigo ? antigo.nome : 'Cartão', 60),
+    premio: texto(d.premio, antigo ? antigo.premio : 'Prémio', 120),
+    /* As regras podem ficar vazias de propósito — mas não podem ser um
+       romance: também vão para o cartão de toda a gente. */
+    regras: (() => {
+      const t = String(d.regras ?? (antigo ? antigo.regras : '') ?? '').trim();
+      return t ? t.slice(0, 240) : null;
+    })(),
+    tipo,
+    selo,
+    objetivo: Math.max(2, Math.min(30, Math.round(Number(d.objetivo)) || (antigo ? antigo.objetivo : 10))),
+    arrefecimento: arrefecimentoValido(d.arrefecimento ?? (antigo ? antigo.arrefecimento : null)),
+  };
+}
+
 rota('POST', '/v1/balcao/programas', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
   if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
   const d = await corpoJSON(pedido);
-  /* O mesmo, do outro lado: `objetivo: 3.7` passava os limites e ficava um
-     cartão com três carimbos e sete décimos. A grelha desenha-se a partir
-     daqui, e não há forma de desenhar sete décimos de um quadrado. */
-  const objetivo = Math.max(2, Math.min(30, Math.round(Number(d.objetivo)) || 10));
   const existente = d.id
     ? await env.DB.prepare('SELECT * FROM programas WHERE id = ? AND negocio_id = ?')
         .bind(d.id, op.negocio_id).first()
     : null;
+  const c = camposDoPrograma(d, existente);
 
   if (existente) {
     await env.DB.prepare(
       `UPDATE programas SET nome = ?, premio = ?, objetivo = ?, selo = ?, regras = ?,
               arrefecimento = ? WHERE id = ?`
-    ).bind(String(d.nome || existente.nome).trim().slice(0, 60),
-           String(d.premio || existente.premio).trim().slice(0, 120), objetivo,
-           d.selo || existente.selo, d.regras ?? existente.regras,
-           /* Sem o `||` de recurso, um `arrefecimento: "abc"` virava NaN e
-              ia para a base de dados. O ramo de criação já tinha rede; o de
-              actualização não. */
-           arrefecimentoValido(d.arrefecimento ?? existente.arrefecimento), existente.id).run();
+    ).bind(c.nome, c.premio, c.objetivo, c.selo, c.regras, c.arrefecimento, existente.id).run();
   } else {
+    /* Um tecto ao número de cartões. Cada POST sem `id` criava mais um, sem
+       fim — e cada um deles é um cartão pintado na lista pública de toda a
+       gente, mais uma volta no `descobrir`, que já é uma consulta por
+       programa. Não é preciso má intenção: um botão «Guardar» que responda
+       devagar e leve dois toques chega. */
+    const { n } = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM programas WHERE negocio_id = ?'
+    ).bind(op.negocio_id).first();
+    if (n >= PROGRAMAS_MAX) {
+      throw new Falha(`Já tens ${PROGRAMAS_MAX} cartões neste negócio. Apaga um antes de criar outro.`,
+        { estado: 409, codigo: 'demasiados-programas' });
+    }
     await env.DB.prepare(
       `INSERT INTO programas (id, negocio_id, nome, tipo, selo, objetivo, premio, regras, arrefecimento, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id(), op.negocio_id, d.nome || 'Cartão', d.tipo || 'carimbos', d.selo || 'carimbo',
-           objetivo, String(d.premio || 'Prémio').trim().slice(0, 120), d.regras || null,
-           arrefecimentoValido(d.arrefecimento), agora()).run();
+    ).bind(id(), op.negocio_id, c.nome, c.tipo, c.selo,
+           c.objetivo, c.premio, c.regras, c.arrefecimento, agora()).run();
   }
   const programas = (await env.DB.prepare(
     'SELECT * FROM programas WHERE negocio_id = ? AND ativo = 1'

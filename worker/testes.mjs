@@ -721,6 +721,56 @@ grupo('Emails');
 
 /* --------------------------------------------------------------------- */
 
+grupo('O que um negócio pode escrever');
+{
+  /* Tudo isto é pintado na LISTA PÚBLICA, a toda a gente. Um convite legítimo
+     — o café que se inscreveu ontem — chegava para encher o ecrã dos outros.
+     Os dois ramos da rota tinham limpezas diferentes e afastaram-se: o de
+     actualização cortava o nome e o prémio, o de criação escrevia em cru, e
+     nenhum dos dois cortava as regras. */
+  const criar = (corpo) => pedir('/v1/balcao/programas', { metodo: 'POST', sessao: sessaoBalcao, corpo });
+  const doNegocio = async (nome) => {
+    const r = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
+    const ps = (r.dados.negocio && r.dados.negocio.programas) || [];
+    return ps.find((p) => p.nome === nome || p.nome === nome.slice(0, 60));
+  };
+
+  {
+    const longo = 'N'.repeat(500);
+    await criar({ nome: longo, premio: 'P'.repeat(500), regras: 'R'.repeat(2000) });
+    const p = await doNegocio(longo);
+    certo(p && p.nome.length === 60, 'a criar: o nome é cortado a 60', p && String(p.nome.length));
+    certo(p && p.premio.length === 120, 'a criar: o prémio é cortado a 120', p && String(p.premio.length));
+    certo(p && p.regras !== null && p.regras.length === 240,
+      'a criar: as regras são cortadas a 240 — não eram em ramo nenhum',
+      p && String(p.regras && p.regras.length));
+  }
+
+  {
+    /* O `tipo` não é cosmética: é ele que decide, no carimbar, se a quantidade
+       é forçada a 1. Um valor inventado deixava passar carimbos de quantidade
+       arbitrária. */
+    await criar({ nome: 'Tipo inventado', tipo: 'o-que-me-apetecer', selo: '<script>x</script>' });
+    const p = await doNegocio('Tipo inventado');
+    certo(p && p.tipo === 'carimbos', 'um tipo que não existe cai em «carimbos»', p && p.tipo);
+    certo(p && /^[a-z][a-z0-9-]*$/.test(p.selo),
+      'e um selo que não parece um nome de ícone é recusado', p && p.selo);
+  }
+
+  {
+    /* O tecto. Cada POST sem `id` criava mais um cartão, sem fim. */
+    let recusou = null;
+    for (let i = 0; i < 20 && recusou === null; i++) {
+      const r = await criar({ nome: `Enchente ${i}` });
+      if (r.estado === 409) recusou = i;
+    }
+    certo(recusou !== null, 'há um tecto ao número de cartões por negócio',
+      recusou === null ? 'criou vinte e não se queixou' : `parou ao ${recusou}.º`);
+  }
+}
+
+/* --------------------------------------------------------------------- */
+
 grupo('Contas paradas');
 {
   /* Dispara a limpeza diária à mão. O `--test-scheduled` do wrangler dev abre
