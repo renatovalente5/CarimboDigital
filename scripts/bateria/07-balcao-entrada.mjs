@@ -166,6 +166,44 @@ export async function correr(palco, certo) {
     String(await desativado(palco, BOTAO_PAINEL)));
   await limparAvisos(palco);
 
+  /* O CASO QUE NÃO É «SEM REDE», e que durante meses passou despercebido:
+     o pedido CHEGA, responde 200, e diz `enviado: false` — o correio está em
+     baixo do lado do servidor. Foi o que aconteceu de verdade enquanto o
+     Worker esteve publicado sem chave de correio: quem tentava entrar no
+     balcão via «enviámos-lhe um código», escrevia o email, e ficava à espera
+     de uma coisa que nunca ia sair.
+
+     Cortar a rede não apanha isto — cortar a rede faz o pedido ATIRAR, e o
+     `catch` trata disso. Aqui o pedido corre bem; o que está errado é a
+     resposta. Por isso finge-se a resposta em vez de se cortar a ligação. */
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
+  await palco.semRede(false);
+  await palco.js(`
+    window.__fetchVerdadeiro = window.fetch;
+    window.fetch = (p, o) => String(p).includes('/v1/balcao/entrar')
+      ? Promise.resolve(new Response(JSON.stringify({ enviado: false }),
+          { status: 200, headers: { 'content-type': 'application/json' } }))
+      : window.__fetchVerdadeiro(p, o);
+    return true;
+  `);
+  await palco.clicar(ENTRAR);
+  await palco.esperar('#e-email');
+  await palco.escrever('#e-email', 'dono@cafedabateria.pt');
+  await marcarAvisos(palco);
+  await palco.clicar(BOTAO_PAINEL);
+  const avisoNaoSaiu = await avisoNovo(palco, 12000);
+  certo(avisoNaoSaiu !== null,
+    'correio em baixo: o balcão diz que não deu', String(avisoNaoSaiu));
+  certo((await palco.texto('.painel-folha h2')) === 'Entrar no balcão',
+    'correio em baixo: NÃO avança para o ecrã do código — senão fica à espera de nada',
+    `ficou em «${await palco.texto('.painel-folha h2')}»`);
+  certo((await desativado(palco, BOTAO_PAINEL)) === false,
+    'correio em baixo: e dá para tentar outra vez');
+  await palco.js('window.fetch = window.__fetchVerdadeiro; return true;');
+  await limparAvisos(palco);
+  await palco.semRede(true);
+
   await palco.tecla('Escape');
   certo(!(await palco.ver('#painel')), 'a tecla Escape fecha o painel de entrada');
 

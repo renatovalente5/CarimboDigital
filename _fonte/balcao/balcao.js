@@ -923,7 +923,25 @@ function entrarPorEmail() {
           avisar('Esse email não parece válido.', 'mau'); return;
         }
         botao.disabled = true;
-        try { await api.entrarBalcao(email); pedirCodigoBalcao(email); }
+        try {
+          const r = await api.entrarBalcao(email);
+          /* O `enviado` diz a verdade do ENVIO, e não se o email tem negócio
+             — essa parte continua escondida de propósito, senão este ecrã
+             servia para descobrir que moradas estão registadas. Portanto um
+             `false` aqui é o correio em baixo, e não «não te conheço».
+
+             Isto faltava. O ecrã seguinte dizia «enviámos-lhe um código»
+             acontecesse o que acontecesse, e quem ficasse à espera não tinha
+             como saber que não vinha nada — que é exactamente o que se passa
+             quando o Worker está publicado sem chave de correio. A app do
+             cliente já lia este campo; o balcão ficou para trás. */
+          if (r && r.enviado === false) {
+            botao.disabled = false;
+            avisar('Não foi possível enviar o email agora. Tenta daqui a pouco.', 'mau');
+            return;
+          }
+          pedirCodigoBalcao(email);
+        }
         catch (e) { botao.disabled = false; avisar(e.message, 'mau'); }
       },
     }));
