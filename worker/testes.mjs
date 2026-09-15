@@ -1154,6 +1154,172 @@ grupo('Contas paradas');
 
 /* --------------------------------------------------------------------- */
 
+grupo('O cartão na Wallet');
+{
+  /* Este módulo não fala com a Google: constrói e assina. Por isso prova-se
+     todo aqui, sem rede e sem conta nenhuma — que é o que permite ter isto
+     escrito e em CI verde antes de existir uma chave. */
+  const w = await import('./src/wallet.js');
+  const { generateKeyPairSync, createVerify } = await import('node:crypto');
+
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const PEM = privateKey.export({ type: 'pkcs8', format: 'pem' });
+
+  const NEGOCIO = { id: 'n1', nome: 'Café Torrado', cor: '#3B2417', slug: 'cafe-torrado' };
+  const PROGRAMA = { id: 'p1', nome: 'Cartão do café', tipo: 'carimbos', objetivo: 10,
+                     premio: 'Um café por conta da casa', regras: 'Um carimbo por visita.' };
+  const CARTAO = { id: 'c1', carimbos: 7, pontos: 0 };
+  const EMISSOR = '3388000000012345678';
+  const LOGO = 'https://carimbodigital.pt/v1/negocio/cafe-torrado/logotipo';
+
+  /* --- a assinatura ---------------------------------------------------- */
+  {
+    const jwt = await w.assinarRS256(PEM, { ola: 'mundo', n: 7 });
+    const [cab, corpo, assinatura] = jwt.split('.');
+    certo(jwt.split('.').length === 3, 'o JWT tem as três partes');
+
+    const deB64 = (x) => Buffer.from(x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    certo(JSON.parse(deB64(cab)).alg === 'RS256', 'e diz que é RS256',
+      JSON.parse(deB64(cab)).alg);
+    certo(JSON.parse(deB64(corpo)).ola === 'mundo', 'e o corpo chega inteiro');
+    certo(!/[+/=]/.test(jwt), 'vai em base64url — sem +, / nem = , que partiriam o endereço');
+
+    /* A PROVA QUE INTERESSA. Sem isto, só se provava que a função devolve uma
+       cadeia de caracteres com pontos. Verifica-se a assinatura com a chave
+       PÚBLICA, pelo `node:crypto`, como a Google fará do lado dela. */
+    const v = createVerify('RSA-SHA256');
+    v.update(`${cab}.${corpo}`);
+    certo(v.verify(publicKey, deB64(assinatura)),
+      'e a assinatura confere contra a chave pública — é isto que a Google verifica');
+
+    /* E o contrário: uma assinatura mexida tem de falhar, senão o teste de
+       cima passava com qualquer coisa. */
+    const outro = await w.assinarRS256(PEM, { ola: 'outro' });
+    const v2 = createVerify('RSA-SHA256');
+    v2.update(`${cab}.${corpo}`);
+    certo(!v2.verify(publicKey, deB64(outro.split('.')[2])),
+      'e a assinatura de OUTRO corpo não confere — a verificação sabe dizer que não');
+  }
+
+  /* --- a classe -------------------------------------------------------- */
+  {
+    const c = w.classeDePrograma(PROGRAMA, NEGOCIO, { emissor: EMISSOR, logotipo: LOGO });
+    certo(c.id === `${EMISSOR}.p1`, 'a classe é por PROGRAMA, não por negócio', c.id);
+    certo(c.issuerName === 'Café Torrado' && c.programName === 'Cartão do café',
+      'o emissor é a casa e o programa é o cartão', `${c.issuerName} / ${c.programName}`);
+    certo(c.programLogo.sourceUri.uri === LOGO, 'e leva o logótipo, que é obrigatório');
+    certo(c.reviewStatus === 'underReview',
+      'nasce em underReview — com draft a Google não deixa criar objectos', c.reviewStatus);
+    certo(c.hexBackgroundColor === '#3B2417', 'e com a cor da casa', c.hexBackgroundColor);
+
+    let rebentou = null;
+    try { w.classeDePrograma(PROGRAMA, NEGOCIO, { emissor: EMISSOR, logotipo: null }); }
+    catch (e) { rebentou = e.message; }
+    certo(rebentou !== null && /logótipo/i.test(rebentou),
+      'sem logótipo recusa-se a construir — mais vale isso do que a Google recusar depois',
+      String(rebentou));
+
+    const feia = w.classeDePrograma(PROGRAMA, { ...NEGOCIO, cor: 'azul bonito' },
+      { emissor: EMISSOR, logotipo: LOGO });
+    certo(/^#[0-9A-Fa-f]{6}$/.test(feia.hexBackgroundColor),
+      'e uma cor que não é hexadecimal cai na cor da marca', feia.hexBackgroundColor);
+  }
+
+  /* --- o objecto ------------------------------------------------------- */
+  {
+    const o = w.objetoDeCartao(CARTAO, PROGRAMA, { emissor: EMISSOR, codigo: 'ABC123XYZ' });
+    certo(o.id === `${EMISSOR}.c1` && o.classId === `${EMISSOR}.p1`,
+      'o objecto aponta para a classe do seu programa', `${o.id} → ${o.classId}`);
+    certo(o.loyaltyPoints.balance.string === '7/10',
+      'o saldo lê-se «7/10»', JSON.stringify(o.loyaltyPoints.balance));
+    certo(o.loyaltyPoints.balance.string.length <= 7,
+      'e cabe nos sete caracteres que a Google recomenda — «10 de 10» não cabia',
+      o.loyaltyPoints.balance.string);
+    certo(o.barcode.value === 'W1.ABC123XYZ',
+      'o código de barras leva o token do PASSE, com prefixo próprio', o.barcode.value);
+    certo(!o.barcode.value.includes(CARTAO.id),
+      'e não o número do cartão — um passe fotografado revoga-se sem mexer nele');
+
+    const pontos = w.objetoDeCartao({ ...CARTAO, pontos: 340 },
+      { ...PROGRAMA, tipo: 'pontos' }, { emissor: EMISSOR, codigo: 'X' });
+    certo(pontos.loyaltyPoints.balance.int === 340,
+      'num cartão de pontos o saldo é um número, que «3 de 10» não faria sentido',
+      JSON.stringify(pontos.loyaltyPoints.balance));
+  }
+
+  /* --- o endereço de gravação ------------------------------------------ */
+  {
+    const o = w.objetoDeCartao(CARTAO, PROGRAMA, { emissor: EMISSOR, codigo: 'ABC123XYZ' });
+    const r = await w.ligacaoDeGravacao(PEM, {
+      emissorEmail: 'carimbo@projecto.iam.gserviceaccount.com',
+      objeto: o, origem: 'https://carimbodigital.pt',
+    });
+    certo(r.ligacao.startsWith('https://pay.google.com/gp/v/save/'),
+      'o endereço é o da Google', r.ligacao.slice(0, 40));
+
+    const corpo = JSON.parse(Buffer.from(
+      r.jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
+    certo(corpo.typ === 'savetowallet' && corpo.aud === 'google',
+      'com os campos que a Google espera', `${corpo.typ}/${corpo.aud}`);
+    certo(corpo.payload.loyaltyObjects[0].classId === o.classId,
+      'e leva o `classId` a par do `id` — é o que a amostra oficial faz');
+    certo(Object.keys(corpo.payload.loyaltyObjects[0]).length === 2,
+      'e SÓ esses dois: o objecto vai-se buscar por REST, não vai aqui dentro',
+      JSON.stringify(corpo.payload.loyaltyObjects[0]));
+
+    /* O TECTO QUE MORDE EM SILÊNCIO. Acima de 1800 caracteres o browser corta
+       o endereço, e o que acontece não é um erro — é a gravação não
+       acontecer. Prova-se com o caso mau: nomes longos, prémio longo. */
+    certo(r.comprimento < w.JWT_MAX,
+      `o JWT cabe no tecto dos ${w.JWT_MAX} (tem ${r.comprimento})`, String(r.comprimento));
+
+    /* E note-se PORQUE é que cabe com folga: o JWT não leva nome nenhum — nem
+       da casa, nem do cartão, nem do prémio. Leva dois identificadores e o
+       email da conta de serviço. É isso que o mantém do mesmo tamanho para um
+       café chamado «Zé» e para outro com sessenta caracteres no nome, e é a
+       razão de o objecto ser criado por REST em vez de ir aqui dentro.
+
+       O caso mau é este: identificadores no comprimento máximo e um email de
+       conta de serviço dos compridos. */
+    const mau = w.objetoDeCartao(
+      { ...CARTAO, id: 'c'.repeat(32) },
+      { ...PROGRAMA, id: 'p'.repeat(32) },
+      { emissor: EMISSOR, codigo: 'Z'.repeat(32) });
+    const rMau = await w.ligacaoDeGravacao(PEM, {
+      emissorEmail: 'um-nome-de-conta-de-servico-bem-comprido@um-projecto-com-nome-longo.iam.gserviceaccount.com',
+      objeto: mau, origem: 'https://carimbodigital.pt',
+    });
+    certo(rMau.comprimento < w.JWT_MAX,
+      `com os identificadores no máximo continua a caber (tem ${rMau.comprimento})`,
+      String(rMau.comprimento));
+
+    /* E a guarda do outro lado: se um dia alguém puser o objecto inteiro no
+       JWT, isto tem de dar o alarme antes de chegar a um telemóvel. */
+    const inteiro = await w.assinarRS256(PEM, {
+      iss: 'x@y.iam.gserviceaccount.com', aud: 'google', typ: 'savetowallet',
+      payload: { loyaltyObjects: [{ ...mau, textModulesData: [{ body: 'x'.repeat(900) }] }] },
+    });
+    certo(inteiro.length > w.JWT_MAX,
+      'e um JWT com o objecto inteiro lá dentro passaria do tecto — é esse o perigo',
+      String(inteiro.length));
+  }
+
+  /* --- a actualização --------------------------------------------------- */
+  {
+    const calado = w.actualizacaoDeSaldo({ ...CARTAO, carimbos: 3 }, PROGRAMA);
+    certo(calado.loyaltyPoints.balance.string === '3/10', 'a actualização leva o saldo novo');
+    certo(calado.notifyPreference === undefined,
+      'e por omissão NÃO notifica — o tecto é de três por dia, e gasta-se no que importa');
+
+    const toca = w.actualizacaoDeSaldo({ ...CARTAO, carimbos: 10 }, PROGRAMA, { notificar: true });
+    certo(toca.notifyPreference === 'NOTIFY_ON_UPDATE',
+      'e quando notifica usa o valor do documento de descoberta, não o da página velha',
+      String(toca.notifyPreference));
+  }
+}
+
+/* --------------------------------------------------------------------- */
+
 console.log(`\n${passou} passaram, ${falhou} falharam.`);
 if (falhou) {
   console.log('\nFalhas:');
