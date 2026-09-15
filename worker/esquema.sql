@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS negocios (
   nome         TEXT NOT NULL,
   categoria    TEXT,
   cor          TEXT NOT NULL DEFAULT '#17161C',
-  logotipo     TEXT,
+  logotipo     TEXT,                              -- PNG em base64; a Google exige um
+  logotipo_em  TEXT,                              -- quando mudou, para a cache
   morada       TEXT,
   localidade   TEXT,
   telefone     TEXT,
@@ -42,7 +43,8 @@ CREATE TABLE IF NOT EXISTS programas (
   maximo_diario  INTEGER NOT NULL DEFAULT 4,
   validade_dias  INTEGER,                            -- NULL = não expira
   ativo          INTEGER NOT NULL DEFAULT 1,
-  criado_em      TEXT NOT NULL
+  criado_em      TEXT NOT NULL,
+  wallet_classe  TEXT                               -- a classe na Google, por programa
 );
 CREATE INDEX IF NOT EXISTS ix_programas_negocio ON programas(negocio_id);
 
@@ -77,6 +79,9 @@ CREATE TABLE IF NOT EXISTS clientes (
 CREATE INDEX IF NOT EXISTS ix_clientes_email ON clientes(email);
 -- Uma morada verificada pertence a UMA conta. Parcial de propósito: uma morada
 -- por verificar pode repetir-se à vontade, que são tentativas e não contas.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_cartoes_wallet_codigo
+  ON cartoes(wallet_codigo) WHERE wallet_codigo IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_cartoes_wallet ON cartoes(wallet_em, wallet_sincronizado);
 CREATE UNIQUE INDEX IF NOT EXISTS ix_clientes_email_unico
   ON clientes(email) WHERE email IS NOT NULL AND email_verificado = 1;
 -- A limpeza diária pergunta por contas paradas: sem isto é uma varredura à
@@ -95,6 +100,11 @@ CREATE TABLE IF NOT EXISTS cartoes (
   total_carimbos   INTEGER NOT NULL DEFAULT 0,   -- de sempre
   premios_ganhos   INTEGER NOT NULL DEFAULT 0,
   aderiu_em        TEXT NOT NULL,
+  -- O passe na Wallet. O `wallet_codigo` é um token PRÓPRIO e não o `publico`
+  -- do cliente: um passe fotografado revoga-se sem mexer no cartão da pessoa.
+  wallet_codigo    TEXT,
+  wallet_em        TEXT,
+  wallet_sincronizado TEXT,
   ultimo_em        TEXT,
   UNIQUE (cliente_id, programa_id)
 );

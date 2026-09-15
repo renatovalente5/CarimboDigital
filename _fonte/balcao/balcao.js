@@ -547,6 +547,113 @@ async function ecraClientes(principal) {
    Ecrã: o cartão (editor do programa)
    ========================================================================= */
 
+/* =========================================================================
+   O logótipo do negócio
+
+   Serve duas coisas: o cartão na Wallet do telemóvel, onde a Google EXIGE um
+   logótipo por programa — sem ele não há passe nenhum —, e a lista pública da
+   app, onde hoje só há uma letra dentro de um quadrado colorido.
+
+   A REDUÇÃO ACONTECE AQUI, no browser, e não no servidor. Uma fotografia
+   tirada com o telemóvel são quatro megapixéis e uns bons megabytes; mandá-la
+   para o Worker seria gastar o tecto do pedido, os dados móveis de quem está
+   ao balcão, e o tempo de CPU que o plano gratuito conta. Sai daqui um
+   quadrado de 512 px em PNG, que são umas dezenas de kilobytes.
+
+   Quadrado e não ao alto: é o formato que a Google quer para o `programLogo`,
+   e é o único que não fica esmagado quando o telemóvel o encaixa num círculo.
+   ========================================================================= */
+
+const LOGOTIPO_LADO = 512;
+
+/** Lê o ficheiro, corta ao centro, reduz, e devolve um PNG em base64. */
+function reduzirLogotipo(ficheiro) {
+  return new Promise((resolve, recusar) => {
+    const leitor = new FileReader();
+    leitor.onerror = () => recusar(new Error('Não deu para ler a imagem.'));
+    leitor.onload = () => {
+      const img = new Image();
+      img.onerror = () => recusar(new Error('Isso não parece uma imagem.'));
+      img.onload = () => {
+        /* Corte quadrado ao CENTRO. Um logótipo ao alto encolhido à força
+           fica deformado, e o telemóvel encaixa-o num círculo por cima. */
+        const lado = Math.min(img.width, img.height);
+        const x = (img.width - lado) / 2;
+        const y = (img.height - lado) / 2;
+        const tela = document.createElement('canvas');
+        tela.width = LOGOTIPO_LADO;
+        tela.height = LOGOTIPO_LADO;
+        const ctx = tela.getContext('2d');
+        /* Fundo branco: um PNG com transparência que vá parar a um cartão
+           escuro some-se, e não se sabe de antemão onde é que ele vai ser
+           desenhado. */
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, x, y, lado, lado, 0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
+        resolve(tela.toDataURL('image/png'));
+      };
+      img.src = leitor.result;
+    };
+    leitor.readAsDataURL(ficheiro);
+  });
+}
+
+function campoLogotipo() {
+  const temImagem = Boolean(estado.negocio.logotipo);
+  const alvo = el('div', { class: 'logo-previa', id: 'logo-previa' });
+  const pintar = (fonte) => {
+    alvo.innerHTML = '';
+    if (fonte) alvo.append(el('img', { src: fonte, alt: 'O logótipo do negócio' }));
+    else alvo.append(el('span', { class: 'logo-vazio', texto: 'sem imagem' }));
+  };
+  /* De onde vem a imagem a mostrar: em demonstração o próprio valor é um data
+     URI; a sério é um endereço do Worker, com a data por sufixo para a cache
+     não servir a anterior depois de uma troca. */
+  const fonteDoLogotipo = () => {
+    const v = estado.negocio.logotipo;
+    if (!v) return null;
+    if (typeof v === 'string' && v.startsWith('data:')) return v;
+    return `${api.base()}/v1/negocio/${estado.negocio.slug}/logotipo`
+      + `?v=${encodeURIComponent(estado.negocio.logotipo_em || '')}`;
+  };
+  pintar(fonteDoLogotipo());
+
+  const entrada = el('input', {
+    id: 'f-logotipo', type: 'file', accept: 'image/png,image/jpeg', class: 'escondido',
+  });
+  entrada.addEventListener('change', async () => {
+    const ficheiro = entrada.files && entrada.files[0];
+    if (!ficheiro) return;
+    try {
+      const reduzido = await reduzirLogotipo(ficheiro);
+      pintar(reduzido);
+      await api.guardarLogotipo(reduzido);
+      estado.negocio.logotipo = reduzido;
+      estado.negocio.logotipo_em = new Date().toISOString();
+      avisar('Logótipo guardado.', 'bom');
+    } catch (e) {
+      avisar(e.message || 'Não deu para guardar a imagem.', 'mau');
+      pintar(fonteDoLogotipo());
+    }
+    entrada.value = '';
+  });
+
+  return el('div', { class: 'campo campo-logotipo' },
+    el('span', { texto: 'Logótipo' }),
+    el('div', { class: 'logo-linha' },
+      alvo,
+      el('div', { class: 'logo-accoes' },
+        el('button', {
+          class: 'btn btn-contorno btn-pequeno', type: 'button',
+          texto: temImagem ? 'Trocar a imagem' : 'Escolher uma imagem',
+          aoClick: () => entrada.click(),
+        }),
+        el('p', { class: 'miudo', texto:
+          'Quadrada fica melhor. É esta que vai no cartão da Wallet do telemóvel.' }))),
+    entrada);
+}
+
 async function ecraPrograma(principal) {
   const p = estado.programa;
   principal.append(el('h1', { class: 'titulo-grande', texto: 'O meu cartão' }));
@@ -557,6 +664,7 @@ async function ecraPrograma(principal) {
   desenharPrevia(previa);
 
   const form = el('div', { class: 'seccao' },
+    campoLogotipo(),
     el('label', { class: 'campo' },
       el('span', { texto: 'Nome do negócio' }),
       el('input', { id: 'f-nome', value: estado.negocio.nome, maxlength: '40' })),

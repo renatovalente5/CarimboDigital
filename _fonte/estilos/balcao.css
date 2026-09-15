@@ -242,3 +242,40 @@
 .mono { font-family: var(--letra-mono); letter-spacing: .08em; }
 
 #previa { margin-bottom: var(--e-3); }
+
+/* =========================================================================
+   O logótipo do negócio
+   Um quadrado com a imagem ao lado do botão de a trocar. O quadrado tem
+   tamanho fixo para o ecrã não saltar quando a imagem chega — e chega depois
+   de uma volta ao servidor.
+   ========================================================================= */
+.campo-logotipo > span { display: block; margin-bottom: 6px; }
+.logo-linha { display: flex; gap: 14px; align-items: center; }
+.logo-previa {
+  flex: 0 0 auto; width: 72px; height: 72px; border-radius: 14px;
+  background: var(--papel-2); border: 1px solid var(--linha);
+  display: grid; place-items: center; overflow: hidden;
+}
+.logo-previa img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.logo-vazio { font-size: .6875rem; color: var(--tinta-3); text-align: center; }
+.logo-accoes { min-width: 0; }
+.logo-accoes .miudo { margin: 6px 0 0; }
+/* O campo de ficheiro verdadeiro não se vê: quem carrega é o botão, que se
+   consegue desenhar. Mas tem de continuar a existir e a ser alcançável pelo
+   teclado através do botão, e não `display:none`, que o tiraria do formulário
+   em alguns browsers.
+
+   Duas voltas até acertar, e valem a pena escritas:
+
+   1. `.escondido` sozinho (0,1,0) perde para o `.campo input { width: 100% }`
+      do núcleo (0,1,1). Com a regra fraca, o campo ficava com a largura de um
+      campo de ficheiro a sério e empurrava a página 419 px para fora do ecrã.
+   2. Escondê-lo à maneira dos leitores de ecrã — 1 px com `clip-path` — passa
+      a largura mas deixa um elemento com 209 px de conteúdo dentro de 1 px, e
+      a guarda do texto cortado apanha-o, com razão: ela não tem como saber
+      que aquilo está escondido de propósito.
+
+   `display: none` resolve as duas. O campo continua a ser accionado pelo
+   botão através de `.click()`, que funciona em campos de ficheiro escondidos
+   assim em todos os browsers — e quem recebe o foco é o botão, que se vê. */
+.campo input.escondido, .escondido { display: none; }

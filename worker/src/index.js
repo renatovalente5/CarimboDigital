@@ -600,8 +600,18 @@ function exigirTexto(valor, nome) {
   return valor;
 }
 
-async function corpoJSON(pedido) {
+/* Um corpo de pedido tinha tamanho livre. Trinta e dois kilobytes chegam e
+   sobram para tudo o que estas rotas recebem — o maior é o formulário de
+   fundar, com seis campos curtos. O logótipo, que é o único que precisa de
+   mais, entra por rota própria e tem o tecto dele. */
+const CORPO_MAX = 32 * 1024;
+const LOGOTIPO_MAX = 256 * 1024;   // o PNG já reduzido no browser, em base64
+
+async function corpoJSON(pedido, tecto = CORPO_MAX) {
   const texto = await pedido.text();
+  if (texto.length > tecto) {
+    throw new Falha('O pedido é demasiado grande.', { estado: 413, codigo: 'grande' });
+  }
   if (!texto.trim()) return {};
   try {
     const d = JSON.parse(texto);
@@ -793,6 +803,10 @@ rota('GET', '/v1/descobrir', async (env) => {
     saida.push({
       id: n.id, slug: n.slug, nome: n.nome, cor: n.cor, categoria: n.categoria,
       localidade: n.localidade, morada: n.morada, telefone: n.telefone,
+      /* Só se HÁ, e a data — nunca a imagem. Esta lista é pedida a cada
+         abertura da app por toda a gente, e mandar os logótipos todos lá
+         dentro seria mandar megabytes para desenhar uns quadrados. */
+      logotipo: Boolean(n.logotipo), logotipoEm: n.logotipo_em || null,
       programas: comMarcos,
     });
   }
@@ -1166,9 +1180,15 @@ rota('GET', '/v1/balcao/negocio', async (env, pedido) => {
       : null;
     comMarcos.push(moldarPrograma({ ...p, marcos }));
   }
+  /* O `logotipo` NÃO vai aqui dentro. É um PNG em base64 — umas dezenas de
+     kilobytes — e esta rota é chamada a cada abertura do balcão e a seguir a
+     cada gravação. Quem precisa da imagem pede-a ao endereço próprio, que tem
+     cache de um ano; aqui vai só a resposta a «há logótipo?» e a data, que é
+     o que serve para não mostrar a imagem velha depois de uma troca. */
+  const { logotipo, ...semImagem } = negocio;
   return {
     operador: { id: op.id, nome: op.nome, papel: op.papel },
-    negocio: { ...negocio, programas: comMarcos },
+    negocio: { ...semImagem, logotipo: Boolean(logotipo), programas: comMarcos },
   };
 });
 
@@ -1249,6 +1269,88 @@ function camposDoPrograma(d, antigo = null) {
     arrefecimento: arrefecimentoValido(d.arrefecimento ?? (antigo ? antigo.arrefecimento : null)),
   };
 }
+
+/* =========================================================================
+   O logótipo do negócio
+
+   A coluna existia desde o primeiro dia e nunca ninguém lhe tocou. Passou a
+   ser precisa porque a classe de fidelização da Google exige um `programLogo`,
+   e esse campo quer um ENDEREÇO público — não um ficheiro nem um data URI.
+   Daí haver aqui duas rotas: uma para o dono o gravar, e outra, aberta, que o
+   serve como imagem.
+
+   Guarda-se em base64 no D1 e não noutro lado nenhum. É o que evita mais um
+   serviço, mais uma chave e mais um terceiro na página de privacidade — e
+   estamos a falar de uma imagem quadrada de 512 px por negócio, que são umas
+   dezenas de kilobytes. A redução acontece no browser antes de subir: mandar
+   para aqui a fotografia de quatro megapixéis que o telemóvel tirou seria
+   gastar o tecto do pedido e a paciência de quem está a usar dados móveis.
+   ========================================================================= */
+
+/* Os bytes iniciais que um PNG e um JPEG têm sempre. Não se confia na
+   extensão nem no que o browser diz que é: confia-se nos bytes, como o
+   `enviar-fotos` de outro projecto aprendeu a fazer. */
+function tipoDaImagem(base64) {
+  const cabeca = atob(base64.slice(0, 32));
+  const b = Array.from(cabeca, (c) => c.charCodeAt(0));
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  return null;
+}
+
+rota('PUT', '/v1/balcao/logotipo', async (env, pedido) => {
+  const op = await exigirOperador(env, pedido);
+  if (op.papel !== 'dono') throw new Falha('Só o dono pode mudar isto', { estado: 403 });
+  const d = await corpoJSON(pedido, LOGOTIPO_MAX);
+
+  /* Apagar é pôr a null, e não uma rota à parte: é o mesmo gesto do lado de
+     quem usa — «tirar a imagem». */
+  if (d.logotipo === null || d.logotipo === '') {
+    await env.DB.prepare('UPDATE negocios SET logotipo = NULL, logotipo_em = NULL WHERE id = ?')
+      .bind(op.negocio_id).run();
+    return { logotipo: null };
+  }
+
+  const bruto = String(d.logotipo || '');
+  /* Aceita-se com ou sem o prefixo `data:`, porque o `canvas.toDataURL()` do
+     browser dá-o com prefixo e é de lá que isto vem. */
+  const base64 = bruto.includes(',') ? bruto.slice(bruto.indexOf(',') + 1) : bruto;
+  if (!/^[A-Za-z0-9+/=]+$/.test(base64) || base64.length < 64) {
+    throw new Falha('Isso não é uma imagem.', { estado: 400, codigo: 'imagem' });
+  }
+  if (base64.length > LOGOTIPO_MAX) {
+    throw new Falha('A imagem é demasiado grande. Escolhe uma mais pequena.',
+      { estado: 413, codigo: 'grande' });
+  }
+  const tipo = tipoDaImagem(base64);
+  if (!tipo) throw new Falha('Só se aceita PNG ou JPEG.', { estado: 400, codigo: 'imagem' });
+
+  await env.DB.prepare('UPDATE negocios SET logotipo = ?, logotipo_em = ? WHERE id = ?')
+    .bind(`${tipo};${base64}`, agora(), op.negocio_id).run();
+  return { logotipo: true, tipo };
+});
+
+/* Aberta, de propósito: é este endereço que vai dentro do passe da Wallet, e
+   quem o abre é a Google e o telemóvel de quem tiver o cartão. Não há aqui
+   nada de privado — é a marca de um estabelecimento, que está na montra. */
+rota('GET', /^\/v1\/negocio\/([a-z0-9-]{1,40})\/logotipo$/, async (env, pedido, [slug]) => {
+  const n = await env.DB.prepare(
+    "SELECT logotipo FROM negocios WHERE slug = ? AND estado = 'ativo'"
+  ).bind(slug).first();
+  if (!n || !n.logotipo) throw new Falha('Sem logótipo', { estado: 404 });
+  const [tipo, base64] = [n.logotipo.slice(0, n.logotipo.indexOf(';')),
+                          n.logotipo.slice(n.logotipo.indexOf(';') + 1)];
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  return new Response(bytes, {
+    headers: {
+      'content-type': tipo,
+      /* Um ano. O conteúdo muda e o endereço não — mas quem precisa de ver a
+         mudança é a Google, e essa relê quando a classe é actualizada. Para o
+         resto do mundo, um logótipo de um café não muda. */
+      'cache-control': 'public, max-age=31536000, immutable',
+    },
+  });
+});
 
 rota('POST', '/v1/balcao/programas', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
@@ -1506,13 +1608,26 @@ export default {
       }
       for (const r of rotas) {
         if (r.metodo !== pedido.method) continue;
+        let resposta;
         if (typeof r.padrao === 'string') {
           if (r.padrao !== caminho) continue;
-          return json(await r.mao(env, pedido, []), { pedido, env });
+          resposta = await r.mao(env, pedido, []);
+        } else {
+          const m = caminho.match(r.padrao);
+          if (!m) continue;
+          resposta = await r.mao(env, pedido, m.slice(1));
         }
-        const m = caminho.match(r.padrao);
-        if (!m) continue;
-        return json(await r.mao(env, pedido, m.slice(1)), { pedido, env });
+        /* Quase tudo aqui devolve dados e sai como JSON. Mas o logótipo sai
+           como imagem, com o seu tipo e a sua cache — e uma rota que já
+           construiu a resposta passa à frente inteira. Sem isto, a imagem ia
+           embrulhada em JSON e o browser desenhava um quadrado partido. */
+        if (resposta instanceof Response) {
+          for (const [k, v] of Object.entries(cabecalhosCORS(pedido, env))) {
+            if (!resposta.headers.has(k)) resposta.headers.set(k, v);
+          }
+          return resposta;
+        }
+        return json(resposta, { pedido, env });
       }
       return json({ erro: 'Não existe' }, { estado: 404, pedido, env });
     } catch (e) {

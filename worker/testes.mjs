@@ -741,6 +741,85 @@ grupo('Emails');
 
 /* --------------------------------------------------------------------- */
 
+grupo('O logótipo do negócio');
+{
+  /* A coluna existia desde o primeiro dia e nunca ninguém lhe tocou. Passou a
+     ser precisa porque a classe de fidelização da Google EXIGE um logótipo por
+     programa — sem ele não há passe nenhum. E como vai dentro do passe, tem de
+     ser servido por um endereço público, não por um data URI. */
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
+  const guardar = (logotipo) => pedir('/v1/balcao/logotipo', {
+    metodo: 'PUT', sessao: sessaoBalcao, corpo: { logotipo } });
+
+  {
+    const r = await guardar(`data:image/png;base64,${PNG}`);
+    certo(r.estado === 200 && r.dados.tipo === 'image/png',
+      'um PNG a sério é aceite', JSON.stringify(r.dados).slice(0, 80));
+  }
+
+  {
+    /* O TIPO SAI DOS BYTES, e não do que o pedido diz que é. Quem manda isto
+       pode escrever `data:image/png` à frente do que lhe apetecer — o que
+       conta são os primeiros oito bytes de um PNG. */
+    const texto = Buffer.from('não sou uma imagem nenhuma, sou texto').toString('base64');
+    const r = await guardar(`data:image/png;base64,${texto}`);
+    certo(r.estado === 400 && r.dados.codigo === 'imagem',
+      'um ficheiro que se diz PNG mas não tem os bytes de um PNG é recusado',
+      `${r.estado} ${r.dados.codigo}`);
+  }
+
+  {
+    const r = await guardar('data:image/png;base64,####');
+    certo(r.estado === 400, 'e o que nem sequer é base64 também', String(r.estado));
+  }
+
+  {
+    /* O tecto. Sem ele, a coluna aceitava o que lhe mandassem — e isto é uma
+       base de dados de 5 GB partilhada por toda a gente. */
+    const enorme = PNG + 'A'.repeat(300 * 1024);
+    const r = await guardar(`data:image/png;base64,${enorme}`);
+    certo(r.estado === 413, 'uma imagem grande de mais é recusada com 413', String(r.estado));
+  }
+
+  {
+    /* O endereço público, que é o que vai DENTRO do passe da Wallet: tem de
+       devolver bytes de imagem, e não JSON. */
+    const n = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
+    const slug = n.dados.negocio.slug;
+    certo(n.dados.negocio.logotipo === true,
+      'o balcão sabe que há logótipo', String(n.dados.negocio.logotipo));
+    certo(typeof n.dados.negocio.logotipo !== 'string',
+      'e NÃO recebe o base64 inteiro a cada abertura', typeof n.dados.negocio.logotipo);
+
+    const img = await fetch(`${BASE}/v1/negocio/${slug}/logotipo`);
+    certo(img.status === 200, 'o endereço público serve a imagem', String(img.status));
+    certo(img.headers.get('content-type') === 'image/png',
+      'com o tipo certo, e não JSON', String(img.headers.get('content-type')));
+    certo(/max-age=\d{6,}/.test(img.headers.get('cache-control') || ''),
+      'e com cache longa, que é o que a Google vai reler', String(img.headers.get('cache-control')));
+    const bytes = new Uint8Array(await img.arrayBuffer());
+    certo(bytes[0] === 0x89 && bytes[1] === 0x50,
+      'e o que sai são mesmo os bytes de um PNG', `${bytes[0]},${bytes[1]}`);
+  }
+
+  {
+    const r = await guardar(null);
+    certo(r.estado === 200 && r.dados.logotipo === null, 'tirar a imagem é pôr a null', String(r.estado));
+    const n = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
+    certo(n.dados.negocio.logotipo === false, 'e o balcão passa a dizer que não há');
+  }
+
+  {
+    /* Um corpo gigante numa rota NORMAL. Não havia tecto nenhum: qualquer
+       pessoa podia mandar cem megabytes para qualquer endereço. */
+    const r = await pedir('/v1/balcao/programas', {
+      metodo: 'POST', sessao: sessaoBalcao, corpo: { nome: 'x'.repeat(40 * 1024) } });
+    certo(r.estado === 413, 'e um corpo grande de mais numa rota normal leva 413', String(r.estado));
+  }
+}
+
+/* --------------------------------------------------------------------- */
+
 grupo('Uma morada, uma conta');
 {
   /* DUAS CONTAS COM O MESMO EMAIL VERIFICADO é o pior estado em que esta base

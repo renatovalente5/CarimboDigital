@@ -675,6 +675,22 @@ function criarDemo() {
       return n;
     },
 
+    /* Na demonstração o logótipo vive onde tudo o resto vive: no
+       localStorage, como data URI. Não há servidor para o servir, por isso o
+       `base()` devolve vazio e quem pinta usa o próprio data URI. É preciso
+       existir: sem isto, tocar no campo do logótipo em modo de demonstração
+       rebentava com «api.guardarLogotipo is not a function», que é o género
+       de coisa que só se descobre a conduzir. */
+    async guardarLogotipo(logotipo) {
+      const e = estado();
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      if (n) { n.logotipo = logotipo || null; n.logotipo_em = new Date().toISOString(); }
+      gravar(e);
+      return { logotipo: Boolean(logotipo), demo: true };
+    },
+
+    base: () => '',
+
     async apagarTudo(clienteId) {
       const e = estado();
       const meus = e.cartoes.filter((c) => c.clienteId === clienteId).map((c) => c.id);
@@ -814,6 +830,11 @@ export const api = MODO === 'remoto'
       clientesDoNegocio: () => remoto.pedir('/v1/balcao/clientes'),
       guardarPrograma: (_, dados) => remoto.pedir('/v1/balcao/programas', { metodo: 'POST', corpo: dados }),
       guardarNegocio: (_, dados) => remoto.pedir('/v1/balcao/negocio', { metodo: 'PUT', corpo: dados }),
+      guardarLogotipo: (logotipo) =>
+        remoto.pedir('/v1/balcao/logotipo', { metodo: 'PUT', corpo: { logotipo } }),
+      /* O endereço da API, para quem precisa de o montar à mão — o logótipo é
+         servido como IMAGEM e vai num `<img src>`, não passa pelo `pedir`. */
+      base: () => CONFIG.api,
       guardarEmail: (email) => remoto.pedir('/v1/cliente/email', { metodo: 'POST', corpo: { email } }),
       confirmarEmail: (email, codigo) =>
         remoto.pedir('/v1/cliente/entrar', { metodo: 'POST', corpo: { email, codigo } }),

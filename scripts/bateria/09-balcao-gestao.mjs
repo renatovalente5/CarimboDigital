@@ -408,6 +408,57 @@ export async function correr(palco, certo) {
     'O cartão: o topo muda', String(await palco.texto('#topo-titulo')));
   certo(await palco.visivel('#previa'),
     'O cartão: a pré-visualização está à vista');
+
+  /* --- o logótipo -------------------------------------------------------
+     Existe porque a classe de fidelização da Google EXIGE um logótipo por
+     programa: sem ele não há cartão na Wallet nenhum. E como quem o carrega é
+     o dono do café, ao balcão, tem de ser um gesto e não um comando.
+
+     Conduz-se a sério: põe-se um PNG no campo de ficheiro por `DataTransfer`,
+     que é o que o browser faz quando alguém escolhe um ficheiro, e espera-se
+     que a pré-visualização passe a ter uma imagem. Sem isto, o caminho todo —
+     ler, cortar ao centro, reduzir a 512 px, gravar — ficava por percorrer.
+     -------------------------------------------------------------------- */
+  certo(await palco.ver('#logo-previa'), 'O cartão: há sítio para o logótipo');
+  const botaoLogo = (await palco.textos('.logo-accoes .btn'))[0];
+  certo(/escolher|trocar/i.test(String(botaoLogo)),
+    'O cartão: e um botão para escolher a imagem', String(botaoLogo));
+  certo(!(await palco.visivel('#f-logotipo')),
+    'o campo de ficheiro verdadeiro não se vê — quem se vê é o botão');
+
+  {
+    const antes = await palco.contar('#logo-previa img');
+    await palco.js(`
+      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
+      const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+      const f = new File([bytes], 'marca.png', { type: 'image/png' });
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;`);
+    await palco.esperar('#logo-previa img', 8000);
+    certo(antes === 0 && (await palco.contar('#logo-previa img')) === 1,
+      'escolher um ficheiro põe a imagem na pré-visualização',
+      `antes ${antes}, depois ${await palco.contar('#logo-previa img')}`);
+
+    /* E foi mesmo reduzido aqui, no browser: o que ficou guardado tem de ser
+       um PNG de 512 px, e não o ficheiro original. É essa redução que evita
+       mandar quatro megapixéis pelo ar de quem está com dados móveis. */
+    const guardado = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      if (!n || !n.logotipo) return null;
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n.logotipo; });
+      return { comeca: n.logotipo.slice(0, 22), largura: img.width, altura: img.height };`);
+    certo(guardado && guardado.comeca.startsWith('data:image/png'),
+      'e o que ficou guardado é um PNG', JSON.stringify(guardado));
+    certo(guardado && guardado.largura === 512 && guardado.altura === 512,
+      'reduzido a 512 px, e quadrado — que é o que a Google quer',
+      JSON.stringify(guardado));
+  }
   /* Esta frase é a promessa que as afirmações da grelha, mais abaixo, vão
      cobrar. Se um dia sair da página, elas deixam de ter em que se apoiar. */
   certo((await palco.texto('#principal .subtexto')).includes('É assim que os clientes o vêem'),
