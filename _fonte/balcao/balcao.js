@@ -955,8 +955,24 @@ function entrarPorEmail() {
 function pedirCodigoBalcao(email) {
   const painel = abrirPainel('Escreve o código');
   painel.append(
-    el('p', { class: 'subtexto', html:
-      `Se este email tiver um negócio, enviámos-lhe um código. Vale 15 minutos.` }),
+    /* As DUAS hipóteses, à mesma altura e nesta ordem.
+
+       A resposta do servidor é de propósito a mesma exista ou não a conta —
+       senão este ecrã servia para descobrir que moradas estão registadas. Mas
+       a frase antiga («Se este email tiver um negócio, enviámos-lhe um
+       código») enterrava o «se»: lia-se a segunda metade, e quem não tinha
+       balcão ficava a olhar para um campo à espera de um código que não podia
+       chegar. Foi o que aconteceu a sério, e não havia nada no ecrã que o
+       dissesse nem por onde sair.
+
+       Dizer as duas hipóteses não revela nada: a página diz exactamente o
+       mesmo a toda a gente, tal como o servidor. O que muda é que agora a
+       pessoa sabe quanto tempo esperar e o que fazer a seguir. */
+    el('p', { class: 'subtexto', texto:
+      'Se este email já tiver um balcão, o código chega em segundos e vale 15 minutos.' }),
+    el('p', { class: 'subtexto', texto:
+      'Se não chegar nada em dois minutos, é porque este email ainda não tem '
+      + 'balcão nenhum. Nesse caso é preciso criá-lo com um convite.' }),
     el('label', { class: 'campo' },
       el('span', { texto: 'Código' }),
       el('input', { id: 'e-codigo', type: 'text', inputmode: 'numeric',
@@ -976,6 +992,13 @@ function pedirCodigoBalcao(email) {
           await entrar();
         } catch (e) { botao.disabled = false; avisar(e.message, 'mau'); }
       },
+    }),
+    /* A saída. Sem isto, quem cá chegou por engano tem de adivinhar que o
+       caminho é fechar o painel e carregar noutro botão. */
+    el('button', {
+      class: 'btn btn-fantasma btn-bloco btn-pequeno',
+      texto: 'Este email ainda não tem balcão',
+      aoClick: fundarNegocio,
     }));
   const campo = $('#e-codigo');
   campo.addEventListener('input', () => { campo.value = campo.value.replace(/\D/g, ''); });

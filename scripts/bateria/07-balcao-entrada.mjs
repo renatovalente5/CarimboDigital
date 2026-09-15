@@ -202,7 +202,45 @@ export async function correr(palco, certo) {
     'correio em baixo: e dá para tentar outra vez');
   await palco.js('window.fetch = window.__fetchVerdadeiro; return true;');
   await limparAvisos(palco);
+
+  /* O OUTRO CAMINHO QUE DEIXAVA A PESSOA PARADA, e este nem sequer é um erro
+     do servidor: quando a morada não tem balcão nenhum, a resposta é
+     `enviado: true` DE PROPÓSITO — senão este ecrã servia para descobrir que
+     emails estão registados. O ecrã do código tem por isso de dizer as duas
+     hipóteses, e dar por onde sair. Sem isso, quem escreve o seu email pela
+     primeira vez fica a olhar para um campo à espera de um código que não
+     pode chegar. Aconteceu a sério. */
+  await palco.js(`
+    window.fetch = (p, o) => String(p).includes('/v1/balcao/entrar')
+      ? Promise.resolve(new Response(JSON.stringify({ enviado: true }),
+          { status: 200, headers: { 'content-type': 'application/json' } }))
+      : window.__fetchVerdadeiro(p, o);
+    return true;
+  `);
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
+  await palco.clicar(ENTRAR);
+  await palco.esperar('#e-email');
+  await palco.escrever('#e-email', 'quem-nao-tem-balcao@cafedabateria.pt');
+  await palco.clicar(BOTAO_PAINEL);
+  await palco.esperar('#e-codigo');
+  const dito = (await palco.textos('.painel-folha .subtexto')).join(' ');
+  certo(/dois minutos|não tem balcão/i.test(dito),
+    'sem balcão: o ecrã do código diz o que fazer se não chegar nada', dito.slice(0, 120));
+  const saidas = await palco.textos('.painel-folha .btn-fantasma');
+  certo(saidas.some((t) => /não tem balcão/i.test(t)),
+    'sem balcão: e há por onde sair sem fechar o painel às cegas', saidas.join(' | '));
+  await palco.clicar('.painel-folha .btn-fantasma');
+  certo((await palco.texto('.painel-folha h2')) === 'Criar o meu cartão',
+    'sem balcão: e essa saída leva a criar o balcão',
+    `foi parar a «${await palco.texto('.painel-folha h2')}»`);
+  await palco.js('window.fetch = window.__fetchVerdadeiro; return true;');
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
+  await limparAvisos(palco);
   await palco.semRede(true);
+  await palco.clicar(ENTRAR);
+  await palco.esperar('#e-email');
 
   await palco.tecla('Escape');
   certo(!(await palco.ver('#painel')), 'a tecla Escape fecha o painel de entrada');
