@@ -37,6 +37,13 @@
 }
 .entrada-acoes { display: flex; flex-direction: column; gap: var(--e-3); }
 .entrada-nota { text-align: center; font-size: .8125rem; color: var(--tinta-3); }
+/* A pergunta que desempata as duas portas. Fica acima delas e não é um título:
+   é a frase que a pessoa lê antes de decidir, por isso tem de ser legível de
+   relance — daí o tamanho de corpo e não de nota de rodapé. */
+.entrada-pergunta {
+  text-align: center; font-size: 1rem; line-height: 1.4;
+  color: var(--tinta-2); margin: 0 0 4px;
+}
 
 /* --- o programa em cima --------------------------------------------------- */
 

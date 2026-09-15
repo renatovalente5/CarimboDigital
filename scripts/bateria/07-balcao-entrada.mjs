@@ -23,10 +23,14 @@ export const nome = '07 · Balcão: entrar e fundar um negócio';
 export const desculpar = [/favicon/];
 
 /* As três portas não têm id: distinguem-se pela classe do botão, que é o que
-   o desenharEntrada lhes põe. */
-const ENTRAR = '#entrada-acoes .btn-cheio';
-const CONVITE = '#entrada-acoes .btn-contorno';
-const ESPREITAR = '#entrada-acoes .btn-fantasma';
+   o desenharEntrada lhes põe — e por `id` desde que as duas primeiras passaram
+   a ter o MESMO peso. Enquanto havia um botão cheio e um de contorno, a classe
+   servia de endereço; com dois cheios, `\.btn-cheio` passaria a acertar no
+   primeiro por sorte, que é precisamente o defeito que este projecto já
+   apanhou noutro sítio. Com `id`, o teste aponta para o que quer dizer. */
+const ENTRAR = '#porta-entrar';
+const CONVITE = '#porta-convite';
+const ESPREITAR = '#porta-espreitar';
 const BOTAO_PAINEL = '.painel-folha .btn-cheio';
 
 /* ---------------------------------------------------------------------------
@@ -105,8 +109,26 @@ export async function correr(palco, certo) {
 
   const portas = await palco.textos('#entrada-acoes button');
   certo(portas.length === 3, 'a entrada tem três portas', `tem ${portas.length}: ${portas.join(' | ')}`);
-  certo(portas.join('|') === 'Entrar|Tenho um convite|Só quero ver como funciona',
-    'as três portas são entrar, convite e espreitar', portas.join('|'));
+  certo(portas.join('|') === 'Já criei — quero entrar|Deram-me um código|Só quero ver como funciona',
+    'as três portas são entrar, código e espreitar', portas.join('|'));
+
+  /* A PERGUNTA QUE DESEMPATA. Sem ela, duas portas com o mesmo peso são pior
+     do que uma iluminada: a pessoa fica sem critério nenhum para escolher. */
+  const perguntou = await palco.texto('#entrada-acoes .entrada-pergunta');
+  certo(perguntou && /já criou/i.test(perguntou),
+    'e há uma pergunta por cima delas a dizer qual é qual', String(perguntou));
+  certo(perguntou && !/balcão/i.test(perguntou),
+    'a pergunta não usa a palavra «balcão», que é a que quem chega não conhece',
+    String(perguntou));
+
+  /* As duas primeiras têm de ter o MESMO peso. Foi a diferença entre elas que
+     mandou o dono do produto para a porta errada. */
+  const pesos = await palco.js(`
+    const b = [...document.querySelectorAll('#entrada-acoes button')];
+    return b.slice(0, 2).map((x) => x.className.includes('btn-cheio'));`);
+  certo(Array.isArray(pesos) && pesos[0] === true && pesos[1] === true,
+    'as duas portas a sério têm o mesmo peso — nenhuma é a iluminada',
+    JSON.stringify(pesos));
 
   const nota = await palco.textoTodo();
   certo(nota.includes('Sem instalar nada'),
@@ -227,10 +249,10 @@ export async function correr(palco, certo) {
   const dito = (await palco.textos('.painel-folha .subtexto')).join(' ');
   certo(/dois minutos|não tem balcão/i.test(dito),
     'sem balcão: o ecrã do código diz o que fazer se não chegar nada', dito.slice(0, 120));
-  const saidas = await palco.textos('.painel-folha .btn-fantasma');
+  const saidas = await palco.textos('.painel-folha .btn-contorno');
   certo(saidas.some((t) => /não tem balcão/i.test(t)),
     'sem balcão: e há por onde sair sem fechar o painel às cegas', saidas.join(' | '));
-  await palco.clicar('.painel-folha .btn-fantasma');
+  await palco.clicar('.painel-folha .btn-contorno');
   certo((await palco.texto('.painel-folha h2')) === 'Criar o meu cartão',
     'sem balcão: e essa saída leva a criar o balcão',
     `foi parar a «${await palco.texto('.painel-folha h2')}»`);
@@ -391,7 +413,7 @@ export async function correr(palco, certo) {
 
   /* --- chegar ao balcão a funcionar ------------------------------------- */
 
-  await palco.clicar('#entrada-acoes .btn-cheio');
+  await palco.clicar('#entrada-acoes button');
   await palco.esperar('#barra .barra-item', 10000);
 
   certo(!(await palco.visivel('#entrada')), 'entrou: a entrada sai da frente');

@@ -457,8 +457,12 @@ grupo('Rotas do balcão que nunca tinham sido tocadas');
     codigo: 'TESTE1', nome: 'Outra Padaria', email: correio } });
   certo(outra.estado === 409, 'o mesmo email não funda um segundo negócio', String(outra.estado));
 
+  /* O nome vai bem escrito de propósito: o que se quer provar aqui é a recusa
+     do CONVITE, e o nome é validado antes dele — para que um engano de escrita
+     não queime um convite de um uso. Com `nome: 'X'` isto respondia 400 e
+     passava a acreditar que tinha provado o convite. */
   const convite = await pedir('/v1/balcao/fundar', { metodo: 'POST', corpo: {
-    codigo: 'errado', nome: 'X', email: 'x@exemplo.pt' } });
+    codigo: 'NAOSERVEDETODO', nome: 'Casa do Convite Errado', email: 'x@exemplo.pt' } });
   certo(convite.estado === 403, 'sem o convite certo não se funda nada', String(convite.estado));
 
   const neg = await pedir('/v1/balcao/negocio', { sessao: S });
@@ -716,6 +720,117 @@ grupo('Emails');
   for (const [nome, m] of [['cliente', a], ['balcão', b]]) {
     certo(m.texto.length > 100 && m.html.length > 1000,
       `${nome}: tem as duas versões, HTML e texto`);
+  }
+}
+
+/* --------------------------------------------------------------------- */
+
+grupo('Convites');
+{
+  /* O convite era UM segredo do Worker, igual para toda a gente, sem limite de
+     usos, sem validade e sem forma de revogar um sem partir os outros. Passou
+     a ser uma linha numa tabela — e o que interessa provar são as quatro
+     maneiras de não servir, e a reivindicação não deixar dois pedidos gastarem
+     o mesmo código. Os códigos vêm do semear.sql, em resumo. */
+  /* AS SEMENTES REPÕEM-SE AQUI, e não se confia no semear.sql.
+
+     Um convite de um uso é gasto pelo primeiro teste que o usa — e o
+     `INSERT OR IGNORE` do semear não o repõe na corrida seguinte, porque a
+     linha já lá está. A bateria passava à primeira numa base limpa e falhava
+     à segunda, que é a pior espécie de teste: o que só falha a quem já correu
+     antes. O estado de que um teste depende é dele. */
+  sql(`DELETE FROM convites WHERE etiqueta LIKE 'testes:%'`);
+  /* E o que nasceu deles na corrida anterior. O convite preso a
+     `dono.certo@exemplo.pt` só se prova uma vez por base: à segunda, o
+     operador já existe e a rota responde 409 antes de olhar para o convite. */
+  sql(`DELETE FROM operadores WHERE email = 'dono.certo@exemplo.pt' OR email LIKE 'f%@exemplo.pt'`);
+  sql(`DELETE FROM programas WHERE negocio_id IN (SELECT id FROM negocios WHERE nome = 'Casa de Provas')`);
+  sql(`DELETE FROM negocios WHERE nome = 'Casa de Provas'`);
+  sql(`INSERT INTO convites (resumo, etiqueta, email, usos_max, usos, criado_em, expira_em, revogado_em) VALUES
+    ('e552a301d65a81d4ad746a07ad3025e67c16dc5d4a390bc61cad62a01522c99d','testes: serve sempre',NULL,999,0,strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL,NULL),
+    ('962a654a00bb101136a505c5e960a981e753debd698754a79866907d7d51f962','testes: um uso só',NULL,1,0,strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL,NULL),
+    ('e9727823d5f18cfbf09672f6d3598d0e319ef2d1e13fc65d61cf9d67a8335380','testes: já gasto',NULL,1,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL,NULL),
+    ('08676a82fee009a6b7c68066c82f76932b42716776102b0f0cf481fd07c909c4','testes: caducado',NULL,9,0,strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day'),NULL),
+    ('7d9d9e379b6ed3341be6e84182917445f72be978352d39a83b8b546c79774503','testes: anulado',NULL,9,0,strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL,strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('c649c3d20b990e0a95b01376e60e37dc49ee28096d49d30d7452a1a6418f3abb','testes: preso a uma morada','dono.certo@exemplo.pt',9,0,strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL,NULL)`);
+
+  const fundar = (codigo, extra = {}) => pedir('/v1/balcao/fundar', {
+    metodo: 'POST',
+    corpo: { codigo, nome: 'Casa de Provas', email: `f${Math.random().toString(36).slice(2, 9)}@exemplo.pt`, ...extra },
+  });
+
+  {
+    const r = await fundar('TESTEUMAVEZ');
+    certo(r.estado === 200 && !!r.dados.sessao, 'um convite bom funda e devolve sessão', JSON.stringify(r.dados).slice(0, 90));
+    const outra = await fundar('TESTEUMAVEZ');
+    certo(outra.estado === 403 && outra.dados.codigo === 'convite-gasto',
+      'e à segunda já não serve — um uso é um uso', `${outra.estado} ${outra.dados.codigo}`);
+  }
+
+  {
+    const r = await fundar('NAOEXISTEDETODO');
+    certo(r.estado === 403 && /não existe/i.test(r.dados.erro || ''),
+      'um código inventado é recusado, e diz que não existe', r.dados.erro);
+  }
+  {
+    const r = await fundar('TESTEREVOGADO');
+    certo(r.estado === 403 && r.dados.codigo === 'convite-revogado',
+      'um código anulado diz que foi anulado, e não «inválido»', `${r.estado} ${r.dados.codigo}`);
+  }
+  {
+    const r = await fundar('TESTEEXPIRADO');
+    certo(r.estado === 403 && r.dados.codigo === 'convite-expirado',
+      'um código caducado diz que caducou', `${r.estado} ${r.dados.codigo}`);
+  }
+  {
+    const r = await fundar('TESTEGASTO');
+    certo(r.estado === 403 && r.dados.codigo === 'convite-gasto',
+      'um código já gasto diz que foi gasto', `${r.estado} ${r.dados.codigo}`);
+  }
+  {
+    const r = await fundar('TESTEPRESO', { email: 'outro.qualquer@exemplo.pt' });
+    certo(r.estado === 403 && r.dados.codigo === 'convite-email',
+      'um código preso a uma morada recusa as outras', `${r.estado} ${r.dados.codigo}`);
+    const certo1 = await fundar('TESTEPRESO', { email: 'dono.certo@exemplo.pt' });
+    certo(certo1.estado === 200, 'e aceita a morada a que está preso', String(certo1.estado));
+  }
+
+  {
+    /* O código escreve-se como sai: minúsculas, com hífen, com espaço. Nada
+       disso pode ser motivo para recusar. */
+    const r = await fundar(' teste-1 ');
+    certo(r.estado === 200, 'minúsculas, hífen e espaços não estragam o código', String(r.estado));
+  }
+
+  {
+    /* A CORRIDA, e ela precisa de um convite FRESCO. A primeira versão deste
+       teste corria dois pedidos com o `TESTEUMAVEZ`, que o caso de cima já
+       tinha gasto — e depois afirmava que ninguém ganhava. Passava sempre, e
+       não provava nada: «ganharam 0» era garantido pelo estado, não pela
+       reivindicação. Um convite por estrear, e exactamente um vencedor.
+
+       Ler o convite, decidir em JavaScript e escrever a seguir deixa os dois
+       passarem. O que impede isso é o `UPDATE` condicional com o
+       `meta.changes`, e é isso que esta afirmação mede. */
+    sql(`DELETE FROM convites WHERE resumo = '9c1cde06202ce8ddbac1ab675a888002e36cbec3844ee37f1c03636a4c279d6c'`);
+    sql(`INSERT INTO convites (resumo, etiqueta, usos_max, usos, criado_em)
+         VALUES ('9c1cde06202ce8ddbac1ab675a888002e36cbec3844ee37f1c03636a4c279d6c',
+                 'testes: a corrida', 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+    const [a, b] = await Promise.all([fundar('TESTECORRIDA'), fundar('TESTECORRIDA')]);
+    const ganhou = [a, b].filter((x) => x.estado === 200).length;
+    certo(ganhou === 1, 'dois pedidos ao mesmo tempo: um convite de um uso dá exactamente um balcão',
+      `ganharam ${ganhou} (${a.estado}, ${b.estado})`);
+    const usos = JSON.parse((() => { const o = sql(`SELECT usos FROM convites WHERE resumo = '9c1cde06202ce8ddbac1ab675a888002e36cbec3844ee37f1c03636a4c279d6c'`); return o.slice(o.indexOf('[')); })())[0].results[0].usos;
+    certo(usos === 1, 'e o contador do convite ficou em 1, não em 2', String(usos));
+  }
+
+  {
+    /* Um convite recusado por causa do NOME não pode ser gasto: o engano de
+       escrita mais banal queimava um convite. */
+    const antes = await fundar('TESTE1', { nome: 'x' });
+    certo(antes.estado !== 200, 'um nome curto é recusado', String(antes.estado));
+    const depois = await fundar('TESTE1');
+    certo(depois.estado === 200, 'e o convite não foi gasto por causa disso', String(depois.estado));
   }
 }
 

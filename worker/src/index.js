@@ -14,8 +14,6 @@
      CHAVE_MESTRA        — 32 bytes em base64url; deriva os segredos dos
                            dispositivos. Se mudar, todos os códigos deixam de
                            valer (por isso há `chave_versao` na tabela).
-     CODIGO_FUNDADOR     — quem pode abrir um balcão novo. Sem ele as
-                           inscrições estão fechadas.
      MAIL_TOKEN          — opcional; o token da API de correio da Hostinger
                            (hPanel › Emails › o domínio › Agentic mail › API,
                            e não o de hpanel.hostinger.com/api, que é de outra
@@ -927,18 +925,76 @@ rota('DELETE', '/v1/cliente', async (env, pedido) => {
  * sessão, para ter sessão é preciso um código por email, e para receber o
  * código é preciso já existir um operador. Alguém tem de criar o primeiro.
  *
- * Enquanto o serviço for por convite, quem o cria é este endereço, fechado
- * por um segredo (`CODIGO_FUNDADOR`). Quando a inscrição passar a ser livre,
- * troca-se o convite por uma confirmação de email e o resto fica igual.
+ * Quem o cria é este endereço, aberto por um convite — uma linha da tabela
+ * `convites`, com usos, validade e revogação próprios. Era um segredo do
+ * Worker igual para toda a gente, com usos infinitos e sem forma de anular um
+ * sem partir os outros; e que nem o dono do produto conseguia ler de volta,
+ * porque o Cloudflare não devolve segredos.
+ *
+ * Os convites geram-se com `node scripts/convite.mjs criar --para "..."`.
+ * Quando a inscrição passar a ser livre, troca-se o convite por uma
+ * confirmação de email e o resto fica igual.
  */
+/**
+ * Normaliza um código de convite escrito por uma pessoa.
+ *
+ * Ele lê-o de um papel ou ouve-o em voz alta e escreve-o como lhe sai:
+ * minúsculas, com ou sem o hífen, às vezes com um espaço no meio. Nada disso
+ * pode ser motivo para recusar — o que conta são os caracteres do alfabeto.
+ */
+const normalizarConvite = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/**
+ * Reivindica um convite, ou explica porque não deu.
+ *
+ * O gesto todo é UM `UPDATE` condicional, e isso não é preciosismo: ler o
+ * convite, decidir em JavaScript e escrever a seguir deixa cinquenta pedidos
+ * em paralelo passarem todos pela mesma porta antes de qualquer um deles a
+ * fechar. O `meta.changes` diz quantas linhas mudaram de facto — uma, ou
+ * nenhuma. É a base de dados a arbitrar, e não nós.
+ *
+ * O `SELECT` só corre DEPOIS, e só quando já se sabe que falhou: serve para
+ * dizer à pessoa se o código não existe, se caducou, se já foi gasto ou se foi
+ * revogado — quatro paredes diferentes, e mandá-la embora com «convite
+ * inválido» nas quatro é fazê-la tentar outra vez o que nunca vai funcionar.
+ */
+async function reivindicarConvite(env, codigo, email) {
+  const limpo = normalizarConvite(codigo);
+  if (limpo.length < 4) throw new Falha('Falta o código do convite.', { codigo: 'convite' });
+  const r = await resumo(limpo);
+  const agoraISO = agora();
+
+  const feito = await env.DB.prepare(
+    `UPDATE convites SET usos = usos + 1, usado_em = ?1
+      WHERE resumo = ?2
+        AND revogado_em IS NULL
+        AND (expira_em IS NULL OR expira_em > ?1)
+        AND usos < usos_max
+        AND (email IS NULL OR email = ?3)`
+  ).bind(agoraISO, r, email).run();
+
+  if (feito.meta && feito.meta.changes === 1) return r;
+
+  const c = await env.DB.prepare('SELECT * FROM convites WHERE resumo = ?').bind(r).first();
+  if (!c) throw new Falha('Esse código não existe. Confere as letras.', { estado: 403, codigo: 'convite' });
+  if (c.revogado_em) throw new Falha('Esse código foi anulado. Pede outro.', { estado: 403, codigo: 'convite-revogado' });
+  if (c.expira_em && c.expira_em <= agoraISO) throw new Falha('Esse código caducou. Pede outro.', { estado: 403, codigo: 'convite-expirado' });
+  if (c.usos >= c.usos_max) throw new Falha('Esse código já foi usado.', { estado: 403, codigo: 'convite-gasto' });
+  if (c.email && c.email !== email) {
+    throw new Falha('Esse código está reservado a outra morada de email.', { estado: 403, codigo: 'convite-email' });
+  }
+  throw new Falha('Esse código não serve.', { estado: 403, codigo: 'convite' });
+}
+
+/** Devolve um uso ao convite, quando a fundação falha depois de reivindicado. */
+async function devolverConvite(env, r) {
+  await env.DB.prepare(
+    'UPDATE convites SET usos = MAX(0, usos - 1) WHERE resumo = ?'
+  ).bind(r).run();
+}
+
 rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
-  if (!env.CODIGO_FUNDADOR) {
-    throw new Falha('As inscrições estão fechadas.', { estado: 403, codigo: 'fechado' });
-  }
   const d = await corpoJSON(pedido);
-  if (!iguais(await resumo(String(d.codigo || '')), await resumo(env.CODIGO_FUNDADOR))) {
-    throw new Falha('Convite inválido.', { estado: 403, codigo: 'convite' });
-  }
 
   const nome = String(d.nome || '').trim().slice(0, 60);
   const email = normalizarEmail(d.email);
@@ -958,6 +1014,11 @@ rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
       { estado: 409, codigo: 'email-usado' });
   }
 
+  /* O convite gasta-se aqui, depois de tudo o que se pode recusar sem lhe
+     tocar. Recusar o nome ou o email DEPOIS de o gastar queimava um convite
+     por causa de um engano de escrita. */
+  const convite = await reivindicarConvite(env, d.codigo, email);
+
   /* O slug sai do nome: sem acentos, sem pontuação, sem espaços. Se já
      existir, junta-se um sufixo curto em vez de recusar. */
   let slug = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -972,25 +1033,47 @@ rota('POST', '/v1/balcao/fundar', async (env, pedido) => {
   const negocioId = id();
   const programaId = id();
   const operadorId = id();
+  /* A cor vai para um atributo de estilo no cartão de toda a gente, e aqui
+     entrava como viesse — o `PUT /v1/balcao/negocio` já a testava, esta porta
+     não. A categoria e a localidade também são pintadas na lista pública. */
+  const cor = /^#[0-9a-fA-F]{6}$/.test(String(d.cor || '')) ? d.cor : '#17161C';
+  const corte = (v, n) => { const t = String(v ?? '').trim(); return t ? t.slice(0, n) : null; };
+  try {
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO negocios (id, slug, nome, categoria, cor, localidade, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(negocioId, slug, nome, d.categoria || null, d.cor || '#17161C',
-           d.localidade || null, agora()),
+      `INSERT INTO negocios (id, slug, nome, categoria, cor, localidade, criado_em, convite)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(negocioId, slug, nome, corte(d.categoria, 40), cor,
+           corte(d.localidade, 60), agora(), convite),
     env.DB.prepare(
       `INSERT INTO programas (id, negocio_id, nome, tipo, selo, objetivo, premio, regras,
                               arrefecimento, criado_em)
        VALUES (?, ?, ?, 'carimbos', ?, ?, ?, ?, ?, ?)`
-    ).bind(programaId, negocioId, d.programa || 'Cartão de cliente', d.selo || 'carimbo',
-           Math.max(2, Math.min(30, Math.round(Number(d.objetivo)) || 10)),
-           d.premio || 'Um brinde por conta da casa',
-           d.regras || 'Um carimbo por visita.', 3600, agora()),
+    /* Pela MESMA limpeza da outra porta. Este ramo escrevia
+       `d.programa || 'Cartão de cliente'` em cru — os tectos que a rota dos
+       programas passou a ter não valiam nada se se pudesse entrar por aqui.
+       O nome do campo é `programa` e não `nome`, que já é o do negócio. */
+    ).bind(programaId, negocioId,
+           ...(() => {
+             const c = camposDoPrograma({
+               nome: d.programa || 'Cartão de cliente', selo: d.selo,
+               objetivo: d.objetivo, premio: d.premio || 'Um brinde por conta da casa',
+               regras: d.regras || 'Um carimbo por visita.',
+             });
+             return [c.nome, c.selo, c.objetivo, c.premio, c.regras];
+           })(), 3600, agora()),
     env.DB.prepare(
       `INSERT INTO operadores (id, negocio_id, nome, email, papel, criado_em)
        VALUES (?, ?, ?, ?, 'dono', ?)`
-    ).bind(operadorId, negocioId, d.operador || 'Balcão', email, agora()),
+    ).bind(operadorId, negocioId, corte(d.operador, 40) || 'Balcão', email, agora()),
   ]);
+  } catch (erro) {
+    /* A fundação falhou depois de o convite estar gasto. Devolve-se o uso: um
+       convite queimado por um erro da base obrigava a gerar outro, e quem
+       está à espera é o dono do café com o telemóvel na mão. */
+    await devolverConvite(env, convite);
+    throw erro;
+  }
 
   return {
     negocio: { id: negocioId, slug, nome },

@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS negocios (
   telefone     TEXT,
   sitio        TEXT,
   estado       TEXT NOT NULL DEFAULT 'ativo',   -- ativo | suspenso
-  criado_em    TEXT NOT NULL
+  criado_em    TEXT NOT NULL,
+  convite      TEXT                                -- de que convite nasceu
 );
 
 -- --- programas ----------------------------------------------------------
@@ -202,3 +203,26 @@ CREATE TABLE IF NOT EXISTS codigos_usados (
   usado_em  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_codigos_usados_em ON codigos_usados(usado_em);
+
+-- =========================================================================
+-- Convites
+--
+-- Quem pode abrir um balcão novo. Era um segredo do Worker igual para toda a
+-- gente, com usos infinitos e sem forma de revogar um sem partir os outros —
+-- e que nem o dono do produto conseguia ler de volta, porque o Cloudflare não
+-- devolve segredos.
+--
+-- O código em claro nunca entra aqui: guarda-se o resumo SHA-256, como nas
+-- sessões. Uma cópia desta base não dá um convite a ninguém.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS convites (
+  resumo       TEXT PRIMARY KEY,
+  etiqueta     TEXT,                              -- para quem é, em português
+  email        TEXT,                              -- NULL = qualquer morada o pode gastar
+  usos_max     INTEGER NOT NULL DEFAULT 1,
+  usos         INTEGER NOT NULL DEFAULT 0,
+  criado_em    TEXT NOT NULL,
+  expira_em    TEXT,                              -- NULL = não expira
+  revogado_em  TEXT,
+  usado_em     TEXT
+);

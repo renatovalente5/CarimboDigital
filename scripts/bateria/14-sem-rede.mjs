@@ -424,7 +424,7 @@ export async function correr(palco, certo) {
     'remoto, balcão: o ecrã de entrada é estático e abre sem servidor');
 
   const portas = await palco.textos('#entrada-acoes .btn');
-  certo(portas.includes('Entrar') && portas.includes('Tenho um convite'),
+  certo(portas.includes('Já criei — quero entrar') && portas.includes('Deram-me um código'),
     'remoto, balcão: as duas portas de entrada estão lá', portas.join(' | '));
 
   await palco.semRede(true);

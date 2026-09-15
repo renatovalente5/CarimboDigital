@@ -23,13 +23,17 @@ const WORKER = join(RAIZ, 'worker');
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Garante que há segredos locais. Nunca vão para o repositório. */
-export function garantirSegredos({ fundador = 'TESTE1' } = {}) {
+export function garantirSegredos() {
   const ficheiro = join(WORKER, '.dev.vars');
   if (existsSync(ficheiro)) return;
+  /* O `CODIGO_FUNDADOR` saiu daqui: quem pode fundar deixou de ser um segredo
+     do Worker e passou a ser uma linha da tabela `convites`. Os convites de
+     teste vêm do `semear.sql`, e a bateria repõe-nos ela própria — um convite
+     de um uso é gasto pela primeira corrida e o `INSERT OR IGNORE` do semear
+     não o repunha. */
   writeFileSync(ficheiro, [
     `CHAVE_MESTRA=${randomBytes(32).toString('base64url')}`,
     'ORIGENS=',
-    `CODIGO_FUNDADOR=${fundador}`,
     '',
   ].join('\n'));
 }

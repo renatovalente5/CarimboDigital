@@ -130,16 +130,37 @@ npx wrangler d1 create carimbodigital --location=weur
 # copia o database_id para o wrangler.toml
 npx wrangler d1 execute carimbodigital --remote --file=esquema.sql
 npx wrangler secret put CHAVE_MESTRA      # 32 bytes em base64url
-npx wrangler secret put CODIGO_FUNDADOR   # o convite para criar negócios
 npx wrangler secret put MAIL_TOKEN        # o correio, ver «Emails»
 npx wrangler deploy --config ./wrangler.toml
 ```
 
 ### Criar um negócio
 
-Enquanto o serviço estiver por convite, um negócio nasce em
-**Balcão › Tenho um convite**, com o código que está no segredo
-`CODIGO_FUNDADOR` do Worker. Depois disso, quem manda entra pelo email.
+Um negócio nasce em **Balcão › Deram-me um código**, com um convite. Os
+convites geram-se da linha de comandos:
+
+```bash
+node scripts/convite.mjs criar --para "Barbearia Tó"
+node scripts/convite.mjs criar --para "Feira do Livro" --lote 5 --dias 30
+node scripts/convite.mjs listar
+node scripts/convite.mjs revogar 3f9a1c22
+```
+
+Cada convite é uma linha da tabela `convites`, com usos, validade e revogação
+próprios, e **só o resumo SHA-256 do código lá vive** — uma cópia da base não
+dá um convite a ninguém. Em troca, um código perdido não se recupera: revoga-se
+pela ref e gera-se outro.
+
+O comando imprime também uma ligação `…/balcao/#c=CÓDIGO`, que abre o
+formulário com o campo já preenchido. Vai no **fragmento** e não na query
+string de propósito: o que está depois do `#` não entra no cabeçalho `Referer`
+nem nos registos de servidor nenhum, e o balcão limpa-o da barra de endereço
+mal o lê.
+
+> **Isto era um segredo do Worker, o `CODIGO_FUNDADOR`** — um código igual para
+> toda a gente, com usos infinitos, sem validade, sem registo de quem o usou, e
+> impossível de anular sem partir todos os outros. Pior: o Cloudflare não
+> devolve segredos, por isso nem quem o pôs o conseguia ler de volta.
 
 O problema do primeiro operador é real e não tem volta a dar: para entrar é
 preciso sessão, para ter sessão é preciso um código por email, e para receber

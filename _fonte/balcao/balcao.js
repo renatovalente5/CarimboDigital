@@ -889,20 +889,38 @@ function desenharEntrada() {
     return;
   }
 
+  /* DUAS PORTAS COM O MESMO PESO, e uma pergunta a desempatar.
+
+     Antes havia um `btn-cheio` e um `btn-contorno`, e o olho não escolhe entre
+     duas portas: vai à porta iluminada. A iluminada era «Entrar», que só serve
+     a quem JÁ tem balcão — ou seja, à minoria. Quem chega pela primeira vez ia
+     lá parar, escrevia o email, e ficava à espera de um código que não podia
+     chegar. Aconteceu ao próprio dono do produto.
+
+     A pergunta não usa a palavra «balcão»: é a única palavra deste ecrã que
+     quem chega pela primeira vez não conhece, e era justamente a que teria de
+     desempatar. E a segunda porta diz «código», que é a palavra que se diz em
+     voz alta dentro do café, e não «convite», que é vocabulário nosso. */
   acoes.append(
+    el('p', { class: 'entrada-pergunta', texto: 'Já criou aqui o cartão do seu negócio?' }),
     el('button', {
-      class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Entrar',
+      id: 'porta-entrar',
+      class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Já criei — quero entrar',
       aoClick: entrarPorEmail,
     }),
     el('button', {
-      class: 'btn btn-contorno btn-bloco', texto: 'Tenho um convite',
+      id: 'porta-convite',
+      class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Deram-me um código',
       aoClick: fundarNegocio,
     }),
     /* A porta para quem só quer ver. Um dono de café não vai pedir um convite
        antes de saber o que isto faz — e a demonstração corre no espaço de
-       chaves dela, por isso não estraga nada. */
+       chaves dela, por isso não estraga nada. Sobe de fantasma a contorno: um
+       botão fantasma, num ecrã em poupança de bateria e com os óculos no
+       bolso, não existe. */
     el('button', {
-      class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Só quero ver como funciona',
+      id: 'porta-espreitar',
+      class: 'btn btn-contorno btn-bloco', texto: 'Só quero ver como funciona',
       aoClick: () => { location.href = '?demo=1'; },
     }),
     el('p', { class: 'entrada-nota', texto:
@@ -994,9 +1012,11 @@ function pedirCodigoBalcao(email) {
       },
     }),
     /* A saída. Sem isto, quem cá chegou por engano tem de adivinhar que o
-       caminho é fechar o painel e carregar noutro botão. */
+       caminho é fechar o painel e carregar noutro botão. Sobe de fantasma a
+       contorno pela mesma razão das portas da entrada: um botão fantasma, em
+       terceira linha, num ecrã de poupança de bateria, não existe. */
     el('button', {
-      class: 'btn btn-fantasma btn-bloco btn-pequeno',
+      class: 'btn btn-contorno btn-bloco',
       texto: 'Este email ainda não tem balcão',
       aoClick: fundarNegocio,
     }));
@@ -1005,7 +1025,7 @@ function pedirCodigoBalcao(email) {
   setTimeout(() => campo.focus(), 120);
 }
 
-function fundarNegocio() {
+function fundarNegocio(codigoDaLigacao) {
   const painel = abrirPainel('Criar o meu cartão');
   painel.append(
     el('p', { class: 'subtexto', texto: 'Enquanto o Carimbo Digital estiver por '
@@ -1013,7 +1033,9 @@ function fundarNegocio() {
     el('label', { class: 'campo' },
       el('span', { texto: 'Código de convite' }),
       el('input', { id: 'f-convite', type: 'text', autocomplete: 'off',
-                    spellcheck: 'false', placeholder: 'o código que te deram' })),
+                    autocapitalize: 'characters', spellcheck: 'false',
+                    inputmode: 'text', maxlength: '20',
+                    placeholder: 'o código que te deram' })),
     el('label', { class: 'campo' },
       el('span', { texto: 'Nome do negócio' }),
       el('input', { id: 'f-negocio', maxlength: '60', placeholder: 'Café Torrado' })),
@@ -1072,7 +1094,27 @@ function fundarNegocio() {
     }),
     el('p', { class: 'miudo', style: 'margin-top:12px', texto:
       'Podes mudar tudo isto depois, no separador «O cartão».' }));
-  setTimeout(() => $('#f-convite')?.focus(), 120);
+  /* O campo do código trata-se como o do número do cartão na app: maiúsculas
+     à medida que se escreve, e fora tudo o que não é do alfabeto. Sem isto
+     ele escreve `k3wm-7rpd` em minúsculas, vê no ecrã uma coisa diferente do
+     papel que tem na mão, apaga tudo e recomeça. O servidor normaliza na
+     mesma — mas o ecrã tem de concordar com o papel. O hífen entra sozinho
+     ao quarto caracter, que é como o código é escrito e lido em voz alta. */
+  const campoConvite = $('#f-convite');
+  campoConvite.addEventListener('input', () => {
+    const limpo = campoConvite.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    campoConvite.value = limpo.replace(/(.{4})(?=.)/g, '$1-');
+  });
+
+  /* Chegou pela ligação: põe-se lá e passa-se o foco ao campo seguinte, que é
+     o primeiro que a pessoa tem mesmo de preencher. */
+  if (codigoDaLigacao) {
+    campoConvite.value = String(codigoDaLigacao).toUpperCase()
+      .replace(/[^A-Z0-9]/g, '').replace(/(.{4})(?=.)/g, '$1-');
+    setTimeout(() => $('#f-negocio')?.focus(), 120);
+    return;
+  }
+  setTimeout(() => campoConvite.focus(), 120);
 }
 
 async function arrancar() {
@@ -1105,6 +1147,25 @@ async function arrancar() {
   }
   $('#entrada').hidden = false;
   desenharEntrada();
+
+  /* O CONVITE QUE VEM NA LIGAÇÃO.
+     `https://carimbodigital.pt/balcao/#c=K3WM7RPD` abre o formulário de criar
+     com o código já lá dentro. Quem o recebeu por mensagem não tem de o
+     copiar à mão, nem de descobrir qual dos botões é o dele.
+
+     Vai no FRAGMENTO e não na query string, e isso não é gosto: o que está
+     depois do `#` nunca sai do browser — não entra no cabeçalho `Referer`
+     quando a página pede um tipo de letra, não aparece nos registos de
+     nenhum servidor, e não fica no histórico de quem carrega noutra
+     ligação. Uma query string ia em todos esses sítios.
+
+     E limpa-se logo com `replaceState`: uma captura de ecrã do balcão aberto
+     não pode levar o código junto na barra de endereço. */
+  const c = location.hash.match(/^#c=([A-Za-z0-9-]{4,40})$/);
+  if (c) {
+    history.replaceState(null, '', location.pathname + location.search);
+    fundarNegocio(c[1]);
+  }
 }
 
 async function registarServiceWorker() {
