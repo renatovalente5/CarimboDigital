@@ -57,8 +57,8 @@ DOMINIO = "carimbodigital.pt"
 #                     segredo, e põe-se com:
 #                       npx wrangler secret put GOOGLE_CHAVE
 #                     Cola o PEM inteiro, com as linhas BEGIN e END.
-# GOOGLE_EMISSOR = ""
-# GOOGLE_EMAIL = ""
+GOOGLE_EMAIL = "carimbo-wallet@project-8cb31867-5da0-4e4e-9c3.iam.gserviceaccount.com"
+GOOGLE_EMISSOR = "3388000000023200429"
 
 [[d1_databases]]
 binding = "DB"

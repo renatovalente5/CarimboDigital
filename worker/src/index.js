@@ -1387,11 +1387,28 @@ async function googlePedir(env, caminho, { metodo = 'GET', corpo } = {}) {
   return r.json();
 }
 
+/**
+ * SÃO DOIS DOMÍNIOS, e confundi-los custou um 400 da Google.
+ *
+ * O `DOMINIO` é onde vive o SITE — `carimbodigital.pt`, servido pelo GitHub
+ * Pages. É esse que vai no `origins` do endereço de gravação, porque é de lá
+ * que a pessoa carrega no botão.
+ *
+ * Mas o logótipo é servido pelo WORKER, que atende noutro endereço. Pôr o
+ * domínio do site no `programLogo` dava «Image cannot be loaded. Invalid
+ * image URL» — a Google ia buscar a imagem ao GitHub Pages, que não tem
+ * rota `/v1/` nenhuma.
+ *
+ * Tira-se do próprio pedido em vez de se pôr numa variável: assim está sempre
+ * certo, atenda o Worker onde atender, e não há um segundo sítio para
+ * desactualizar no dia em que a API mudar de casa.
+ */
+const origemDaAPI = (pedido) => new URL(pedido.url).origin;
+
 /** Garante que a classe do programa existe lá fora. Uma vez por programa. */
-async function garantirClasse(env, programa, negocio) {
+async function garantirClasse(env, programa, negocio, origemAPI) {
   if (programa.wallet_classe) return;
-  const logotipo = `https://${env.DOMINIO || 'carimbodigital.pt'}`
-    + `/v1/negocio/${negocio.slug}/logotipo`;
+  const logotipo = `${origemAPI}/v1/negocio/${negocio.slug}/logotipo`;
   const classe = classeDePrograma(programa, negocio, {
     emissor: env.GOOGLE_EMISSOR, logotipo,
   });
@@ -1426,7 +1443,7 @@ rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/wallet$/, async (env, pedido, [
       { estado: 409, codigo: 'sem-logotipo' });
   }
 
-  await garantirClasse(env, programa, negocio);
+  await garantirClasse(env, programa, negocio, origemDaAPI(pedido));
 
   /* O código do passe nasce uma vez e fica. É ele que vai no código de barras
      e é por ele que o balcão reconhece o passe — se mudasse, os passes já

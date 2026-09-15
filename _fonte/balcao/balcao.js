@@ -584,11 +584,16 @@ function reduzirLogotipo(ficheiro) {
         tela.width = LOGOTIPO_LADO;
         tela.height = LOGOTIPO_LADO;
         const ctx = tela.getContext('2d');
-        /* Fundo branco: um PNG com transparência que vá parar a um cartão
-           escuro some-se, e não se sabe de antemão onde é que ele vai ser
-           desenhado. */
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
+        /* A TRANSPARÊNCIA FICA. Eu tinha posto fundo branco aqui, com o
+           argumento de que um PNG transparente sobre um cartão escuro se
+           some. Está ao contrário: o primeiro logótipo a sério que apanhei —
+           o da barbearia — é BRANCO sobre transparente, feito para fundos
+           escuros, e um fundo branco fá-lo-ia desaparecer por completo.
+
+           Quem decide o que está por trás é a superfície: na Wallet o
+           logótipo assenta na cor do negócio (`hexBackgroundColor`), e no
+           cartão da app também. Achatar contra branco aqui tirava essa
+           escolha a toda a gente, para sempre, por causa de um palpite. */
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, x, y, lado, lado, 0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
         resolve(tela.toDataURL('image/png'));
