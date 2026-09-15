@@ -62,7 +62,14 @@ let chaveEmCache = null;
 
 export async function chavePrivada(pem) {
   if (chaveEmCache && chaveEmCache.pem === pem) return chaveEmCache.chave;
+  /* O `\n` LITERAL tem de sair antes dos brancos, e é a diferença entre isto
+     funcionar e não funcionar. A chave vem do JSON da conta de serviço, onde
+     as mudanças de linha estão escritas como os dois caracteres `\` e `n`; e
+     num ficheiro de variáveis de ambiente não há mudanças de linha de todo,
+     por isso também lá vai assim. Um `replace(/\s+/)` não os apanha — não são
+     brancos, são texto — e o que sobrava não era base64 nenhum. */
   const corpo = String(pem || '')
+    .replace(/\\n/g, '')
     .replace(/-----BEGIN [A-Z ]+-----/, '')
     .replace(/-----END [A-Z ]+-----/, '')
     .replace(/\s+/g, '');

@@ -41,6 +41,25 @@ EMAIL_NOME = "Carimbo Digital"
 # se possa ler.
 MAIL_CAIXA = "AC253ee5cda0314af28894c3718af1"
 
+# O domínio, para os endereços que o Worker escreve dentro do passe da Wallet
+# (o logótipo) e para o `origins` do endereço de gravação.
+DOMINIO = "carimbodigital.pt"
+
+# A WALLET DO TELEMÓVEL. Enquanto estes três não existirem, as rotas do passe
+# respondem 404 e o botão não aparece na app — é o que permite ter isto
+# publicado e provado antes de haver conta na Google.
+#
+#   GOOGLE_EMISSOR  — o Issuer ID da Google Pay & Wallet Console. Não é
+#                     segredo: é um número de conta. Põe-se aqui quando houver.
+#   GOOGLE_EMAIL    — o `client_email` da conta de serviço. Também não é
+#                     segredo.
+#   GOOGLE_CHAVE    — a `private_key` do JSON da conta de serviço. ESSA é
+#                     segredo, e põe-se com:
+#                       npx wrangler secret put GOOGLE_CHAVE
+#                     Cola o PEM inteiro, com as linhas BEGIN e END.
+# GOOGLE_EMISSOR = ""
+# GOOGLE_EMAIL = ""
+
 [[d1_databases]]
 binding = "DB"
 database_name = "carimbodigital"

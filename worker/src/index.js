@@ -24,6 +24,9 @@
    ========================================================================= */
 
 import { emailCodigoCliente, emailCodigoBalcao, emailContaAApagar } from './emails.js';
+import {
+  assinarRS256, classeDePrograma, objetoDeCartao, ligacaoDeGravacao, actualizacaoDeSaldo,
+} from './wallet.js';
 
 const JANELA = 15;                 // segundos de vida de um código
 const TOLERANCIA = 2;              // janelas de folga para relógios desencontrados
@@ -313,6 +316,11 @@ async function carimbar(env, pedido, operador) {
   let quantidade = Math.max(1, Math.min(500, Math.round(Number(corpo.quantidade)) || 1));
   let manual = Boolean(corpo.manual);
 
+  /* Sem isto, um pedido sem `programaId` chegava ao D1 com um valor por
+     ligar, e o D1 atira — o que saía era um 500 «Erro interno» em vez de
+     dizer o que falta. Quem está do outro lado é um balcão a tentar
+     perceber porque é que não carimba. */
+  exigirTexto(programaId, 'programaId');
   const p = await programaCompleto(env, programaId);
   if (!p) throw new Falha('Programa não encontrado', { estado: 404 });
   if (p.negocio_id !== operador.negocio_id) {
@@ -937,6 +945,33 @@ rota('GET', '/v1/cliente/dados', async (env, pedido) => {
  */
 async function apagarCliente(env, clienteId) {
   const cartoes = (await env.DB.prepare('SELECT id FROM cartoes WHERE cliente_id = ?').bind(clienteId).all()).results;
+
+  /* OS PASSES MORREM ANTES DOS CARTÕES, e a ordem não é indiferente: depois de
+     a linha desaparecer já não há por onde saber que o passe existia, e ele
+     ficava na carteira da pessoa para sempre, com um saldo velho, sem nada
+     que o tirasse de lá. Isso não é um pormenor — é o direito ao apagamento.
+
+     Falhar aqui não impede o apagamento. Entre deixar um cartão na base de
+     dados de quem pediu para desaparecer e deixar um rectângulo morto numa
+     carteira, a escolha é fácil. */
+  if (walletLigada(env)) {
+    /* Só os que TÊM passe. A primeira versão percorria todos os cartões e
+       chamava a Google para cada um — incluindo os de quem nunca tocou na
+       Wallet. Gastava subpedidos e um testemunho de acesso por cada conta
+       apagada, para não fazer nada. */
+    const comPasse = (await env.DB.prepare(
+      'SELECT id FROM cartoes WHERE cliente_id = ? AND wallet_em IS NOT NULL'
+    ).bind(clienteId).all()).results;
+    for (const c of comPasse) {
+      try {
+        await googlePedir(env, `/loyaltyObject/${env.GOOGLE_EMISSOR}.${c.id}`, {
+          metodo: 'PATCH', corpo: { state: 'EXPIRED' },
+        });
+      } catch (erro) {
+        console.error('wallet: não deu para expirar o passe', c.id, String(erro));
+      }
+    }
+  }
   const instrucoes = [];
   for (const c of cartoes) {
     instrucoes.push(env.DB.prepare('DELETE FROM movimentos WHERE cartao_id = ?').bind(c.id));
@@ -1271,6 +1306,175 @@ function camposDoPrograma(d, antigo = null) {
 }
 
 /* =========================================================================
+   A Wallet do telemóvel
+
+   Aqui vive o que FALA com a Google. O que constrói e assina vive em
+   `wallet.js`, que não conhece rede nenhuma — é essa separação que deixa a
+   parte difícil ser provada sem conta, sem chave e sem Internet.
+
+   A REGRA QUE MANDA EM TUDO ISTO: a Google é um ESPELHO, nunca a fonte da
+   verdade. O carimbo grava-se no D1 aconteça o que acontecer; o passe é
+   actualizado a seguir, fora do caminho da resposta, e se falhar fica para o
+   reconciliador da madrugada. Um balcão com uma fila à frente não pode ficar
+   à espera de um servidor em Mountain View, e um cliente não pode deixar de
+   levar o carimbo porque a Google teve um mau dia.
+
+   TUDO ISTO DORME ENQUANTO NÃO HOUVER CHAVES. Sem `GOOGLE_EMISSOR` e
+   `GOOGLE_CHAVE`, as rotas respondem 404 e o botão não aparece na app. É o
+   que permite ter isto publicado e em CI verde antes de existir uma conta.
+   ========================================================================= */
+
+const walletLigada = (env) => Boolean(env.GOOGLE_EMISSOR && env.GOOGLE_CHAVE && env.GOOGLE_EMAIL);
+
+/* O endereço da API. Uma variável e não uma constante para os testes poderem
+   apontá-lo a um servidor de mentira — é o que torna todo este caminho
+   provável sem tocar na Google a sério. */
+const googleBase = (env) => env.GOOGLE_API_BASE || 'https://walletobjects.googleapis.com';
+const googleOAuth = (env) => env.GOOGLE_OAUTH_BASE || 'https://oauth2.googleapis.com';
+
+/**
+ * O testemunho de acesso, em cache.
+ *
+ * Não é optimização: o plano gratuito dá 50 SUBPEDIDOS por invocação, e sem
+ * cache cada carimbo gastava dois — um para ir buscar o testemunho e outro
+ * para o trabalho. Guarda-se em variável de módulo com a hora a que morre, e
+ * reutiliza-se enquanto faltarem mais de cinco minutos.
+ */
+let tokenEmCache = null;
+
+async function tokenGoogle(env) {
+  const agoraS = Math.floor(Date.now() / 1000);
+  if (tokenEmCache && tokenEmCache.expira - 300 > agoraS) return tokenEmCache.token;
+
+  const jwt = await assinarRS256(env.GOOGLE_CHAVE, {
+    iss: env.GOOGLE_EMAIL,
+    scope: 'https://www.googleapis.com/auth/wallet_object.issuer',
+    aud: `${googleOAuth(env)}/token`,
+    iat: agoraS,
+    exp: agoraS + 3600,
+  });
+  const r = await fetch(`${googleOAuth(env)}/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  });
+  if (!r.ok) throw new Error(`a Google recusou a chave (${r.status})`);
+  const d = await r.json();
+  tokenEmCache = { token: d.access_token, expira: agoraS + (Number(d.expires_in) || 3600) };
+  return tokenEmCache.token;
+}
+
+async function googlePedir(env, caminho, { metodo = 'GET', corpo } = {}) {
+  const token = await tokenGoogle(env);
+  const r = await fetch(`${googleBase(env)}/walletobjects/v1${caminho}`, {
+    method: metodo,
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(corpo ? { 'content-type': 'application/json' } : {}),
+    },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  /* 409 é «já existe», e para uma classe isso é sucesso e não erro: duas
+     pessoas a pedir o passe do mesmo café ao mesmo tempo criam-na as duas. */
+  if (r.status === 409) return { jaExistia: true };
+  if (!r.ok) {
+    const texto = await r.text();
+    throw new Error(`Google ${metodo} ${caminho}: ${r.status} ${texto.slice(0, 200)}`);
+  }
+  return r.json();
+}
+
+/** Garante que a classe do programa existe lá fora. Uma vez por programa. */
+async function garantirClasse(env, programa, negocio) {
+  if (programa.wallet_classe) return;
+  const logotipo = `https://${env.DOMINIO || 'carimbodigital.pt'}`
+    + `/v1/negocio/${negocio.slug}/logotipo`;
+  const classe = classeDePrograma(programa, negocio, {
+    emissor: env.GOOGLE_EMISSOR, logotipo,
+  });
+  await googlePedir(env, '/loyaltyClass', { metodo: 'POST', corpo: classe });
+  await env.DB.prepare('UPDATE programas SET wallet_classe = ? WHERE id = ?')
+    .bind(agora(), programa.id).run();
+}
+
+/**
+ * O passe de um cartão: cria-o lá fora e devolve o endereço que o guarda.
+ *
+ * O objecto é criado por REST ANTES de se assinar o endereço, e não vai dentro
+ * dele. É isso que mantém o endereço nos setecentos caracteres em vez de
+ * passar do tecto dos mil e oitocentos — e acima desse tecto o browser
+ * corta-o, e a gravação não acontece sem dar erro nenhum.
+ */
+rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/wallet$/, async (env, pedido, [cartaoId]) => {
+  if (!walletLigada(env)) throw new Falha('Não existe', { estado: 404 });
+  const clienteId = await exigirCliente(env, pedido);
+
+  const cartao = await env.DB.prepare(
+    'SELECT * FROM cartoes WHERE id = ? AND cliente_id = ?'
+  ).bind(cartaoId, clienteId).first();
+  if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404 });
+
+  const programa = await env.DB.prepare('SELECT * FROM programas WHERE id = ?')
+    .bind(cartao.programa_id).first();
+  const negocio = await env.DB.prepare('SELECT * FROM negocios WHERE id = ?')
+    .bind(cartao.negocio_id).first();
+  if (!negocio || !negocio.logotipo) {
+    throw new Falha('Este negócio ainda não tem logótipo, e a Wallet exige um.',
+      { estado: 409, codigo: 'sem-logotipo' });
+  }
+
+  await garantirClasse(env, programa, negocio);
+
+  /* O código do passe nasce uma vez e fica. É ele que vai no código de barras
+     e é por ele que o balcão reconhece o passe — se mudasse, os passes já
+     guardados deixavam de servir. */
+  const codigo = cartao.wallet_codigo || publicoNovo(16);
+  const objeto = objetoDeCartao(cartao, programa, { emissor: env.GOOGLE_EMISSOR, codigo });
+  await googlePedir(env, '/loyaltyObject', { metodo: 'POST', corpo: objeto });
+
+  await env.DB.prepare(
+    'UPDATE cartoes SET wallet_codigo = ?, wallet_em = ?, wallet_sincronizado = ? WHERE id = ?'
+  ).bind(codigo, cartao.wallet_em || agora(), agora(), cartao.id).run();
+
+  const { ligacao } = await ligacaoDeGravacao(env.GOOGLE_CHAVE, {
+    emissorEmail: env.GOOGLE_EMAIL,
+    objeto,
+    origem: `https://${env.DOMINIO || 'carimbodigital.pt'}`,
+  });
+  return { ligacao };
+});
+
+/**
+ * Manda o saldo novo para a Google, sem fazer ninguém esperar.
+ *
+ * Chamado com `ctx.waitUntil()` a partir de carimbar, resgatar e anular. O
+ * erro é engolido de propósito e registado: o carimbo já está gravado no D1, e
+ * o que falhar aqui é apanhado pelo reconciliador da madrugada. Fazer o
+ * carimbo falhar porque a Google não respondeu seria deixar o cliente sem o
+ * seu café por causa de uma coisa que ele nem sabe que existe.
+ */
+async function espelharNaWallet(env, cartaoId, { notificar = false } = {}) {
+  if (!walletLigada(env)) return;
+  try {
+    const cartao = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartaoId).first();
+    if (!cartao || !cartao.wallet_em || !cartao.wallet_codigo) return;
+    const programa = await env.DB.prepare('SELECT * FROM programas WHERE id = ?')
+      .bind(cartao.programa_id).first();
+    await googlePedir(env, `/loyaltyObject/${env.GOOGLE_EMISSOR}.${cartao.id}`, {
+      metodo: 'PATCH',
+      corpo: actualizacaoDeSaldo(cartao, programa, { notificar }),
+    });
+    await env.DB.prepare('UPDATE cartoes SET wallet_sincronizado = ? WHERE id = ?')
+      .bind(agora(), cartao.id).run();
+  } catch (erro) {
+    console.error('wallet: não deu para actualizar', cartaoId, String(erro));
+  }
+}
+
+/* =========================================================================
    O logótipo do negócio
 
    A coluna existia desde o primeiro dia e nunca ninguém lhe tocou. Passou a
@@ -1392,12 +1596,23 @@ rota('POST', '/v1/balcao/programas', async (env, pedido) => {
   return programas.map(moldarPrograma);
 });
 
-rota('POST', '/v1/balcao/carimbar', async (env, pedido) => {
+rota('POST', '/v1/balcao/carimbar', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
-  return carimbar(env, pedido, op);
+  const r = await carimbar(env, pedido, op);
+  /* O espelho na Wallet vai depois da resposta, com `waitUntil`. O carimbo já
+     está gravado; o que acontecer à Google não pode fazer o balcão esperar
+     nem falhar.
+
+     E a notificação só sai no carimbo que FECHA o cartão. O tecto é de três
+     por passe em 24 horas: gastá-lo nos carimbos do meio deixava em silêncio
+     o único que a pessoa quer sentir no bolso. */
+  if (r && r.cartao && ctx) {
+    ctx.waitUntil(espelharNaWallet(env, r.cartao.id, { notificar: Boolean(r.premio) }));
+  }
+  return r;
 });
 
-rota('POST', '/v1/balcao/resgatar', async (env, pedido) => {
+rota('POST', '/v1/balcao/resgatar', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
   const { premioId } = await corpoJSON(pedido);
   exigirTexto(premioId, 'premioId');
@@ -1424,10 +1639,13 @@ rota('POST', '/v1/balcao/resgatar', async (env, pedido) => {
     'INSERT INTO movimentos (id, cartao_id, tipo, nota, operador, em) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(id(), premio.cartao_id, 'resgate', premio.descricao, op.nome, agora()).run();
   const c = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(premio.cartao_id).first();
+  /* Sem notificar: o cliente está ali à frente a receber o prémio, não
+     precisa de um toque no bolso a dizer-lho. */
+  if (ctx) ctx.waitUntil(espelharNaWallet(env, premio.cartao_id));
   return { premio: { id: premioId, resgatadoEm: agora() }, cartao: await moldarCartao(env, c) };
 });
 
-rota('POST', '/v1/balcao/anular', async (env, pedido) => {
+rota('POST', '/v1/balcao/anular', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
   const { movimentoId } = await corpoJSON(pedido);
   exigirTexto(movimentoId, 'movimentoId');
@@ -1511,6 +1729,10 @@ rota('POST', '/v1/balcao/anular', async (env, pedido) => {
   );
   await env.DB.batch(instrucoes);
   const atualizado = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartao.id).first();
+  /* Anular também muda o saldo, e o passe tem de o acompanhar — senão a
+     carteira fica a dizer um número que já não é verdade, e é a carteira que
+     a pessoa vê. */
+  if (ctx) ctx.waitUntil(espelharNaWallet(env, atualizado.id));
   return { cartao: await moldarCartao(env, atualizado) };
 });
 
@@ -1595,7 +1817,12 @@ rota('GET', '/v1/saude', async (env) => {
    ========================================================================= */
 
 export default {
-  async fetch(pedido, env) {
+  /* O `ctx` é o terceiro parâmetro e faltava. É dele que depende a promessa de
+     que uma falha da Google nunca faz falhar um carimbo: o `ctx.waitUntil()`
+     deixa o Worker responder já e continuar o trabalho depois. Sem ele, ou se
+     esperava pela Google — e o balcão ficava à espera com uma fila à frente —
+     ou se atirava o pedido ao ar sem garantia de que chegava a sair. */
+  async fetch(pedido, env, ctx) {
     if (pedido.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cabecalhosCORS(pedido, env) });
     }
@@ -1611,11 +1838,11 @@ export default {
         let resposta;
         if (typeof r.padrao === 'string') {
           if (r.padrao !== caminho) continue;
-          resposta = await r.mao(env, pedido, []);
+          resposta = await r.mao(env, pedido, [], ctx);
         } else {
           const m = caminho.match(r.padrao);
           if (!m) continue;
-          resposta = await r.mao(env, pedido, m.slice(1));
+          resposta = await r.mao(env, pedido, m.slice(1), ctx);
         }
         /* Quase tudo aqui devolve dados e sai como JSON. Mas o logótipo sai
            como imagem, com o seu tipo e a sua cache — e uma rota que já
@@ -1653,8 +1880,39 @@ export default {
         .bind(new Date(Date.now() - 86400000).toISOString()),
     ]);
     await limparContasParadas(env);
+    await reconciliarWallet(env);
   },
 };
+
+/* =========================================================================
+   O reconciliador da Wallet
+
+   O que falhou durante o dia acerta-se de madrugada. É esta função que torna
+   verdadeira a promessa do `espelharNaWallet`: falhar não custa nada, porque
+   de manhã está certo.
+
+   AOS BOCADOS, e não todos de uma vez. O plano gratuito dá 50 SUBPEDIDOS por
+   invocação — e isto corre dentro de uma invocação só. Cinco carimbos por
+   segundo num café não enchem isto nunca; uma noite em que a Google esteve em
+   baixo durante horas, enche. Leva-se um punhado por noite e o resto fica
+   para a seguinte, que é melhor do que rebentar a meio e não gravar nenhum.
+   ========================================================================= */
+
+const RECONCILIAR_MAX = 40;
+
+async function reconciliarWallet(env) {
+  if (!walletLigada(env)) return { feitos: 0 };
+  /* Por sincronizar = nunca foi, ou foi antes do último carimbo. */
+  const atrasados = (await env.DB.prepare(
+    `SELECT id FROM cartoes
+      WHERE wallet_em IS NOT NULL
+        AND (wallet_sincronizado IS NULL
+             OR (ultimo_em IS NOT NULL AND wallet_sincronizado < ultimo_em))
+      LIMIT ?`
+  ).bind(RECONCILIAR_MAX).all()).results;
+  for (const c of atrasados) await espelharNaWallet(env, c.id);
+  return { feitos: atrasados.length };
+}
 
 /* =========================================================================
    Contas paradas

@@ -13,8 +13,8 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, writeFileSync, readdirSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { randomBytes, generateKeyPairSync } from 'node:crypto';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
@@ -22,20 +22,63 @@ const WORKER = join(RAIZ, 'worker');
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* A porta da Google de mentira. Fora da gama do wrangler, para não haver
+   encontrões quando os dois arrancam ao mesmo tempo. */
+const PORTA_GOOGLE = 8799;
+
 /** Garante que há segredos locais. Nunca vão para o repositório. */
 export function garantirSegredos() {
   const ficheiro = join(WORKER, '.dev.vars');
-  if (existsSync(ficheiro)) return;
+  /* ACRESCENTA O QUE FALTAR, em vez de desistir se o ficheiro existe.
+
+     Estava `if (existsSync(ficheiro)) return`, e isso era uma armadilha: numa
+     máquina que já tivesse `.dev.vars` — ou seja, a de quem trabalha neste
+     projecto todos os dias — uma chave NOVA nunca lá chegava. Os testes
+     passavam no CI, que parte de uma máquina limpa, e falhavam em casa. */
+  if (existsSync(ficheiro)) {
+    const actual = readFileSync(ficheiro, 'utf8');
+    const faltam = paresDeDesenvolvimento()
+      .filter(([k]) => !new RegExp(`^${k}=`, 'm').test(actual));
+    if (faltam.length) {
+      writeFileSync(ficheiro, `${actual.trimEnd()}\n${faltam.map(([k, v]) => `${k}=${v}`).join('\n')}\n`);
+    }
+    return;
+  }
   /* O `CODIGO_FUNDADOR` saiu daqui: quem pode fundar deixou de ser um segredo
      do Worker e passou a ser uma linha da tabela `convites`. Os convites de
      teste vêm do `semear.sql`, e a bateria repõe-nos ela própria — um convite
      de um uso é gasto pela primeira corrida e o `INSERT OR IGNORE` do semear
      não o repunha. */
-  writeFileSync(ficheiro, [
-    `CHAVE_MESTRA=${randomBytes(32).toString('base64url')}`,
-    'ORIGENS=',
-    '',
-  ].join('\n'));
+  writeFileSync(ficheiro, `${paresDeDesenvolvimento().map(([k, v]) => `${k}=${v}`).join('\n')}\n`);
+}
+
+/**
+ * O que um `.dev.vars` de desenvolvimento precisa de ter.
+ *
+ * As variáveis da Google apontam para o servidor de mentira
+ * (`scripts/google-de-mentira.mjs`) e a chave é gerada aqui, na hora: é uma
+ * chave RSA a sério, para a assinatura ser a sério, mas não serve para nada
+ * fora desta máquina. Nunca vai para o repositório — o `.dev.vars` está no
+ * `.gitignore`.
+ *
+ * A chave num ficheiro de variáveis não pode ter mudanças de linha, e um PEM
+ * tem-nas. Escreve-se com `\n` literais, como a Google faz no JSON da conta
+ * de serviço — e o `wallet.js` deita fora os brancos todos ao importar, por
+ * isso funciona nos dois formatos.
+ */
+function paresDeDesenvolvimento() {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).trim();
+  return [
+    ['CHAVE_MESTRA', randomBytes(32).toString('base64url')],
+    ['ORIGENS', ''],
+    ['DOMINIO', 'localhost'],
+    ['GOOGLE_EMISSOR', '3388000000012345678'],
+    ['GOOGLE_EMAIL', 'carimbo@de-mentira.iam.gserviceaccount.com'],
+    ['GOOGLE_CHAVE', pem.replace(/\n/g, '\\n')],
+    ['GOOGLE_API_BASE', `http://localhost:${PORTA_GOOGLE}`],
+    ['GOOGLE_OAUTH_BASE', `http://localhost:${PORTA_GOOGLE}`],
+  ];
 }
 
 /**
@@ -86,6 +129,14 @@ export async function comWorker(tarefa, { porta = 8787, tecto = 90000 } = {}) {
      Sem ele, a limpeza diária — que apaga contas — só se provava esperando
      por ela, e uma regra que apaga dados de pessoas é a última que se quer
      deixar por provar. A rota só existe no `wrangler dev`, nunca em produção. */
+  /* A Google de mentira levanta-se ao lado do Worker e morre com ele. Sem
+     ela, todo o caminho do passe ficava por provar: criar a classe, criar o
+     objecto, actualizar o saldo, e — o que mais interessa — o que acontece
+     quando ela responde mal. */
+  const google = spawn(process.execPath, [join(AQUI, 'google-de-mentira.mjs'), String(PORTA_GOOGLE)], {
+    stdio: 'ignore', detached: true, env: { ...process.env, CALADO: 'sim' },
+  });
+
   const processo = spawn('npx', ['--yes', 'wrangler', 'dev', '--local', '--test-scheduled', '--port', String(porta)], {
     cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
   });
@@ -96,6 +147,12 @@ export async function comWorker(tarefa, { porta = 8787, tecto = 90000 } = {}) {
   const matar = () => {
     try { process.kill(-processo.pid, 'SIGKILL'); } catch { /* já morreu */ }
     try { processo.kill('SIGKILL'); } catch { /* idem */ }
+    /* A Google de mentira morre com o Worker. Deixá-la viva prendia a porta
+       8799 e a corrida seguinte arrancava contra um servidor velho, com o que
+       a anterior lá deixou — que é o género de teste que passa hoje e falha
+       amanhã sem ninguém perceber porquê. */
+    try { process.kill(-google.pid, 'SIGKILL'); } catch { /* já morreu */ }
+    try { google.kill('SIGKILL'); } catch { /* idem */ }
   };
   process.once('exit', matar);
   process.once('SIGINT', () => { matar(); process.exit(130); });

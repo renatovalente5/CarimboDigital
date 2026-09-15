@@ -748,6 +748,14 @@ grupo('O logótipo do negócio');
      programa — sem ele não há passe nenhum. E como vai dentro do passe, tem de
      ser servido por um endereço público, não por um data URI. */
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
+
+  /* O ESTADO DE QUE ESTE TESTE DEPENDE É DELE. A base local sobrevive entre
+     corridas: à segunda, o `wallet_classe` já estava preenchido e a classe
+     não voltava a ser criada — e a afirmação «criou a classe» falhava sem
+     haver defeito nenhum. É o mesmo que já tinha mordido nos convites: um
+     teste que só falha a quem já correu antes é a pior espécie deles. */
+  sql(`UPDATE programas SET wallet_classe = NULL WHERE id = 'p1'`);
+  sql(`UPDATE cartoes SET wallet_codigo = NULL, wallet_em = NULL, wallet_sincronizado = NULL`);
   const guardar = (logotipo) => pedir('/v1/balcao/logotipo', {
     metodo: 'PUT', sessao: sessaoBalcao, corpo: { logotipo } });
 
@@ -1316,6 +1324,157 @@ grupo('O cartão na Wallet');
       'e quando notifica usa o valor do documento de descoberta, não o da página velha',
       String(toca.notifyPreference));
   }
+}
+
+/* --------------------------------------------------------------------- */
+
+grupo('A Wallet, de ponta a ponta');
+{
+  /* Isto corre contra uma Google DE MENTIRA (scripts/google-de-mentira.mjs),
+     levantada ao lado do Worker. Sem ela, este caminho todo — pedir o passe,
+     actualizar no carimbo, reconciliar, expirar ao apagar a conta — só se
+     podia provar com conta a sério, o que nunca correria no CI.
+
+     O que se prova aqui é o que o `index.js` FAZ: em que ordem chama, o que
+     envia, o que grava a seguir, e o que faz quando a Google responde mal.
+     Que a assinatura está certa prova-se noutro sítio, contra o node:crypto. */
+  const MENTIRA = 'http://localhost:8799';
+  const visto = async () => (await fetch(`${MENTIRA}/__visto`)).json();
+  const limpar = () => fetch(`${MENTIRA}/__limpar`, { method: 'POST' });
+  const avariar = (n = 1) => fetch(`${MENTIRA}/__avariar?n=${n}`, { method: 'POST' });
+  /* O `ctx.waitUntil` corre DEPOIS da resposta. Sem esperar, lia-se o «visto»
+     antes de o Worker lá ter chegado — e o teste passava a dizer que não
+     houve pedido nenhum. */
+  const assentar = () => dormir(900);
+
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
+
+  /* Um cliente com cartão no negócio da semente. */
+  const reg = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const sessaoC = reg.dados.sessao;
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: sessaoC, corpo: { programaId: 'p1' } });
+  const meus = await pedir('/v1/cliente/cartoes', { sessao: sessaoC });
+  const cartaoId = meus.dados[0].id;
+
+  {
+    /* SEM LOGÓTIPO NÃO HÁ PASSE, e diz-se porquê em vez de deixar a Google
+       recusar mais à frente com uma mensagem que ninguém percebe. */
+    sql(`UPDATE negocios SET logotipo = NULL WHERE id = 'n1'`);
+    const r = await pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`, { metodo: 'POST', sessao: sessaoC });
+    certo(r.estado === 409 && r.dados.codigo === 'sem-logotipo',
+      'sem logótipo o passe é recusado com uma razão', `${r.estado} ${r.dados.codigo}`);
+  }
+
+  sql(`UPDATE negocios SET logotipo = 'image/png;${PNG}', logotipo_em = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 'n1'`);
+  await limpar();
+
+  {
+    const r = await pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`, { metodo: 'POST', sessao: sessaoC });
+    certo(r.estado === 200 && String(r.dados.ligacao || '').startsWith('https://pay.google.com/gp/v/save/'),
+      'o passe devolve um endereço de gravação da Google',
+      String(r.dados.ligacao || JSON.stringify(r.dados)).slice(0, 60));
+    /* Com um `undefined` isto passava: `String(undefined).length` são nove, e
+       nove é menos do que mil e novecentos. A afirmação tem de exigir que o
+       endereço EXISTA antes de medir se é curto. */
+    certo(typeof r.dados.ligacao === 'string' && r.dados.ligacao.length > 200
+       && r.dados.ligacao.length < 1900,
+      'e esse endereço existe e cabe no tecto que o browser aguenta',
+      String(r.dados.ligacao && r.dados.ligacao.length));
+
+    const chamadas = await visto();
+    /* No máximo UM. Zero é legítimo — o testemunho pode já estar em cache de
+       um pedido anterior, e é isso que se quer. Dois é que nunca. */
+    const token = chamadas.filter((c) => c.caminho === '/token');
+    certo(token.length <= 1, 'não foi buscar mais do que um testemunho de acesso',
+      String(token.length));
+    certo(chamadas.some((c) => c.metodo === 'POST' && c.caminho.endsWith('/loyaltyClass')),
+      'criou a classe do programa');
+    certo(chamadas.some((c) => c.metodo === 'POST' && c.caminho.endsWith('/loyaltyObject')),
+      'e o objecto do cartão');
+
+    const classe = chamadas.find((c) => c.caminho.endsWith('/loyaltyClass')).corpo;
+    certo(String(classe.programLogo.sourceUri.uri).includes('/logotipo'),
+      'a classe leva o endereço PÚBLICO do logótipo, não a imagem',
+      classe.programLogo.sourceUri.uri);
+  }
+
+  {
+    /* O TESTEMUNHO FICA EM CACHE. Sem isso, cada carimbo gastava dois dos 50
+       subpedidos que o plano gratuito dá por invocação. */
+    await limpar();
+    await pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`, { metodo: 'POST', sessao: sessaoC });
+    const chamadas = await visto();
+    certo(chamadas.filter((c) => c.caminho === '/token').length === 0,
+      'à segunda vez não vai buscar outro testemunho — fica em cache',
+      String(chamadas.filter((c) => c.caminho === '/token').length));
+    certo(chamadas.filter((c) => c.caminho.endsWith('/loyaltyClass')).length === 0,
+      'e não volta a criar a classe, que já existe');
+  }
+
+  {
+    /* O CARIMBO ESPELHA-SE, e não notifica: o tecto é de três por dia e
+       gasta-se no que fecha o cartão. */
+    await limpar();
+    sql(`UPDATE programas SET arrefecimento = 0 WHERE id = 'p1'`);
+    const c = await pedir('/v1/balcao/carimbar', {
+      metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { codigo: `M1.${reg.dados.cliente.publico}`, programaId: 'p1', manual: true } });
+    certo(c.estado === 200, 'o carimbo passa', String(c.estado));
+    await assentar();
+    const patch = (await visto()).find((x) => x.metodo === 'PATCH');
+    certo(patch, 'e o saldo foi para a Wallet', JSON.stringify(await visto()).slice(0, 120));
+    certo(patch && patch.corpo.loyaltyPoints.balance.string === '1/10',
+      'com o número certo', patch && JSON.stringify(patch.corpo.loyaltyPoints.balance));
+    certo(patch && patch.corpo.notifyPreference === undefined,
+      'e sem notificar — um carimbo do meio não toca no bolso de ninguém');
+  }
+
+  {
+    /* A GOOGLE EM BAIXO NÃO PODE FAZER FALHAR UM CARIMBO. É a promessa
+       inteira do `waitUntil`: o carimbo grava-se no D1 aconteça o que
+       acontecer, e o que falhar fica para o reconciliador. */
+    await limpar();
+    await avariar(5);
+    const c = await pedir('/v1/balcao/carimbar', {
+      metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { codigo: `M1.${reg.dados.cliente.publico}`, programaId: 'p1', manual: true } });
+    certo(c.estado === 200, 'com a Google avariada, o carimbo passa na mesma', String(c.estado));
+    await assentar();
+    const porSincronizar = (() => {
+      const o = sql(`SELECT wallet_sincronizado, ultimo_em FROM cartoes WHERE id = '${cartaoId}'`);
+      return JSON.parse(o.slice(o.indexOf('[')))[0].results[0];
+    })();
+    certo(porSincronizar.wallet_sincronizado < porSincronizar.ultimo_em,
+      'e o cartão fica marcado como por sincronizar',
+      JSON.stringify(porSincronizar));
+
+    /* E o reconciliador da madrugada acerta-o. */
+    await limpar();
+    await pedir('/__scheduled?cron=17+4+*+*+*');
+    await assentar();
+    certo((await visto()).some((x) => x.metodo === 'PATCH'),
+      'o reconciliador da madrugada volta a tentar');
+    const depois = (() => {
+      const o = sql(`SELECT wallet_sincronizado, ultimo_em FROM cartoes WHERE id = '${cartaoId}'`);
+      return JSON.parse(o.slice(o.indexOf('[')))[0].results[0];
+    })();
+    certo(depois.wallet_sincronizado >= depois.ultimo_em,
+      'e o cartão deixa de estar atrasado', JSON.stringify(depois));
+  }
+
+  {
+    /* APAGAR A CONTA TEM DE MATAR O PASSE, e antes de apagar a linha: depois
+       já não há por onde saber que ele existia, e ficava na carteira da
+       pessoa para sempre com um saldo velho. */
+    await limpar();
+    const r = await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoC });
+    certo(r.estado === 200, 'a conta apaga-se', String(r.estado));
+    const expirou = (await visto()).find((x) => x.metodo === 'PATCH' && x.corpo && x.corpo.state === 'EXPIRED');
+    certo(expirou, 'e o passe é posto a EXPIRED na Google — senão fica na carteira para sempre',
+      JSON.stringify(await visto()).slice(0, 160));
+  }
+
+  sql(`UPDATE programas SET arrefecimento = 3600 WHERE id = 'p1'`);
 }
 
 /* --------------------------------------------------------------------- */
