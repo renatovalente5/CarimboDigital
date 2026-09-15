@@ -118,12 +118,17 @@ function marca() {
 
 function blocoCodigo(codigo) {
   const limpo = String(codigo).replace(/\D/g, '');
-  /* Espaço que não parte: `white-space:nowrap` chega nos motores modernos,
-     mas o do Word ignora-o e partiria o código em duas linhas. Um &#160; no
-     meio resolve nos dois. */
-  const agrupado = limpo.length === 6
-    ? `${limpo.slice(0, 3)}&#160;${limpo.slice(3)}`
-    : limpo;
+  /* OS ALGARISMOS FICAM COLADOS, e isso é por causa do teclado.
+     
+     Havia aqui um `&#160;` a meio, para o código se ler em dois grupos de
+     três — mais fácil de decorar do balcão para o campo. Mas é o iOS e o
+     Android que lêem este email para OFERECEREM o código por cima do teclado,
+     e o que eles procuram é uma sequência de dígitos CONTÍGUA perto de uma
+     palavra como «código». Com o espaço a meio, o que lá está são dois
+     números de três algarismos e não um de seis, e a sugestão não aparece.
+     
+     A legibilidade não se perde: o espaço passa a ser `letter-spacing`, que é
+     desenho e não texto — o detector não o vê, e o olho vê-o na mesma. */
   /* Os algarismos separados por espaço para o leitor de ecrã os dizer um a
      um, em vez de anunciar «trezentos e dezoito mil». */
   const soletrado = limpo.split('').join(' ');
@@ -133,14 +138,14 @@ function blocoCodigo(codigo) {
     + ` style="width:100%;border-collapse:separate;border-spacing:0">`
     + `<tr><td class="codigo-caixa" align="center" bgcolor="${MARCA_FUNDO}"`
     + ` style="padding:26px 16px;background:${MARCA_FUNDO};border-radius:14px">`
-    /* 36 px com 3,6 px de espaçamento: sete caracteres dão cerca de 190 px,
+    /* 36 px com 7 px de espaçamento: seis algarismos dão cerca de 190 px,
        que cabem à larga num ecrã de 320 px. Maior do que isto parece melhor
        no computador e parte no telemóvel — e é no telemóvel que isto vai
        ser lido. */
     + `<div class="codigo" style="font-family:${LETRA_CODIGO};font-size:36px;`
-    + `font-weight:700;letter-spacing:3.6px;color:${TINTA};line-height:1.15;`
+    + `font-weight:700;letter-spacing:7px;color:${TINTA};line-height:1.15;`
     + `white-space:nowrap;mso-line-height-rule:exactly"`
-    + ` aria-label="${soletrado}">${agrupado}</div>`
+    + ` aria-label="${soletrado}">${limpo}</div>`
     + `</td></tr></table></td></tr>`;
 }
 

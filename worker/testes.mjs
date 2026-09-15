@@ -690,7 +690,23 @@ grupo('Emails');
 
   const a = emailCodigoCliente({ codigo: '318204', minutos: 15 });
   certo(a.assunto.includes('318204'), 'o código vai no assunto');
-  certo(a.html.includes('318&#160;204'), 'e no HTML, em dois grupos de três');
+  /* COLADOS, e é o contrário do que aqui estava escrito. Havia um `&#160;` a
+     meio para se ler em dois grupos de três — mas quem lê este email para
+     oferecer o código por cima do teclado é o iOS e o Android, e o que eles
+     procuram é uma sequência de dígitos CONTÍGUA perto de uma palavra como
+     «código». Partido ao meio, o que lá está são dois números de três
+     algarismos, e a sugestão nunca aparece. O espaço passou a ser
+     `letter-spacing`: desenho, que o detector não vê, e o olho vê. */
+  certo(a.html.includes('>318204<'), 'e no HTML os seis algarismos ficam colados');
+  certo(!/318&#160;204|318 204/.test(a.html),
+    'nada os parte ao meio — é isso que mata a sugestão do teclado');
+  certo(/letter-spacing:\s*\dpx/.test(a.html),
+    'e a folga entre eles é espaçamento de letra, não um espaço a sério');
+  /* A palavra tem de estar PERTO do número, nas duas versões: os detectores
+     procuram o código à volta de «código», «code», «verification». */
+  certo(/código[^0-9]{0,60}318204/s.test(a.texto),
+    'na versão em texto, o código está ao pé da palavra «código»');
+  certo(a.assunto.startsWith('318204'), 'e o assunto começa pelo código');
   certo(a.texto.includes('318204'), 'e na versão em texto');
   certo(a.html.includes('aria-label="3 1 8 2 0 4"'),
     'soletrado para quem ouve o email em vez de o ler');
@@ -721,6 +737,57 @@ grupo('Emails');
     certo(m.texto.length > 100 && m.html.length > 1000,
       `${nome}: tem as duas versões, HTML e texto`);
   }
+}
+
+/* --------------------------------------------------------------------- */
+
+grupo('Uma morada, uma conta');
+{
+  /* DUAS CONTAS COM O MESMO EMAIL VERIFICADO é o pior estado em que esta base
+     pode ficar. A recuperação faz `SELECT ... WHERE email = ? AND
+     email_verificado = 1 LIMIT 1`: com duas, o `LIMIT 1` escolhe uma ao calhas
+     e os cartões da outra deixam de ter por onde ser alcançados. Não é roubo —
+     as duas pessoas provaram a mesma caixa — é perda de dados em silêncio.
+
+     O caminho real: alguém põe o email no telemóvel e não chega a escrever o
+     código; noutro aparelho põe o mesmo e conclui; volta ao primeiro e usa o
+     código antigo, que ainda vale quinze minutos. Aqui o estado é montado à
+     mão, porque o limitador de envios não deixa pedir dois códigos seguidos
+     para a mesma morada — e o caminho real demora minutos, não segundos. */
+  const morada = `duplo${Math.random().toString(36).slice(2, 8)}@exemplo.pt`;
+  const conta = (q) => {
+    const o = sql(q);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results[0].n;
+  };
+
+  const a = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const b = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+
+  /* Um código pendente para cada conta, os dois para a mesma morada e os dois
+     dentro do prazo — que é exactamente o que acontece a quem deixou um a
+     meio. */
+  const entrarCom = async (cliente, codigo) => {
+    const r = createHash('sha256').update(`${morada}|${codigo}`).digest('hex');
+    sql(`INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em)
+         VALUES ('${r}', 'cliente:${cliente}', '${morada}',
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now','+15 minutes'))`);
+    return pedir('/v1/cliente/entrar', { metodo: 'POST', corpo: { email: morada, codigo } });
+  };
+
+  const entrouA = await entrarCom(a.dados.cliente.id, '424242');
+  certo(entrouA.estado === 200, 'a primeira conta fica com a morada', String(entrouA.estado));
+
+  const entrouB = await entrarCom(b.dados.cliente.id, '515151');
+  const verificadas = conta(
+    `SELECT COUNT(*) n FROM clientes WHERE email = '${morada}' AND email_verificado = 1`);
+  certo(verificadas === 1,
+    'e a segunda NÃO deixa duas contas com a mesma morada verificada',
+    `ficaram ${verificadas}`);
+  certo(entrouB.estado === 200 && entrouB.dados.cliente
+     && entrouB.dados.cliente.id === a.dados.cliente.id,
+    'quem prova a caixa entra na conta que já é dela, e não numa segunda',
+    entrouB.dados.cliente ? `entrou em ${entrouB.dados.cliente.id}` : JSON.stringify(entrouB.dados));
 }
 
 /* --------------------------------------------------------------------- */

@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS clientes (
   avisada_em        TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_clientes_email ON clientes(email);
+-- Uma morada verificada pertence a UMA conta. Parcial de propósito: uma morada
+-- por verificar pode repetir-se à vontade, que são tentativas e não contas.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_clientes_email_unico
+  ON clientes(email) WHERE email IS NOT NULL AND email_verificado = 1;
 -- A limpeza diária pergunta por contas paradas: sem isto é uma varredura à
 -- tabela toda, e as «linhas lidas» do D1 contam as percorridas, não as devolvidas.
 CREATE INDEX IF NOT EXISTS ix_clientes_visto ON clientes(visto_em);
@@ -137,6 +141,10 @@ CREATE TABLE IF NOT EXISTS operadores (
 );
 CREATE INDEX IF NOT EXISTS ix_operadores_negocio ON operadores(negocio_id);
 CREATE INDEX IF NOT EXISTS ix_operadores_email ON operadores(email);
+-- E um operador activo por morada: entrar no balcão faz-se pelo email, e dois
+-- activos com a mesma morada davam um balcão inalcançável.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_operadores_email_unico
+  ON operadores(email) WHERE email IS NOT NULL AND ativo = 1;
 
 -- --- sessões ------------------------------------------------------------
 -- Guarda-se o resumo do testemunho, nunca o testemunho. Quem leve uma cópia

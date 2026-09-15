@@ -851,19 +851,46 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
   const linha = await consumirEntrada(env, email, codigo);
   const [tipo, valor] = linha.alvo.split(':');
   if (tipo !== 'cliente') throw new Falha('Código inválido', { estado: 400 });
-  const cliente = await env.DB.prepare('SELECT * FROM clientes WHERE id = ?').bind(valor).first();
+  /* QUEM É O DONO DESTA MORADA, AGORA — e não quando o código foi pedido.
+     Entre pedir e escrever passam até quinze minutos, e nesses minutos a
+     morada pode ter ganho dono noutro aparelho. Resolver isto só à emissão
+     deixava ficar DUAS contas com a mesma morada verificada, e a recuperação
+     faz `LIMIT 1`: escolhia uma ao calhas e os cartões da outra deixavam de
+     ter por onde ser alcançados. Não é roubo — as duas pessoas provaram a
+     mesma caixa — é perda de dados em silêncio.
+
+     O caminho real: pôr o email no telemóvel e não escrever o código; pôr o
+     mesmo noutro aparelho e concluir; voltar ao primeiro e usar o código
+     antigo, que ainda vale. Está provado na bateria.
+
+     A regra passa a ser uma só, e vale para os dois casos: quem prova a caixa
+     de correio entra na conta que já é dela; se não houver nenhuma, a conta
+     que pediu fica com ela. */
+  const dono = await env.DB.prepare(
+    'SELECT id FROM clientes WHERE email = ? AND email_verificado = 1 LIMIT 1'
+  ).bind(linha.email).first();
+  const alvoFinal = dono ? dono.id : valor;
+
+  const cliente = await env.DB.prepare('SELECT * FROM clientes WHERE id = ?').bind(alvoFinal).first();
   if (!cliente) throw new Falha('Conta não encontrada', { estado: 404 });
 
   /* É aqui que a morada passa a ser da conta, e não no pedido do código:
-     agora está provado que quem a escreveu a lê. */
-  await env.DB.prepare('UPDATE clientes SET email = ?, email_verificado = 1 WHERE id = ?')
-    .bind(linha.email, valor).run();
+     agora está provado que quem a escreveu a lê. O índice único parcial
+     (`migracoes/003`) é a rede por baixo disto — se duas verificações se
+     cruzarem no mesmo instante, a segunda falha em vez de duplicar. */
+  if (!dono) {
+    await env.DB.prepare('UPDATE clientes SET email = ?, email_verificado = 1 WHERE id = ?')
+      .bind(linha.email, alvoFinal).run();
+  }
 
   return {
     cliente: { id: cliente.id, publico: cliente.publico, email: linha.email, criadoEm: cliente.criado_em },
     segredo: await derivarSegredo(env, cliente.id),
     sessao: await criarSessao(env, `cliente:${cliente.id}`),
     horaDoServidor: agora(),
+    /* Diz-se a verdade: os cartões que vai ver podem não ser os que tinha
+       neste aparelho. A app já sabe avisar. */
+    recuperada: Boolean(dono) && dono.id !== valor,
   };
 });
 
