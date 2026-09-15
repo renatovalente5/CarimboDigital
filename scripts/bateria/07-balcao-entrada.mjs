@@ -267,6 +267,60 @@ export async function correr(palco, certo) {
   await palco.tecla('Escape');
   certo(!(await palco.ver('#painel')), 'a tecla Escape fecha o painel de entrada');
 
+  /* O CONVITE QUE VEM NA LIGAÇÃO. `/balcao/#c=CODIGO` abre o formulário de
+     criar com o campo preenchido — quem recebeu o código por mensagem não tem
+     de o copiar nem de adivinhar qual dos botões é o dele.
+
+     E prova-se nos DOIS caminhos, porque o primeiro que escrevi só funcionava
+     num: o código era lido no fim do arranque, e quem tivesse uma sessão
+     guardada que já não valesse saía por um `return` antes disso e caía na
+     entrada com o código deitado fora em silêncio. Foi encontrado a conduzir o
+     balcão num browser que tinha sessão de outro dia — nenhum teste o via. */
+  /* A rede vem cortada do bloco anterior, e aqui é preciso carregar páginas a
+     sério. Repõe-se, e corta-se outra vez no fim — a secção seguinte conta com
+     ela cortada para não criar negócios na base de produção. */
+  await palco.semRede(false);
+  for (const [caso, preparar] of [
+    ['sem sessão nenhuma', async () => { await palco.js("localStorage.clear(); return true"); }],
+    ['com uma sessão velha que já não vale', async () => {
+      await palco.js(`localStorage.clear();
+        localStorage.setItem('carimbo:balcao-entrou','sim');
+        localStorage.setItem('carimbo:sessao-balcao','j4-nao-vale-nada');
+        return true`);
+    }],
+  ]) {
+    await preparar();
+    /* Passa-se por outra página primeiro, senão ir de `/balcao/` para
+       `/balcao/#c=...` é navegação no MESMO documento: o browser não recarrega
+       e o arranque não volta a correr. Aqui quer-se provar o caminho do
+       arranque; o do `hashchange` prova-se a seguir. */
+    await palco.ir('/', { esperarPor: 'body', tecto: 12000 });
+    await palco.ir('/balcao/#c=K3WM7RPD', { esperarPor: '#entrada-acoes button', tecto: 12000 });
+    await palco.esperar('#f-convite', 12000);
+    certo((await palco.texto('.painel-folha h2')) === 'Criar o meu cartão',
+      `convite na ligação (${caso}): abre o formulário de criar`,
+      `abriu «${await palco.texto('.painel-folha h2')}»`);
+    certo((await palco.valor('#f-convite')) === 'K3WM-7RPD',
+      `convite na ligação (${caso}): o código entra já com o hífen`,
+      String(await palco.valor('#f-convite')));
+    certo(!(await palco.js('return location.hash')),
+      `convite na ligação (${caso}): e sai da barra de endereço`,
+      String(await palco.js('return location.hash')));
+    await palco.tecla('Escape');
+  }
+  /* E com a página JÁ ABERTA, que é o caso em que o browser não recarrega
+     nada: a ligação chega por mensagem a quem tem o balcão aberto ao lado. */
+  await palco.js("localStorage.clear(); return true");
+  await palco.ir('/balcao/', { esperarPor: '#entrada-acoes button', tecto: 12000 });
+  await palco.js("location.hash = '#c=K3WM7RPD'; return true");
+  await palco.esperar('#f-convite', 12000);
+  certo((await palco.valor('#f-convite')) === 'K3WM-7RPD',
+    'convite na ligação (com a página já aberta): o hashchange também o apanha',
+    String(await palco.valor('#f-convite')));
+  await palco.tecla('Escape');
+  await palco.ir('/balcao/', { esperarPor: '#entrada-acoes button', tecto: 12000 });
+  await palco.semRede(true);
+
   /* --- porta 2: tenho um convite ---------------------------------------- */
 
   await palco.clicar(CONVITE);

@@ -1117,9 +1117,42 @@ function fundarNegocio(codigoDaLigacao) {
   setTimeout(() => campoConvite.focus(), 120);
 }
 
+/**
+ * O convite que vem na ligação, lido e tirado da barra de endereço.
+ *
+ * Lê-se no PRINCÍPIO do arranque, antes de qualquer `return`. A primeira
+ * versão lia-o no fim, a seguir a desenhar a entrada — e quem tivesse uma
+ * sessão guardada que já não valesse saía pelo `return` do `catch` e nunca lá
+ * chegava: caía no ecrã de entrada com o código deitado fora em silêncio.
+ * Apanhou-se a conduzir o balcão a sério, num browser que tinha uma sessão de
+ * outro dia.
+ *
+ * Vai no fragmento e não na query string de propósito: o que está depois do
+ * `#` não sai do browser — não entra no cabeçalho `Referer` quando a página
+ * pede um tipo de letra, nem nos registos de servidor nenhum. E limpa-se já:
+ * uma captura de ecrã do balcão aberto não pode levar o código na barra.
+ */
+function convitePelaLigacao() {
+  const c = location.hash.match(/^#c=([A-Za-z0-9-]{4,40})$/);
+  if (!c) return null;
+  history.replaceState(null, '', location.pathname + location.search);
+  return c[1];
+}
+
 async function arrancar() {
   /* Escuro sempre — ver o comentário no topo de balcao.css. */
   document.documentElement.dataset.tema = 'escuro';
+  const convite = convitePelaLigacao();
+
+  /* E também quando a ligação é carregada com a página JÁ ABERTA. Ir de
+     `/balcao/` para `/balcao/#c=CODIGO` é navegação dentro do mesmo
+     documento: o browser não recarrega nada e o arranque não volta a correr.
+     Sem isto, quem tivesse o balcão aberto e tocasse na ligação que lhe
+     mandaram via a barra de endereço mudar e mais nada acontecer. */
+  addEventListener('hashchange', () => {
+    const c = convitePelaLigacao();
+    if (c) fundarNegocio(c);
+  });
   const topo = $('#topo');
   addEventListener('scroll', () => { topo.dataset.rolado = window.scrollY > 4 ? 'sim' : 'nao'; }, { passive: true });
 
@@ -1142,30 +1175,18 @@ async function arrancar() {
       $('#entrada').hidden = false;
       desenharEntrada();
       if (erro.rede) avisar('Sem ligação. Verifica a Internet e tenta entrar de novo.', 'mau');
+      /* Também aqui. É JUSTAMENTE este o caminho de quem tem uma sessão velha
+         no telemóvel e recebe uma ligação de convite — e era o que deitava o
+         código fora sem dizer nada. Sem rede não se funda, mas o formulário
+         abre com o código lá dentro e o aviso por cima: mais vale ver onde se
+         ia parar do que voltar à estaca zero. */
+      if (convite) fundarNegocio(convite);
       return;
     }
   }
   $('#entrada').hidden = false;
   desenharEntrada();
-
-  /* O CONVITE QUE VEM NA LIGAÇÃO.
-     `https://carimbodigital.pt/balcao/#c=K3WM7RPD` abre o formulário de criar
-     com o código já lá dentro. Quem o recebeu por mensagem não tem de o
-     copiar à mão, nem de descobrir qual dos botões é o dele.
-
-     Vai no FRAGMENTO e não na query string, e isso não é gosto: o que está
-     depois do `#` nunca sai do browser — não entra no cabeçalho `Referer`
-     quando a página pede um tipo de letra, não aparece nos registos de
-     nenhum servidor, e não fica no histórico de quem carrega noutra
-     ligação. Uma query string ia em todos esses sítios.
-
-     E limpa-se logo com `replaceState`: uma captura de ecrã do balcão aberto
-     não pode levar o código junto na barra de endereço. */
-  const c = location.hash.match(/^#c=([A-Za-z0-9-]{4,40})$/);
-  if (c) {
-    history.replaceState(null, '', location.pathname + location.search);
-    fundarNegocio(c[1]);
-  }
+  if (convite) fundarNegocio(convite);
 }
 
 async function registarServiceWorker() {
