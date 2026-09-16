@@ -79,9 +79,6 @@ CREATE TABLE IF NOT EXISTS clientes (
 CREATE INDEX IF NOT EXISTS ix_clientes_email ON clientes(email);
 -- Uma morada verificada pertence a UMA conta. Parcial de propósito: uma morada
 -- por verificar pode repetir-se à vontade, que são tentativas e não contas.
-CREATE UNIQUE INDEX IF NOT EXISTS ix_cartoes_wallet_codigo
-  ON cartoes(wallet_codigo) WHERE wallet_codigo IS NOT NULL;
-CREATE INDEX IF NOT EXISTS ix_cartoes_wallet ON cartoes(wallet_em, wallet_sincronizado);
 CREATE UNIQUE INDEX IF NOT EXISTS ix_clientes_email_unico
   ON clientes(email) WHERE email IS NOT NULL AND email_verificado = 1;
 -- A limpeza diária pergunta por contas paradas: sem isto é uma varredura à
@@ -110,6 +107,16 @@ CREATE TABLE IF NOT EXISTS cartoes (
 );
 CREATE INDEX IF NOT EXISTS ix_cartoes_cliente ON cartoes(cliente_id);
 CREATE INDEX IF NOT EXISTS ix_cartoes_negocio ON cartoes(negocio_id, ultimo_em);
+-- Os do passe. Estiveram onze linhas ACIMA do `CREATE TABLE cartoes`, entre os
+-- índices dos clientes, e o ficheiro inteiro morria numa base vazia: o D1 corre
+-- o `--file` numa transacção só, por isso o «no such table: cartoes» desfazia
+-- até as tabelas que já tinham sido criadas. Em máquina de quem desenvolve
+-- nunca se via — a base local sobrevive entre corridas e já tinha tudo.
+-- O código é um token PRÓPRIO do passe: único, e só quando existe.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_cartoes_wallet_codigo
+  ON cartoes(wallet_codigo) WHERE wallet_codigo IS NOT NULL;
+-- O reconciliador da madrugada procura por aqui os passes atrasados.
+CREATE INDEX IF NOT EXISTS ix_cartoes_wallet ON cartoes(wallet_em, wallet_sincronizado);
 
 -- --- prémios ------------------------------------------------------------
 

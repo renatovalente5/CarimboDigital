@@ -50,8 +50,13 @@ jobs:
       # `--test-scheduled`, e os testes da limpeza diária, que é o que apaga
       # contas, não tinham como disparar o cron. Passando a haver um arranque
       # só, deixa de haver duas versões para divergirem.
+      # O `--limpo` deita a base fora antes de aplicar o esquema. Aqui a base
+      # já nasce vazia — o que o sinalizador garante é que continua a ser esse
+      # o caso provado no dia em que alguém puser cache da pasta `.wrangler`.
+      # O esquema esteve com os índices do passe ACIMA da tabela que indexam:
+      # numa base que já existe ninguém dá por isso, numa vazia morre tudo.
       - name: Bateria do Worker
-        run: node scripts/com-worker.mjs worker/testes.mjs
+        run: node scripts/com-worker.mjs worker/testes.mjs --limpo
 
       # E a bateria de browser: abre um Chrome sem interface, carrega nos
       # botões com o rato e lê o que aparece. Encontrou quarenta e dois

@@ -8,12 +8,15 @@
    razões que não são dele.
 
    Uso:  node scripts/com-worker.mjs worker/testes.mjs
+         node scripts/com-worker.mjs worker/testes.mjs --limpo
+           (deita a base fora primeiro — é o que o CI faz, e o
+            único jeito de apanhar erros de ordem no esquema)
    ========================================================================= */
 
 import { spawn, execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { randomBytes, generateKeyPairSync } from 'node:crypto';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -92,9 +95,21 @@ function paresDeDesenvolvimento() {
 function correrSQL(ficheiro) {
   try {
     execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
-      '--local', `--file=${ficheiro}`], { cwd: WORKER, stdio: 'ignore' });
-  } catch {
-    /* Se falhar, o arranque a seguir dirá porquê com mais clareza. */
+      '--config', './wrangler.toml', '--local', `--file=${ficheiro}`],
+    { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+  } catch (erro) {
+    /* ISTO ENGOLIA TUDO, e o comentário que cá estava dizia que «o arranque a
+       seguir dirá porquê com mais clareza». Não dizia: o que aparecia era «no
+       such table: negocios», que parece um defeito do Worker e é a montagem
+       da base a ter falhado em silêncio. Duas publicações seguidas morreram
+       assim, e do registo do CI não se tirava a razão de nenhuma.
+
+       O único erro que se PERDOA é o de uma migração já aplicada: o esquema é
+       todo `IF NOT EXISTS`, mas um `ALTER TABLE ADD COLUMN` numa base que já a
+       tem responde «duplicate column name», e isso aqui é sinal de bom. */
+    const dito = `${erro.stdout || ''}${erro.stderr || ''}`;
+    if (/duplicate column name/i.test(dito)) return;
+    throw new Error(`Não deu para aplicar ${ficheiro} à base local:\n${dito.slice(-1200)}`);
   }
 }
 
@@ -108,7 +123,21 @@ function correrSQL(ficheiro) {
  * correm a seguir, cada uma por sua conta: numa base nova o `ALTER TABLE` dá
  * «duplicate column name», que aqui é o sinal de que já está aplicada.
  */
-function prepararBase() {
+function prepararBase({ limpo = false } = {}) {
+  /* DEITAR A BASE FORA, para provar o que o CI prova e a máquina de quem
+     desenvolve nunca provava.
+
+     A base local sobrevive entre corridas, e por isso o esquema era sempre
+     aplicado a uma base que JÁ tinha as tabelas todas — onde a ordem das
+     instruções não importa nada. Numa base vazia importava: os índices do
+     passe estavam onze linhas acima do `CREATE TABLE cartoes`, o ficheiro
+     inteiro morria, e como o D1 corre o `--file` numa transacção só não
+     ficava lá tabela nenhuma. Duas publicações seguidas morreram assim.
+
+     Não é o comportamento por omissão de propósito: correr sempre de vazio
+     deixava por provar o outro caminho, que é o das MIGRAÇÕES sobre uma base
+     que já existe — e é esse o caminho da produção. Provam-se os dois. */
+  if (limpo) rmSync(join(WORKER, '.wrangler'), { recursive: true, force: true });
   correrSQL('esquema.sql');
   /* A semente é `INSERT OR IGNORE`, por isso corre sempre sem estragar nada.
      Não estava aqui, e os testes locais passavam só porque a base guardava os
@@ -122,9 +151,9 @@ function prepararBase() {
   }
 }
 
-export async function comWorker(tarefa, { porta = 8787, tecto = 90000 } = {}) {
+export async function comWorker(tarefa, { porta = 8787, tecto = 90000, limpo = false } = {}) {
   garantirSegredos();
-  prepararBase();
+  prepararBase({ limpo });
   /* O `--test-scheduled` abre um `GET /__scheduled` que dispara o cron à mão.
      Sem ele, a limpeza diária — que apaga contas — só se provava esperando
      por ela, e uma regra que apaga dados de pessoas é a última que se quer
@@ -181,10 +210,12 @@ export async function comWorker(tarefa, { porta = 8787, tecto = 90000 } = {}) {
 
 /* Correr directamente: `node scripts/com-worker.mjs worker/testes.mjs` */
 if (process.argv[1] && process.argv[1].endsWith('com-worker.mjs') && process.argv[2]) {
-  const alvo = join(RAIZ, process.argv[2]);
+  const argumentos = process.argv.slice(2);
+  const limpo = argumentos.includes('--limpo');
+  const alvo = join(RAIZ, argumentos.find((a) => !a.startsWith('--')));
   const codigo = await comWorker(async (API) => {
     const filho = spawn(process.execPath, [alvo, API], { stdio: 'inherit', cwd: RAIZ });
     return new Promise((r) => filho.on('exit', r));
-  });
+  }, { limpo });
   process.exit(codigo || 0);
 }
