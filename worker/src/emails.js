@@ -400,6 +400,15 @@ export function emailContaAApagar({ dias = 30, meses = 24, entidade } = {}) {
     miudo('Quando a conta for apagada, vão com ela os cartões, os carimbos e os '
       + 'prémios por levantar. Não há como os trazer de volta.'),
     espaco(10),
+    /* O PASSE DA APPLE FICA, E ISSO TEM DE SER DITO AQUI. Quem recebe este
+       email não carregou em botão nenhum — vai ser apagado por inactividade —
+       e este é o único aviso que recebe. Um `.pkpass` não tem serviço web, por
+       isso não há como o tirar do telemóvel a partir daqui: fica lá com o
+       saldo velho e deixa de carimbar. Calar isso era deixar a pessoa com um
+       cartão morto na carteira e nenhuma pista do que aconteceu. */
+    miudo('Se guardaste algum cartão na Carteira do iPhone, apaga-o também lá: '
+      + 'esse fica no telemóvel e nós não conseguimos tirá-lo de lá.'),
+    espaco(10),
     miudo(`Se preferires apagá-la já, está no perfil da app, em «Apagar a conta».`),
   ].join('\n');
 

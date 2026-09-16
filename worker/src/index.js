@@ -30,6 +30,7 @@ import {
 } from './wallet.js';
 import {
   construirPasse, passeDeCartao, certificadosDoPEM, emissorESerie, doPEM,
+  validadeDoCertificado,
 } from './pkpass.js';
 
 const JANELA = 15;                 // segundos de vida de um código
@@ -1404,7 +1405,16 @@ rota('POST', '/v1/cliente/sair-dos-outros', async (env, pedido) => {
     env.DB.prepare('DELETE FROM sessoes WHERE sujeito = ? AND resumo != ?')
       .bind(`cliente:${clienteId}`, s.resumo),
     /* Os três de uma vez: sem o `wallet_em`/`apple_em` a NULL, o cartão dizia
-       à app que já tinha passe e ela não oferecia voltar a juntá-lo. */
+       à app que já tinha passe e ela não oferecia voltar a juntá-lo.
+
+       E NÃO É A MESMA COISA PARA AS DUAS CARTEIRAS. Do lado da Google o
+       objecto é expirado lá fora, umas linhas acima, e o passe morre mesmo.
+       Do lado da Apple isto só apaga o que está DESTE lado: o `.pkpass` que
+       está no iPhone não tem serviço web nosso, fica lá com o saldo velho, e o
+       que o mata é o `wallet_codigo` deixar de existir — o código de barras
+       passa a dar «Este passe já não vale» ao balcão. Chega para revogar, não
+       chega para limpar o ecrã de ninguém, e é por isso que o painel da app
+       avisa que o passe tem de ser apagado à mão. */
     env.DB.prepare(
       `UPDATE cartoes SET wallet_codigo = NULL, wallet_em = NULL, apple_em = NULL
         WHERE cliente_id = ?`
@@ -1742,7 +1752,20 @@ async function apagarCliente(env, clienteId) {
 
      Falhar aqui não impede o apagamento. Entre deixar um cartão na base de
      dados de quem pediu para desaparecer e deixar um rectângulo morto numa
-     carteira, a escolha é fácil. */
+     carteira, a escolha é fácil.
+
+     ISTO TRATA DA GOOGLE, E SÓ DELA. O parágrafo acima era verdade inteira
+     enquanto a Apple estava desligada, e deixou de o ser no dia em que o
+     certificado entrou. Um `.pkpass` não tem serviço web — não escrevemos
+     `webServiceURL` — por isso não há por onde lhe tocar depois de sair daqui:
+     fica no iPhone, com o saldo do dia em que foi guardado, e o código de
+     barras passa a dar «Este passe já não vale» ao balcão.
+
+     Não é um descuido escondido: é uma consequência de uma decisão de
+     arquitectura, e o que se pode fazer é DIZÊ-LO a quem apaga a conta — o
+     painel de apagar na app di-lo, e o email de conta parada também, que é o
+     único aviso que recebe quem é apagado por inactividade sem ter carregado
+     em botão nenhum. Ver `PLANO.md` para o que custaria fechá-lo de verdade. */
   if (walletLigada(env)) {
     /* Só os que TÊM passe. A primeira versão percorria todos os cartões e
        chamava a Google para cada um — incluindo os de quem nunca tocou na
@@ -2533,7 +2556,7 @@ rota('GET', /^\/v1\/negocio\/([a-z0-9-]{1,40})\/logotipo$/, async (env, pedido, 
    O cartão na Apple Wallet
 
    O MESMO PORTÃO DA GOOGLE: enquanto os segredos não existirem, estas rotas
-   respondem 404 e o botão não aparece na app. É o que permite ter isto
+   respondiam 404 e o botão não aparecia na app — é o que permitiu ter isto
    publicado e provado antes de haver certificado.
 
    O CAMINHO É EM DOIS TEMPOS, e não por gosto. Um `.pkpass` só chega à
@@ -2588,6 +2611,39 @@ async function lerBilhete(env, bilhete) {
 }
 
 /**
+ * O certificado da Apple está a chegar ao fim?
+ *
+ * Corre na limpeza da madrugada e não faz nada a não ser escrever. É o único
+ * sítio do produto que olha para uma data que, quando passar, não dá erro
+ * nenhum do lado de cá — só um cliente com um passe que o iPhone recusa.
+ *
+ * Trinta dias chegam para emitir outro no portal sem pressa: o CSR já existe e
+ * o resto é um comando. Abaixo de sete, sobe a voz.
+ *
+ * Nunca rebenta: isto corre dentro do `scheduled`, e uma excepção aqui levava
+ * à frente a limpeza toda que corre antes.
+ */
+function avisarDoCertificado(env) {
+  try {
+    if (!applePronta(env)) return;
+    const certs = certificadosDoPEM(env.APPLE_CERTIFICADO, 'APPLE_CERTIFICADO');
+    const ate = certs.length ? validadeDoCertificado(certs[0]) : null;
+    if (!ate) return;
+    const dias = Math.floor((ate.getTime() - Date.now()) / 86400000);
+    const quando = ate.toISOString().slice(0, 10);
+    if (dias < 0) {
+      console.error(`apple: O CERTIFICADO CADUCOU em ${quando}. Não saem passes novos.`);
+    } else if (dias <= 7) {
+      console.error(`apple: o certificado caduca em ${dias} dias (${quando}). Renovar já.`);
+    } else if (dias <= 30) {
+      console.warn(`apple: o certificado caduca daqui a ${dias} dias (${quando}).`);
+    }
+  } catch (erro) {
+    console.error('apple: não deu para ler a validade do certificado', String(erro));
+  }
+}
+
+/**
  * Os segredos da Apple servem mesmo para assinar?
  *
  * O `applePronta` responde a «estão preenchidos?», que é outra pergunta. Isto
@@ -2601,6 +2657,21 @@ async function verificarSegredosApple(env) {
     const certs = certificadosDoPEM(env.APPLE_CERTIFICADO, 'APPLE_CERTIFICADO');
     if (!certs.length) throw new Error('não há certificado nenhum em APPLE_CERTIFICADO');
     emissorESerie(certs[0]);
+
+    /* CADUCADO DIZ-SE COM ESSA PALAVRA. Um Pass Type ID Certificate dura pouco
+       mais de um ano e, no dia seguinte, nada aqui dava erro: a assinatura
+       continuava a ser feita, o ficheiro continuava a sair, e quem descobria
+       era um cliente cujo iPhone o recusava ao balcão — longe daqui e sem
+       registo nosso. Agora a rota recusa antes, com a data escrita, que é a
+       diferença entre «alguém renova isto hoje» e uma semana a adivinhar.
+
+       Não se refuta o que não se conseguiu ler: um parser que se engane não
+       pode desligar o produto, por isso `null` passa. */
+    const ate = validadeDoCertificado(certs[0]);
+    if (ate && ate.getTime() < Date.now()) {
+      throw new Error(`o certificado da Apple caducou em ${ate.toISOString().slice(0, 10)} `
+        + '— é preciso emitir outro no portal e voltar a pôr APPLE_CERTIFICADO');
+    }
     if (env.APPLE_CADEIA) certificadosDoPEM(env.APPLE_CADEIA, 'APPLE_CADEIA');
     await crypto.subtle.importKey('pkcs8', doPEM(env.APPLE_CHAVE),
       { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
@@ -2673,6 +2744,12 @@ async function passeDoCartao(env, cartaoId) {
   const passe = passeDeCartao(cartao, moldarPrograma(programa), negocio, {
     passTipo: env.APPLE_PASS_TIPO, equipa: env.APPLE_EQUIPA,
     codigo, dominio: env.DOMINIO,
+    /* Quem responde pelo passe somos NÓS, e não o café: é o nosso certificado
+       que o assina. Exigido pelo Anexo 5 §2.3 do contrato da Apple. */
+    apoio: {
+      nome: env.APOIO_NOME, morada: env.APOIO_MORADA,
+      telefone: env.APOIO_TELEFONE, email: env.APOIO_EMAIL,
+    },
   });
 
   /* A MESMA IMAGEM nos dois sítios, e de propósito. O que está guardado é um
@@ -3107,6 +3184,7 @@ export default {
     ]);
     await limparContasParadas(env);
     await reconciliarWallet(env);
+    avisarDoCertificado(env);
   },
 };
 

@@ -284,7 +284,16 @@ Verificado contra os textos originais.
 
 ### Versão 3
 
-- Apple Wallet (99 €/ano).
+- ~~Apple Wallet (99 €/ano)~~ — **feita a 16 de Setembro de 2026.** O passe é
+  construído e assinado pelo Worker, verificado contra a cadeia da Apple a
+  sério. Fica uma dívida conhecida: **sem `webServiceURL` não há forma de
+  actualizar nem de revogar um passe já emitido.** O saldo que a pessoa vê é o
+  do dia em que o guardou, e apagar a conta não o tira do telemóvel — só lhe
+  mata o código de barras. Fechá-lo a sério obriga a um serviço web com
+  registo de dispositivos, `authenticationToken` por cartão e notificações
+  push pela APNs; é trabalho de dias, não de horas, e o que está publicado
+  hoje diz a verdade sobre a limitação em vez de a esconder (no painel de
+  apagar a conta e no email de conta parada).
 - Descobrir estabelecimentos por perto.
 - Convites: cada cliente traz outro, e ganham os dois.
 

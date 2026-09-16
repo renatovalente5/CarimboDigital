@@ -397,9 +397,13 @@ function botaoWallet(cartao, carteira = 'google') {
   const rotulo = daApple ? 'Adicionar à Apple Wallet' : 'Adicionar a Carteira do Google';
   const botao = el('button', {
     class: 'btn-wallet', type: 'button', 'aria-label': rotulo,
+    'data-carteira': carteira,
   }, el('img', {
     src: `${base()}/icones/${daApple ? 'apple-wallet-pt' : 'google-wallet-pt'}.svg`,
-    alt: rotulo, width: 240, height: 55,
+    /* As medidas da arte de cada um, para o espaço ficar reservado antes de a
+       imagem chegar — senão o ecrã salta debaixo do dedo de quem já ia a
+       carregar. Não são iguais: ver o comentário no `app.css`. */
+    alt: rotulo, width: daApple ? 187 : 240, height: 55,
   }));
 
   botao.addEventListener('click', async () => {
@@ -464,10 +468,21 @@ function botaoWallet(cartao, carteira = 'google') {
     botao.classList.remove('a-carregar');
   });
 
+  /* A NOTA NÃO É A MESMA PARA AS DUAS, e escrevê-la igual era mentir no ecrã.
+     Na Google o objecto vive lá fora e nós actualizamo-lo quando um carimbo
+     entra — «actualizam-se sozinhos» é verdade à letra. Na Apple o `.pkpass`
+     é um ficheiro que sai daqui e fica no telemóvel: não tem serviço web do
+     nosso lado, por isso mostra o saldo do dia em que foi guardado e mais
+     nada. O que o endireita é voltar a juntá-lo — o par «Pass Type ID +
+     número de série» é o mesmo, e a Apple substitui o anterior em vez de
+     empilhar um segundo. Diz-se isso, que é pouca coisa a ler e evita uma
+     pessoa a olhar para um cartão parado sem perceber porquê. */
   return el('div', { class: 'wallet-caixa' },
     botao,
-    el('p', { class: 'miudo wallet-nota', texto:
-      'Fica na carteira do telemóvel, e os carimbos actualizam-se sozinhos.' }));
+    el('p', { class: 'miudo wallet-nota', texto: daApple
+      ? 'Fica na carteira do iPhone com os carimbos de agora. Quando tiveres '
+        + 'mais, junta-o outra vez para o actualizar.'
+      : 'Fica na carteira do telemóvel, e os carimbos actualizam-se sozinhos.' }));
 }
 
 function cartaoGrande(cartao) {
@@ -1125,6 +1140,13 @@ function apagarConta() {
   painel.append(
     el('p', { class: 'subtexto', texto: 'Apaga a conta, os cartões, os carimbos e o '
       + 'histórico. Não há forma de recuperar.' }),
+    /* O que NÃO desaparece, dito antes e não depois. Um passe na Carteira do
+       iPhone não tem serviço web do nosso lado: fica no telemóvel com o saldo
+       velho e deixa de carimbar, e nós não temos por onde lhe tocar. Quem
+       apaga a conta merece saber o que fica para trás. */
+    el('p', { class: 'miudo', style: 'margin-bottom:8px', texto:
+      'Se guardaste cartões na Carteira do iPhone, apaga-os também lá — esses '
+      + 'ficam no telemóvel e nós não conseguimos tirá-los.' }),
     el('button', {
       class: 'btn btn-perigo btn-bloco btn-grande', style: 'margin-top:8px',
       texto: 'Apagar tudo, definitivamente',

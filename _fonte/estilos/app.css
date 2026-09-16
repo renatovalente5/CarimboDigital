@@ -785,6 +785,16 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 }
 .btn-wallet img { display: block; width: 240px; height: 55px; }
 
+/* O CRACHÁ DA APPLE NÃO TEM A MESMA PROPORÇÃO DO DA GOOGLE, e isso vê-se mal
+   e tarde. A arte da Apple é 119,978 × 35,209 (3,41:1); a da Google é 4,36:1.
+   Metê-la nos mesmos 240 × 55 esticava-a de 187 para 240 px — 28 % mais larga
+   do que é —, e as guidelines proíbem alterar a arte. Fixa-se a ALTURA, para
+   os dois botões ficarem alinhados, e a largura sai da proporção.
+
+   A folga mínima que a Apple exige é .1X da altura do crachá, ou seja 5,5 px;
+   os 8 px de `padding` herdados da Google cobrem-na com sobra. */
+.btn-wallet[data-carteira="apple"] img { width: auto; height: 55px; }
+
 /* O foco desenha-se À VOLTA da folga, e não por cima da imagem. */
 .btn-wallet:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
 

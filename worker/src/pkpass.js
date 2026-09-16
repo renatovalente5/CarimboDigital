@@ -392,6 +392,55 @@ export function emissorESerie(certificadoDER) {
   return { serie: serie.todo, emissor: emissor.todo, chavePublica: spki.todo };
 }
 
+/**
+ * Até quando é que este certificado vale.
+ *
+ * NINGUÉM OLHAVA PARA ISTO. Um Pass Type ID Certificate dura pouco mais de um
+ * ano, e o dia em que caduca não dá erro nenhum interessante: a assinatura
+ * continua a ser feita, o `.pkpass` continua a sair, e é o iPhone de um cliente
+ * que o recusa ao balcão — longe daqui, sem registo nosso, e sem ninguém saber
+ * porquê. Uma data que só se descobre por um cliente irritado é uma data que
+ * devia estar num alarme.
+ *
+ * Devolve `null` se não conseguir ler, e quem chama trata isso como «não sei»
+ * e não como «caducado»: um parser que se engane não pode desligar o produto.
+ *
+ * Em DER, o `validity` é `SEQUENCE { notBefore Time, notAfter Time }`, e Time é
+ * UTCTime (`YYMMDDHHMMSSZ`, 0x17) ou GeneralizedTime (`YYYYMMDD…`, 0x18). O
+ * século do UTCTime é a regra do RFC 5280: 50 ou mais é 19xx, abaixo é 20xx.
+ */
+export function validadeDoCertificado(certificadoDER) {
+  try {
+    const b = certificadoDER;
+    const fora = ler(b, 0);
+    const tbs = ler(b, fora.inicio);
+    let pos = tbs.inicio;
+    if (b[pos] === 0xA0) pos = ler(b, pos).fim;
+    pos = ler(b, pos).fim;                   // serialNumber
+    pos = ler(b, pos).fim;                   // signature
+    pos = ler(b, pos).fim;                   // issuer
+    const validade = ler(b, pos);            // validity SEQUENCE
+    const notBefore = ler(b, validade.inicio);
+    const notAfter = ler(b, notBefore.fim);
+    return dataDeASN1(String.fromCharCode(...b.subarray(notAfter.inicio, notAfter.fim)));
+  } catch {
+    return null;
+  }
+}
+
+/** `YYMMDDHHMMSSZ` ou `YYYYMMDDHHMMSSZ` → Date, ou `null`. */
+function dataDeASN1(t) {
+  const s = String(t || '').trim();
+  const m = /^(\d{2})?(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/.exec(s);
+  if (!m) return null;
+  const ano = m[1] === undefined
+    ? (Number(m[2]) >= 50 ? 1900 + Number(m[2]) : 2000 + Number(m[2]))
+    : Number(m[1] + m[2]);
+  const d = new Date(Date.UTC(ano, Number(m[3]) - 1, Number(m[4]),
+    Number(m[5]), Number(m[6]), Number(m[7])));
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
 /* =========================================================================
    A assinatura: CMS SignedData, destacada
    ========================================================================= */
@@ -536,7 +585,7 @@ function tintaSobre(cor) {
  * É um `storeCard`, que é o que a Apple chama a um cartão de loja — e o que
  * traz a faixa por cima onde cabe o contador.
  */
-export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, codigo, dominio }) {
+export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, codigo, dominio, apoio }) {
   if (!passTipo || !equipa) throw new Error('falta o Pass Type ID ou a equipa');
   const pontos = programa.tipo === 'pontos'
     ? `${cartao.pontos ?? 0}`
@@ -558,6 +607,32 @@ export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, cod
   }
   traseira.push({ key: 'sitio', label: 'Carimbo Digital',
     value: `https://${dominio || 'carimbodigital.pt'}/app/` });
+
+  /* QUEM RESPONDE POR ISTO, E ONDE. Não é design: é o Anexo 5 («Additional
+     Terms for Passes») do contrato de programador da Apple, §2.3 — «You agree
+     to state on the Pass the name and address, and the contact information
+     (telephone number; email address) to which any end-user questions,
+     complaints, or claims with respect to Your Pass should be directed.»
+
+     O passe levava o nome do CAFÉ e, só às vezes, a morada dele — e o café não
+     é quem responde pelo passe: somos nós que o assinamos com o nosso
+     certificado. A Apple pode rever um passe a qualquer momento e revogar o
+     Pass Type ID «for any reason and at any time», e revogá-lo mata os passes
+     que JÁ estão nas carteiras das pessoas, não só os futuros.
+
+     O telefone é o único que pode faltar, e faltando fica dito no registo em
+     vez de se calar: o passe sai à mesma, porque um passe sem telefone é menos
+     mau do que um cliente sem cartão, mas a falta não se esconde. */
+  if (apoio && (apoio.nome || apoio.email)) {
+    const linhas = [apoio.nome, apoio.morada].filter(Boolean);
+    if (apoio.telefone) linhas.push(`Tel.: ${apoio.telefone}`);
+    else console.warn('pkpass: sem telefone de apoio — o Anexo 5 §2.3 da Apple pede um');
+    if (apoio.email) linhas.push(apoio.email);
+    traseira.push({ key: 'apoio', label: 'Dúvidas ou reclamações sobre este cartão',
+      value: linhas.join('\n') });
+  } else {
+    console.warn('pkpass: sem contacto de apoio nenhum — o Anexo 5 §2.3 da Apple obriga a um');
+  }
 
   return {
     formatVersion: 1,
@@ -585,6 +660,13 @@ export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, cod
       auxiliaryFields: [],
       backFields: traseira,
     },
+    /* NÃO SE PARTILHA UM CARTÃO DE FIDELIDADE. Sem isto, a Wallet põe um botão
+       de partilha no passe, e uma pessoa que o toque manda o `.pkpass` inteiro
+       — com o código de barras lá dentro — por mensagem, AirDrop ou email.
+       Esse código carimba: é um portador, não leva assinatura nenhuma (ver o
+       ramo `W1.` do `carimbar`). Partilhar o cartão é dar os carimbos a outra
+       pessoa, e ninguém o faz a pensar nisso. */
+    sharingProhibited: true,
     /* O `W1.` é o mesmo prefixo do código da Google: é por ele que o balcão
        sabe que está a ler um passe e não o código da app. */
     barcodes: [{

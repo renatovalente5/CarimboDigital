@@ -131,8 +131,23 @@ npx wrangler d1 create carimbodigital --location=weur
 npx wrangler d1 execute carimbodigital --remote --file=esquema.sql
 npx wrangler secret put CHAVE_MESTRA      # 32 bytes em base64url
 npx wrangler secret put MAIL_TOKEN        # o correio, ver «Emails»
+
+# As carteiras do telemóvel. Sem estes, as rotas do passe respondem 404 e os
+# botões não aparecem — o serviço funciona à mesma, só sem passes.
+npx wrangler secret put GOOGLE_CHAVE      # a private_key da conta de serviço
+npx wrangler secret put APPLE_CERTIFICADO # SÓ o certificado, sem a chave
+npx wrangler secret put APPLE_CHAVE       # a chave privada, em PKCS#8
+npx wrangler secret put APPLE_CADEIA      # o intermédio WWDR da Apple
+
 npx wrangler deploy --config ./wrangler.toml
 ```
+
+> **O certificado da Apple caduca a 16 de Outubro de 2027.** Nesse dia deixam
+> de sair passes novos; os que já estiverem nas carteiras das pessoas ficam lá,
+> com o saldo do dia em que foram guardados. O Worker avisa no registo a partir
+> dos 30 dias antes e recusa-se a assinar depois de caducado, com a data na
+> mensagem. Renova-se no portal da Apple com um CSR novo — o caminho todo está
+> em `_dev/apple/LEIA-ME.md`, que não vai no repositório.
 
 ### Criar um negócio
 

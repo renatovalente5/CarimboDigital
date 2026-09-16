@@ -254,6 +254,17 @@
   display: flex; flex-wrap: wrap; gap: var(--e-4); justify-content: space-between;
 }
 
+/* A linha de créditos das marcas. Vai a seguir ao fim do rodapé, mais pequena
+   e mais apagada: as guidelines da Apple exigem-na «wherever legal information
+   is provided», e proíbem que o crachá domine a página — uma nota de rodapé é
+   exactamente o registo certo. A cor sai do `--tinta-3`, que a varredura de
+   contraste do auditor já mede. */
+.rodape-marcas {
+  margin-top: var(--e-4);
+  font-size: .75rem; line-height: 1.5; color: var(--tinta-3);
+  max-width: 70ch;
+}
+
 /* --- páginas de texto ---------------------------------------------------- */
 
 .texto { padding: var(--e-9) 0 var(--e-10); }

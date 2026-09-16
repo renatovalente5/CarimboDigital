@@ -74,13 +74,52 @@ GOOGLE_EMISSOR = "3388000000023200429"
 #   npx wrangler secret put APPLE_CHAVE         (a chave privada, em PKCS#8)
 #   npx wrangler secret put APPLE_CADEIA        (o intermédio WWDR da Apple)
 #
-# Enquanto os três não existirem, as rotas do passe respondem 404 e o botão da
-# Apple não aparece na app — ver `appleLigada` no `index.js`.
+# Os três JÁ existem desde 16 de Setembro de 2026, e o passe é servido. Antes
+# disso as rotas respondiam 404 e o botão não aparecia — é o que permitiu ter
+# isto publicado e provado sem estar meio feito à vista de ninguém.
+#
+# Quem responde à pergunta «estão preenchidos?» é `applePronta` (e não
+# `appleLigada`, que nunca existiu com esse nome); quem responde à pergunta a
+# sério — «servem mesmo para assinar, e não caducaram?» — é
+# `verificarSegredosApple`. As duas estão no `index.js`.
+#
+# DUAS DATAS, e a segunda apanha-se desprevenido porque está longe:
+#
+#   16 de Outubro de 2027 — o certificado do Pass Type ID. É o que assina, e a
+#                           partir dessa data não saem passes novos. O Worker
+#                           avisa no registo a partir dos 30 dias antes e
+#                           recusa-se a assinar depois, com a data na mensagem.
+#   10 de Dezembro de 2030 — o intermédio WWDR G4 que vai em APPLE_CADEIA. Não
+#                           é nosso e não se renova daqui: quando a Apple o
+#                           substituir, é preciso voltar a descarregá-lo de
+#                           https://www.apple.com/certificateauthority/ e
+#                           trocar o segredo. Sem isso, o iPhone deixa de
+#                           conseguir fechar a cadeia e recusa os passes —
+#                           mesmo com o certificado de assinatura válido.
 #
 # O certificado CADUCA a 16 de Outubro de 2027. Nesse dia os passes deixam de
 # poder ser emitidos; os que já estão nas carteiras continuam lá.
 APPLE_PASS_TIPO = "pass.pt.carimbodigital.cartao"
 APPLE_EQUIPA = "6M2QCLR98V"
+
+# QUEM RESPONDE PELO PASSE. Não é cortesia: é o Anexo 5 («Additional Terms for
+# Passes») do contrato de programador da Apple, §2.3 — o passe tem de dizer o
+# nome, a morada e os contactos (telefone E email) para onde vão as dúvidas e
+# as reclamações de quem o usa. Quem responde somos nós, que o assinamos, e não
+# o café cujo nome está na frente do cartão.
+#
+# Sai tudo do `_fonte/config.json`, que é a fonte da verdade do site — se um
+# dia mudar lá, muda aqui. NÃO é segredo: vai dentro de cada passe, em texto
+# simples, como o resto.
+#
+# O TELEFONE ESTÁ POR PREENCHER, e o §2.3 pede-o pelo nome. Enquanto estiver
+# vazio o passe sai à mesma (um passe sem telefone é menos mau do que um
+# cliente sem cartão) mas o Worker escreve um aviso no registo a cada passe
+# emitido. Pôr um número aqui fecha a questão.
+APOIO_NOME = "Carimbo Digital — Renato Lima Valente"
+APOIO_MORADA = "Rua José Moreira 99, 4.º esq., 3700-155 São João da Madeira"
+APOIO_TELEFONE = ""
+APOIO_EMAIL = "geral@carimbodigital.pt"
 
 [[d1_databases]]
 binding = "DB"

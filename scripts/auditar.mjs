@@ -254,11 +254,31 @@ console.log('\nSegredos');
     [/sk_live_[A-Za-z0-9]{20,}/, 'chave secreta de pagamentos'],
     [/AIza[0-9A-Za-z_-]{30,}/, 'chave da Google'],
     [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'chave privada'],
+    /* A CHAVE SEM CABEÇALHOS. Foi exactamente por aqui que ela escapou uma vez:
+       um PEM achatado — base64 puro, sem BEGIN/END — é a forma que cabe numa
+       variável de ambiente, e uma busca que só conhece cabeçalhos não vê nada.
+
+       Os padrões abaixo foram MEDIDOS, não adivinhados: escrevi-os à mão duas
+       vezes com o `AgEA` que parecia óbvio e não apanhavam nada, porque o
+       base64 desalinha o `02 01 00` conforme o comprimento que vem antes. O
+       que é estável é a cabeça inteira de cada formato, e é isso que aqui
+       está — conferido contra as quatro chaves desta casa e contra chaves
+       PKCS#1 e EC geradas de propósito, e conferido ao contrário contra os
+       certificados, que não podem dar positivo. */
+    [/IBADANBgkqhkiG9w0BAQ[A-Za-z0-9+/]{10,}/, 'chave privada RSA (PKCS#8) em base64, sem cabeçalhos'],
+    [/MII[A-Za-z0-9+/]{1,3}AIBAAKCA[A-Za-z0-9+/]{20,}/, 'chave privada RSA (PKCS#1) em base64, sem cabeçalhos'],
+    [/MHcCAQEEI[A-Za-z0-9+/]{20,}/, 'chave privada EC em base64, sem cabeçalhos'],
   ];
   let achados = 0;
+  /* TODOS OS FICHEIROS DE TEXTO, e não cinco extensões escolhidas a dedo. Um
+     `.svg`, um `.webmanifest`, um `.xml` ou um `.map` levam texto na mesma, e
+     a lista antiga deixava-os passar sem ninguém os olhar. O que se salta são
+     os binários, que é onde uma busca por texto não faria sentido. */
+  const BINARIOS = ['.png', '.jpg', '.jpeg', '.webp', '.avif', '.ico', '.woff', '.woff2', '.pdf', '.zip'];
   for (const f of ficheiros) {
-    if (!['.html', '.js', '.json', '.css', '.txt'].includes(extname(f))) continue;
-    const texto = readFileSync(f, 'utf8');
+    if (BINARIOS.includes(extname(f).toLowerCase())) continue;
+    let texto;
+    try { texto = readFileSync(f, 'utf8'); } catch { continue; }
     for (const [padrao, nome] of suspeitos) {
       if (padrao.test(texto)) { falhar(`${f.slice(SAIDA.length + 1)}: parece ter uma ${nome}`); achados++; }
     }
