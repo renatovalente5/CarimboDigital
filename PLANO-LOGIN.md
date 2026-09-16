@@ -293,6 +293,27 @@ Quando alguém prova ser dono de duas contas:
   **prémios já ganhos passam todos**, e são eles que valem dinheiro. Ou os
   prémios por levantar passam a precisar de confirmação do balcão numa fusão,
   ou a fusão só se oferece quando não há prémios pendentes dos dois lados.
+
+> ### ⚠️ A ÚNICA DECISÃO QUE FICA POR TOMAR NESTA FASE
+>
+> Ficou implementada a **segunda** — a fusão é recusada (409, `fusao-premios`)
+> quando há um prémio por levantar de qualquer dos lados, com a mensagem
+> «Levanta primeiro os prémios que tens à espera e depois junta as contas».
+>
+> **Porquê esta e não a outra:** é a que não dá nada a ninguém por engano, não
+> perde dados, e desfaz-se com uma linha se decidires ao contrário. A outra —
+> deixar passar com confirmação do balcão — é mais trabalho e mais superfície,
+> e não é uma escolha que eu deva fazer sozinho porque quem paga o prémio é o
+> café, não nós.
+>
+> **O custo desta:** alguém com um prémio à espera não consegue juntar as
+> contas até o levantar. Se achares o preço alto de mais, a troca está num
+> sítio só — o bloco marcado no `fundirContas` do `index.js`.
+>
+> Há aqui um buraco mais antigo que a fusão não cria nem fecha: o
+> arrefecimento e o tecto diário são **por cartão**, portanto quem ande com dois
+> números no mesmo café leva o dobro dos carimbos por visita, com ou sem fusão.
+> Isso resolve-se ao carimbar, não ao juntar, e não entrou nesta fase.
 - **Sessões:** dois modos, e confundi-los é um ataque. *Fusão provada* (as
   duas contas autenticadas no acto) → as sessões reapontam-se. *Absorção* de
   uma conta anónima que ninguém provou → as sessões dela **morrem**.
@@ -359,7 +380,7 @@ nosso *client secret*.
 | ~~0~~ | ~~Dívidas 3.1 e 3.3, mais o `/v1/cliente/eu`~~ — **feita, 16 set 2026** (e metade da 3.2 veio atrás) | — | nada |
 | ~~1~~ | ~~Migração `identidades` + email a passar por lá~~ — **feita, 16 set 2026** | — | nada |
 | ~~2~~ | ~~As contas-sombra (`fundida_em`)~~ — **feita, 16 set 2026** | — | nada |
-| 3 | A fusão, com a bateria a prová-la | 2–3 dias | decidir a regra dos prémios |
+| ~~3~~ | ~~A fusão, com a bateria a prová-la~~ — **feita, 16 set 2026** | — | **confirmar a regra dos prémios** (ver abaixo) |
 | 4 | Ecrã de entrada e os seis textos, **mais o botão «sair nos outros aparelhos»** que a fase 0 deixou sem quem o chame | 2–3 dias | **aprovar os textos** |
 | 5 | Continuar com Google | 3–4 dias | 3 passos de consola |
 | 6 | Continuar com Apple | 4–5 dias | 4 passos de consola |

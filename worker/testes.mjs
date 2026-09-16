@@ -33,21 +33,41 @@ function grupo(nome) { console.log(`\n${nome}`); }
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Um pedido à API, com uma segunda tentativa quando a ligação cai.
+ * Um pedido à API, com paciência para o servidor reiniciar.
  *
  * Não é indulgência com defeitos: é que `wrangler d1 execute --local` — que
- * é como estes testes preparam o estado — faz o `wrangler dev` reiniciar, e
- * o pedido que apanhar essa janela leva com um ECONNRESET que não tem nada a
- * ver com o código que se está a provar. Uma segunda tentativa distingue as
- * duas coisas: um defeito a sério falha as duas vezes.
+ * é como estes testes preparam o estado — faz o `wrangler dev` reiniciar, e o
+ * pedido que apanhar essa janela leva com um ECONNREFUSED que não tem nada a
+ * ver com o código que se está a provar.
+ *
+ * ERA UMA TENTATIVA SÓ, com 1,5 s, e isso chegava nesta máquina e não chegava
+ * no runner do CI — que é mais lento e estava a arrancar sob carga. O resultado
+ * foi uma publicação vermelha com `TypeError: fetch failed` no meio de um grupo
+ * que passa sempre: um flocado, que é a pior espécie de vermelho porque ensina
+ * a ignorar o vermelho.
+ *
+ * As tentativas param de distinguir um defeito de um reinício se forem
+ * infinitas. Não são: são quatro, e um Worker que morreu a sério não volta em
+ * nenhuma delas — a mensagem final diz isso por palavras, para ninguém
+ * diagnosticar o produto quando quem caiu foi o servidor de testes.
  */
+const ESPERAS = [1500, 3000, 5000];
+
 async function pedir(caminho, opcoes = {}) {
-  try {
-    return await pedirUmaVez(caminho, opcoes);
-  } catch (erro) {
-    if (!/fetch failed|ECONNRESET|ECONNREFUSED/.test(String(erro))) throw erro;
-    await dormir(1500);
-    return pedirUmaVez(caminho, opcoes);
+  for (let i = 0; ; i++) {
+    try {
+      return await pedirUmaVez(caminho, opcoes);
+    } catch (erro) {
+      const deLigacao = /fetch failed|ECONNRESET|ECONNREFUSED|socket hang up/.test(String(erro));
+      if (!deLigacao) throw erro;
+      if (i >= ESPERAS.length) {
+        throw new Error(
+          `O Worker não voltou depois de ${ESPERAS.length + 1} tentativas a ${caminho}. `
+          + 'Isto é o servidor de testes em baixo, não o produto: ver o registo do wrangler. '
+          + `Último erro: ${erro}`);
+      }
+      await dormir(ESPERAS[i]);
+    }
   }
 }
 
@@ -3023,6 +3043,218 @@ grupo('Contas-sombra: a limpeza da madrugada não lhes toca');
     'MAS NÃO APAGA A SOMBRA, por muito parada que esteja — é o número antigo que ela guarda');
 
   sql(`DELETE FROM clientes WHERE id IN ('${destino.dados.cliente.id}','${velha.dados.cliente.id}')`);
+}
+
+grupo('Fundir duas contas');
+{
+  /* A operação mais perigosa do produto, e o perigo não é técnico: quase tudo
+     o que corre mal aqui corre mal em SILÊNCIO. Ninguém repara que perdeu um
+     cartão que tinha há dois anos — repara daí a meio ano, ao balcão, e já não
+     há como saber o que aconteceu. Por isso cada afirmação aqui conta linhas,
+     em vez de acreditar num 200. */
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+  const prog2 = (() => {
+    const há = linhas(`SELECT id FROM programas WHERE id = 'pfusao'`);
+    if (!há.length) {
+      sql(`INSERT INTO programas (id, negocio_id, nome, premio, objetivo, arrefecimento,
+             maximo_diario, criado_em)
+           VALUES ('pfusao', 'n1', 'Segundo programa', 'Bolo', 10, 0, 0, datetime('now'))`);
+    }
+    return 'pfusao';
+  })();
+
+  const criar = async () => {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    return { id: r.dados.cliente.id, publico: r.dados.cliente.publico,
+             sessao: r.dados.sessao, segredo: r.dados.segredo };
+  };
+  const carimbar = (c, programaId, quantas = 1) => (async () => {
+    for (let i = 0; i < quantas; i++) {
+      await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+        corpo: { codigo: `M1.${c.publico}`, programaId } });
+    }
+  })();
+
+  /* --- o caso comum: o telemóvel tinha cartões, a conta do email tinha outros */
+  const local = await criar();       /* a conta anónima que a app cria ao abrir */
+  const doEmail = await criar();     /* a conta em que a pessoa entra */
+  await carimbar(local, 'p1', 3);
+  await carimbar(local, prog2, 2);
+  await carimbar(doEmail, 'p1', 7);
+  /* Uma identidade no destino, para o modo ser dedutível. */
+  sql(`INSERT INTO identidades (id, cliente_id, provedor, sujeito, email, relay, criada_em, verificada_em)
+       VALUES ('${randomBytes(16).toString('hex')}', '${doEmail.id}', 'email',
+               'fusao@exemplo.pt', 'fusao@exemplo.pt', 0, datetime('now'), datetime('now'))`);
+
+  const antesLocal = linhas(`SELECT programa_id, carimbos, total_carimbos FROM cartoes
+                               WHERE cliente_id = '${local.id}' ORDER BY programa_id`);
+  const antesEmail = linhas(`SELECT programa_id, carimbos, total_carimbos FROM cartoes
+                               WHERE cliente_id = '${doEmail.id}'`);
+  certo(antesLocal.length === 2 && antesEmail.length === 1,
+    'o cenário montou-se: dois cartões de um lado, um do outro (senão o resto não prova nada)',
+    `${antesLocal.length} e ${antesEmail.length}`);
+
+  const fundiu = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+    sessao: doEmail.sessao, corpo: { sessaoOrigem: local.sessao } });
+  certo(fundiu.estado === 200, 'as duas contas juntam-se',
+    `${fundiu.estado} ${JSON.stringify(fundiu.dados)}`);
+  certo(fundiu.dados?.modo === 'absorcao',
+    'e o modo DEDUZ-SE: a conta local nunca teve identidade, logo é uma absorção',
+    String(fundiu.dados?.modo));
+
+  const depois = linhas(`SELECT programa_id, carimbos, total_carimbos, premios_ganhos
+                           FROM cartoes WHERE cliente_id = '${doEmail.id}' ORDER BY programa_id`);
+  certo(depois.length === 2, 'a conta que fica passa a ter os dois programas',
+    JSON.stringify(depois));
+  certo(linhas(`SELECT 1 FROM cartoes WHERE cliente_id = '${local.id}'`).length === 0,
+    'e a que sai não fica com nenhum');
+
+  const p1Depois = depois.find((c) => c.programa_id === 'p1');
+  certo(p1Depois?.carimbos === 7,
+    'O CICLO FICA PELO MAIOR, NUNCA PELA SOMA — somar era pagar a quem andasse com dois números no mesmo café',
+    `${p1Depois?.carimbos} (era 3 e 7)`);
+  certo(p1Depois?.total_carimbos === 10,
+    'mas o total histórico soma-se, que esse não dá prémio nenhum: é memória',
+    String(p1Depois?.total_carimbos));
+
+  /* O histórico do cartão que morreu tem de ter mudado de cartão ANTES de a
+     linha desaparecer — senão o ON DELETE CASCADE leva anos de visitas à
+     frente, e nada o diz. */
+  const cartaoP1 = linhas(`SELECT id FROM cartoes
+                             WHERE cliente_id = '${doEmail.id}' AND programa_id = 'p1'`)[0]?.id;
+  const movimentos = linhas(`SELECT COUNT(*) AS n FROM movimentos
+                               WHERE cartao_id = '${cartaoP1}'`)[0]?.n;
+  /* NO CARTÃO QUE SOBREVIVEU, e não «na conta»: a primeira versão desta
+     afirmação contava os movimentos de TODOS os cartões do destino, e o cartão
+     do segundo programa trazia três que chegavam para o total passar o limiar.
+     Com o reparenteamento desfeito de propósito, ela continuava verde. São
+     4 do cartão que morreu (adesão + 3 carimbos) e 8 do que ficou. */
+  certo(movimentos === 12,
+    'e o HISTÓRICO do cartão que morreu foi junto, em vez de ser levado pela cascata',
+    `${movimentos} movimentos, esperados 12`);
+
+  /* A sombra e a travessia, que é o que a fase 2 deixou pronto. */
+  const sombra = linhas(`SELECT fundida_em, chave_versao, email FROM clientes WHERE id = '${local.id}'`)[0];
+  certo(sombra?.fundida_em === doEmail.id, 'a conta que sai fica como sombra a apontar para a que fica',
+    JSON.stringify(sombra));
+  certo(sombra?.chave_versao === 2,
+    'e o segredo dela deixa de valer — a subida da versão é a dívida 3.1 a servir para o que foi feita',
+    String(sombra?.chave_versao));
+
+  const velho = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(local.publico, local.segredo), programaId: 'p1' } });
+  certo(velho.estado === 403, 'o código do ecrã da conta que saiu já não carimba',
+    `${velho.estado} ${JSON.stringify(velho.dados)}`);
+
+  const aMao = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${local.publico}`, programaId: 'p1' } });
+  certo(aMao.estado === 200,
+    'MAS O NÚMERO ANTIGO ESCRITO À MÃO CONTINUA A CARIMBAR — é a promessa do guardanapo',
+    String(aMao.estado));
+  certo(linhas(`SELECT cliente_id FROM cartoes WHERE programa_id = 'p1'
+                  AND cliente_id = '${doEmail.id}'`).length === 1,
+    'e vai parar à conta que ficou');
+
+  /* Numa ABSORÇÃO as sessões da conta que sai MORREM. */
+  const sessaoMorta = await pedir('/v1/cliente/cartoes', { sessao: local.sessao });
+  certo(sessaoMorta.estado === 401,
+    'numa absorção a sessão da conta que sai morre — ela nunca foi provada por ninguém',
+    String(sessaoMorta.estado));
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: doEmail.sessao });
+}
+
+grupo('Fundir: o que NÃO pode acontecer');
+{
+  const criar = async () => {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    return { id: r.dados.cliente.id, publico: r.dados.cliente.publico, sessao: r.dados.sessao };
+  };
+
+  /* 1. UMA FUSÃO PROVADA REAPONTA AS SESSÕES, em vez de as matar: as duas
+        contas autenticaram-se, e a pessoa continua a andar onde andava. */
+  const a = await criar(); const b = await criar();
+  for (const [c, morada] of [[a, 'prova-a@exemplo.pt'], [b, 'prova-b@exemplo.pt']]) {
+    sql(`DELETE FROM identidades WHERE sujeito = '${morada}'`);
+    sql(`INSERT INTO identidades (id, cliente_id, provedor, sujeito, email, relay, criada_em, verificada_em)
+         VALUES ('${randomBytes(16).toString('hex')}', '${c.id}', 'email', '${morada}',
+                 '${morada}', 0, datetime('now'), datetime('now'))`);
+  }
+  const provada = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+    sessao: b.sessao, corpo: { sessaoOrigem: a.sessao } });
+  certo(provada.dados?.modo === 'provada',
+    'duas contas com identidade dão uma fusão PROVADA', String(provada.dados?.modo));
+  const aindaAnda = await pedir('/v1/cliente/eu', { sessao: a.sessao });
+  certo(aindaAnda.estado === 200 && aindaAnda.dados?.cliente?.id === b.id,
+    'e a sessão da que saiu passa a abrir a que ficou, em vez de morrer',
+    `${aindaAnda.estado} ${aindaAnda.dados?.cliente?.id}`);
+  certo(linhas(`SELECT cliente_id FROM identidades WHERE sujeito = 'prova-a@exemplo.pt'`)[0]
+        ?.cliente_id === b.id,
+    'as formas de entrar mudam de dono — senão entrar pelo email antigo dava uma conta vazia');
+
+  /* 2. UM PRÉMIO POR LEVANTAR TRAVA A FUSÃO. É a regra conservadora, e está
+        por confirmar (PLANO-LOGIN.md §4): os carimbos ficam pelo maior, mas os
+        prémios já ganhos passariam todos, e valem dinheiro do café. */
+  const c1 = await criar(); const c2 = await criar();
+  await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${c1.publico}`, programaId: 'p1' } });
+  const cartao = linhas(`SELECT id FROM cartoes WHERE cliente_id = '${c1.id}'`)[0].id;
+  sql(`INSERT INTO premios (id, cartao_id, descricao, ganho_em)
+       VALUES ('${randomBytes(16).toString('hex')}', '${cartao}', 'Café grátis', datetime('now'))`);
+  const travada = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+    sessao: c2.sessao, corpo: { sessaoOrigem: c1.sessao } });
+  certo(travada.estado === 409 && travada.dados?.codigo === 'fusao-premios',
+    'um prémio por levantar trava a fusão, em vez de o oferecer duas vezes',
+    `${travada.estado} ${JSON.stringify(travada.dados)}`);
+  certo(linhas(`SELECT 1 FROM cartoes WHERE cliente_id = '${c1.id}'`).length === 1,
+    'e NADA se mexeu — a recusa é antes de tocar em seja o que for');
+
+  /* 3. Sem a sessão da outra conta não há fusão nenhuma. */
+  const d = await criar();
+  const semOrigem = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+    sessao: d.sessao, corpo: {} });
+  certo(semOrigem.estado === 400, 'sem a sessão da outra conta não se funde nada',
+    String(semOrigem.estado));
+  const inventada = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+    sessao: d.sessao, corpo: { sessaoOrigem: 'isto-nao-e-uma-sessao' } });
+  certo(inventada.estado === 401,
+    'e uma sessão inventada não serve — a prova são as DUAS sessões',
+    String(inventada.estado));
+  const aSiPropria = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+    sessao: d.sessao, corpo: { sessaoOrigem: d.sessao } });
+  certo(aSiPropria.estado === 400, 'uma conta não se funde a si própria', String(aSiPropria.estado));
+
+  /* 4. Uma sombra não se volta a fundir: era escrever cadeias de propósito. */
+  const e = await criar(); const f = await criar();
+  await pedir('/v1/cliente/fundir', { metodo: 'POST', sessao: f.sessao,
+    corpo: { sessaoOrigem: e.sessao } });
+  const g = await criar();
+  sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+       VALUES ('${createHash('sha256').update('ressuscitada').digest('hex')}',
+               'cliente:${e.id}', datetime('now'),
+               '${new Date(Date.now() + 86400000).toISOString()}')`);
+  const outraVez = await pedir('/v1/cliente/fundir', { metodo: 'POST', sessao: g.sessao,
+    corpo: { sessaoOrigem: 'ressuscitada' } });
+  certo(outraVez.estado === 409 && outraVez.dados?.codigo === 'fusao-sombra',
+    'uma sombra não se volta a fundir — era escrever cadeias de propósito',
+    `${outraVez.estado} ${JSON.stringify(outraVez.dados)}`);
+
+  /* 5. A CADEIA ACHATA-SE. Se uma sombra apontava para E e o E foi fundido no
+        H, a sombra passa a apontar para o H — não para o E. Sem isto cada
+        fusão acrescentava um elo, e ao oitavo o número antigo deixava de
+        carimbar sem nada que o explicasse. */
+  const antiga = await criar();
+  sql(`UPDATE clientes SET fundida_em = '${f.id}' WHERE id = '${antiga.id}'`);
+  const h = await criar();
+  await pedir('/v1/cliente/fundir', { metodo: 'POST', sessao: h.sessao,
+    corpo: { sessaoOrigem: f.sessao } });
+  certo(linhas(`SELECT fundida_em FROM clientes WHERE id = '${antiga.id}'`)[0]?.fundida_em === h.id,
+    'a cadeia achata-se: a sombra antiga passa a apontar para o destino final',
+    String(linhas(`SELECT fundida_em FROM clientes WHERE id = '${antiga.id}'`)[0]?.fundida_em));
+
+  sql(`DELETE FROM clientes WHERE id IN ('${[a, b, c1, c2, d, e, f, g, h, antiga]
+    .map((r) => r.id).join("','")}')`);
+  sql(`DELETE FROM identidades WHERE sujeito LIKE 'prova-%@exemplo.pt'`);
 }
 
 /* --------------------------------------------------------------------- */

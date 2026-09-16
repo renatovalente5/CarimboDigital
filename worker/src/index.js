@@ -1036,6 +1036,203 @@ async function resolverSombra(env, linha) {
   return actual;
 }
 
+/**
+ * Juntar duas contas numa só.
+ *
+ * É a operação mais perigosa do produto inteiro, e o perigo não é técnico: é
+ * que quase tudo o que corre mal aqui corre mal em SILÊNCIO. Ninguém repara
+ * que perdeu um cartão que tinha há dois anos; repara daí a meio ano, ao
+ * balcão, e já não há como saber o que aconteceu.
+ *
+ * SÃO DOIS MODOS, e confundi-los é um ataque:
+ *
+ *   'provada'  — as duas contas autenticaram-se no acto. As sessões da que sai
+ *                reapontam-se para a que fica: a pessoa continua a andar em
+ *                todos os aparelhos onde estava.
+ *   'absorcao' — a que sai é anónima e ninguém provou ser dela. As sessões
+ *                MORREM. Tratar isto como o outro caso era entregar a conta
+ *                inteira a quem estivesse com o telemóvel na mão.
+ *
+ * O QUE NÃO SE FAZ, e é tão importante como o que se faz:
+ *
+ *   - não se RECRIAM cartões, reparenteiam-se. O objecto da Google é
+ *     `<emissor>.<cartao.id>` e o `serialNumber` do `.pkpass` é o `cartao.id`:
+ *     um cartão recriado é um passe morto na carteira de alguém.
+ *   - não se SOMAM ciclos. Dois cartões do mesmo programa ficam pelo MAIOR. O
+ *     arrefecimento e o tecto diário são por CARTÃO, não por pessoa, por isso
+ *     somar era pagar a quem andasse com dois números no mesmo café. O total
+ *     histórico soma-se, porque esse não dá prémio nenhum: é memória.
+ *   - não se apaga a conta que sai. Fica sombra (ver `migracoes/010`).
+ */
+async function fundirContas(env, { origem, destino, modo }) {
+  if (origem === destino) throw new Falha('É a mesma conta.', { estado: 400, codigo: 'fusao-mesma' });
+  if (modo !== 'provada' && modo !== 'absorcao') {
+    throw new Falha('Modo de fusão desconhecido.', { estado: 400, codigo: 'fusao-modo' });
+  }
+
+  const daOrigem = await env.DB.prepare(
+    'SELECT id, publico, fundida_em FROM clientes WHERE id = ?').bind(origem).first();
+  const doDestino = await env.DB.prepare(
+    'SELECT id, publico, fundida_em FROM clientes WHERE id = ?').bind(destino).first();
+  if (!daOrigem || !doDestino) throw new Falha('Conta não encontrada', { estado: 404 });
+  if (daOrigem.fundida_em || doDestino.fundida_em) {
+    /* Fundir uma sombra era escrever cadeias de propósito, e o destino tem de
+       estar vivo por razões óbvias. Quem chama resolve primeiro. */
+    throw new Falha('Essa conta já foi fundida.', { estado: 409, codigo: 'fusao-sombra' });
+  }
+
+  /* --- O PRÉMIO POR LEVANTAR TRAVA A FUSÃO -------------------------------
+     Esta é a regra conservadora, e está isolada aqui de propósito porque é uma
+     DECISÃO DE PRODUTO por confirmar (ver PLANO-LOGIN.md §4). Um prémio por
+     levantar vale dinheiro do café: os carimbos ficam pelo maior, mas os
+     prémios já ganhos passariam todos, e quem andasse com dois números no
+     mesmo café juntava dois cafés grátis num só cartão.
+
+     Recusar não perde nada e é reversível — a pessoa levanta o que tem e funde
+     a seguir. A alternativa (deixar passar, com confirmação do balcão) é mais
+     trabalho e mais superfície, e não se escolhe sozinha. Enquanto não houver
+     decisão, fica a que não dá nada a ninguém por engano. */
+  const pendentes = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM premios pr
+       JOIN cartoes c ON c.id = pr.cartao_id
+      WHERE c.cliente_id IN (?, ?) AND pr.resgatado_em IS NULL`
+  ).bind(origem, destino).first()).n;
+  if (pendentes > 0) {
+    throw new Falha(
+      'Levanta primeiro os prémios que tens à espera e depois junta as contas.',
+      { estado: 409, codigo: 'fusao-premios', premios: pendentes });
+  }
+
+  const cartoesOrigem = (await env.DB.prepare(
+    'SELECT * FROM cartoes WHERE cliente_id = ?').bind(origem).all()).results;
+  const cartoesDestino = (await env.DB.prepare(
+    'SELECT * FROM cartoes WHERE cliente_id = ?').bind(destino).all()).results;
+  const porPrograma = new Map(cartoesDestino.map((c) => [c.programa_id, c]));
+
+  const instrucoes = [];
+  let mudados = 0, juntados = 0;
+
+  for (const c of cartoesOrigem) {
+    const gemeo = porPrograma.get(c.programa_id);
+    if (!gemeo) {
+      /* Sem colisão: muda de dono e mais nada. O `id` não se toca, senão o
+         passe na carteira de alguém morre. */
+      instrucoes.push(env.DB.prepare(
+        'UPDATE cartoes SET cliente_id = ? WHERE id = ?').bind(destino, c.id));
+      mudados++;
+      continue;
+    }
+    /* Colisão: o cartão do destino fica, o da origem despeja-se lá dentro.
+       O histórico vai junto — movimentos e prémios mudam de cartão ANTES de a
+       linha morrer, senão o ON DELETE CASCADE leva-os à frente e a pessoa
+       perde anos de visitas sem que nada o diga. */
+    instrucoes.push(
+      env.DB.prepare('UPDATE movimentos SET cartao_id = ? WHERE cartao_id = ?').bind(gemeo.id, c.id),
+      env.DB.prepare('UPDATE premios SET cartao_id = ? WHERE cartao_id = ?').bind(gemeo.id, c.id),
+      env.DB.prepare(
+        `UPDATE cartoes
+            SET carimbos = MAX(carimbos, ?),
+                pontos = MAX(pontos, ?),
+                total_carimbos = total_carimbos + ?,
+                premios_ganhos = premios_ganhos + ?,
+                aderiu_em = MIN(aderiu_em, ?),
+                ultimo_em = MAX(COALESCE(ultimo_em, ''), COALESCE(?, ''))
+          WHERE id = ?`
+      ).bind(c.carimbos, c.pontos, c.total_carimbos, c.premios_ganhos,
+             c.aderiu_em, c.ultimo_em, gemeo.id),
+      env.DB.prepare('DELETE FROM cartoes WHERE id = ?').bind(c.id),
+    );
+    juntados++;
+  }
+
+  /* --- OS PASSES DAS DUAS CONTAS SÃO REVOGADOS --------------------------
+     Esta é a dívida 3.2 a ser paga onde ela existe mesmo. O `wallet_codigo` é
+     um PORTADOR: o código de barras do passe carimba sem assinatura nenhuma.
+     Um cartão que muda de dono e leva o código atrás punha o passe que está na
+     carteira do telemóvel A a abrir o cartão que agora é da conta B — e é
+     exactamente o mesmo código que estava lá antes, por isso ninguém veria
+     nada de estranho.
+
+     Revogam-se os dois lados e não só os que mudaram: o cartão do destino que
+     absorveu um gémeo tem agora carimbos que não tinha, e o passe antigo
+     continuaria a mostrar o saldo velho. Voltar a juntar à carteira cunha um
+     código novo. */
+  /* DUAS CONTAS DIFERENTES, e o `LIMIT` só se aplica a uma delas. Quantos
+     passes caem é o que se diz a quem chamou, e tem de ser o número todo; o
+     tecto existe só para a ida à Google, que gasta subpedidos — uma invocação
+     tem cinquenta e esta rota já gastou uma dezena antes de chegar aqui. Ter
+     os dois no mesmo `SELECT` fazia a contagem parar nos 20 e a resposta
+     mentir a quem tivesse mais. */
+  const comPasse = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM cartoes
+      WHERE cliente_id IN (?, ?) AND wallet_codigo IS NOT NULL`
+  ).bind(origem, destino).first()).n;
+  if (walletLigada(env)) {
+    const naGoogle = (await env.DB.prepare(
+      `SELECT id FROM cartoes
+        WHERE cliente_id IN (?, ?) AND wallet_em IS NOT NULL LIMIT 20`
+    ).bind(origem, destino).all()).results;
+    for (const c of naGoogle) {
+      try {
+        await googlePedir(env, `/loyaltyObject/${env.GOOGLE_EMISSOR}.${c.id}`, {
+          metodo: 'PATCH', corpo: { state: 'EXPIRED' },
+        });
+      } catch (erro) {
+        console.error('wallet: não deu para expirar o passe ao fundir', c.id, String(erro));
+      }
+    }
+  }
+  instrucoes.push(env.DB.prepare(
+    `UPDATE cartoes SET wallet_codigo = NULL, wallet_em = NULL, apple_em = NULL
+      WHERE cliente_id IN (?, ?)`).bind(origem, destino));
+
+  /* As formas de entrar mudam de dono. */
+  instrucoes.push(env.DB.prepare(
+    'UPDATE identidades SET cliente_id = ? WHERE cliente_id = ?').bind(destino, origem));
+
+  /* As sessões: os dois modos, e é aqui que a diferença vive. */
+  instrucoes.push(modo === 'provada'
+    ? env.DB.prepare('UPDATE sessoes SET sujeito = ? WHERE sujeito = ?')
+        .bind(`cliente:${destino}`, `cliente:${origem}`)
+    : env.DB.prepare('DELETE FROM sessoes WHERE sujeito = ?').bind(`cliente:${origem}`));
+
+  /* Os códigos por usar da origem não podem ficar a apontar para uma sombra:
+     quem escrevesse um deles entrava numa conta que já não é destino de nada. */
+  instrucoes.push(env.DB.prepare(
+    'UPDATE entradas SET alvo = ? WHERE alvo = ? AND usada_em IS NULL')
+    .bind(`cliente:${destino}`, `cliente:${origem}`));
+
+  /* A origem passa a sombra, e o segredo dela deixa de valer. A subida da
+     versão é a dívida 3.1 a servir para o que foi feita. */
+  instrucoes.push(env.DB.prepare(
+    `UPDATE clientes
+        SET fundida_em = ?, fundida_quando = ?, chave_versao = chave_versao + 1,
+            email = NULL, email_verificado = 0, avisada_em = NULL
+      WHERE id = ?`).bind(destino, agora(), origem));
+
+  /* ACHATAR A CADEIA. Tudo o que apontava para a origem passa a apontar para o
+     destino, para a travessia ser sempre de um salto só. Sem isto, cada fusão
+     acrescentava um elo, e ao oitavo o `resolverSombra` desiste — um número de
+     cartão antigo deixava de carimbar sem nada que o explicasse. */
+  instrucoes.push(env.DB.prepare(
+    'UPDATE clientes SET fundida_em = ? WHERE fundida_em = ?').bind(destino, origem));
+
+  /* O espelho do email do destino refaz-se a partir das identidades, que é
+     quem manda. A origem podia trazer a morada e o destino não ter nenhuma. */
+  instrucoes.push(env.DB.prepare(
+    `UPDATE clientes SET email = (
+        SELECT i.email FROM identidades i
+         WHERE i.cliente_id = ?1 AND i.provedor = 'email' AND i.relay = 0
+         ORDER BY i.verificada_em LIMIT 1),
+      email_verificado = CASE WHEN EXISTS (
+        SELECT 1 FROM identidades i
+         WHERE i.cliente_id = ?1 AND i.provedor = 'email' AND i.relay = 0) THEN 1 ELSE 0 END
+      WHERE id = ?1`).bind(destino));
+
+  await env.DB.batch(instrucoes);
+  return { cartoesMudados: mudados, cartoesJuntados: juntados, passesRevogados: comPasse };
+}
+
 /* =========================================================================
    Identidades — as formas de entrar numa conta
 
@@ -1212,6 +1409,55 @@ rota('POST', '/v1/cliente/sair-dos-outros', async (env, pedido) => {
     passesRevogados: comPasse.length,
     horaDoServidor: agora(),
   };
+});
+
+/**
+ * Juntar duas contas.
+ *
+ * A PROVA SÃO DUAS SESSÕES, e não é preciso inventar credencial nenhuma: uma
+ * sessão já é a credencial de uma conta, em todas as outras rotas. Quem
+ * consegue apresentar as duas provou as duas.
+ *
+ *   authorization: Bearer <sessão da conta que FICA>
+ *   corpo:         { "sessaoOrigem": "<testemunho da conta que SAI>" }
+ *
+ * O MODO NÃO SE PEDE, DEDUZ-SE, e isso não é comodidade: deixar quem chama
+ * escolher entre 'provada' e 'absorcao' era deixá-lo escolher se as sessões da
+ * outra conta sobrevivem. Uma conta com identidades é uma conta em que alguém
+ * entrou — as sessões dela reapontam-se. Uma conta anónima, dessas que a app
+ * cria ao abrir pela primeira vez, é uma absorção e as sessões morrem.
+ *
+ * O caminho real: a pessoa anda há meses com a app e tem cartões; toca no
+ * perfil, entra com o email, e a conta que a app tinha localmente não é a mesma
+ * que a do email. Sem isto, os cartões do telemóvel ficavam para trás.
+ */
+rota('POST', '/v1/cliente/fundir', async (env, pedido) => {
+  const destino = await exigirCliente(env, pedido);
+  const { sessaoOrigem } = await corpoJSON(pedido);
+  if (!sessaoOrigem || typeof sessaoOrigem !== 'string') {
+    throw new Falha('Falta a sessão da conta a juntar.', { estado: 400, codigo: 'fusao-sem-origem' });
+  }
+
+  const linha = await env.DB.prepare(
+    'SELECT sujeito, expira_em FROM sessoes WHERE resumo = ?'
+  ).bind(await resumo(sessaoOrigem)).first();
+  if (!linha || new Date(linha.expira_em) < new Date()) {
+    throw new Falha('Essa sessão já não vale.', { estado: 401, codigo: 'fusao-origem-invalida' });
+  }
+  const [tipo, origem] = linha.sujeito.split(':');
+  if (tipo !== 'cliente') {
+    throw new Falha('Essa sessão não é de um cliente.', { estado: 400, codigo: 'fusao-origem-tipo' });
+  }
+  if (origem === destino) {
+    throw new Falha('Já é a mesma conta.', { estado: 400, codigo: 'fusao-mesma' });
+  }
+
+  const temIdentidade = await env.DB.prepare(
+    'SELECT 1 AS e FROM identidades WHERE cliente_id = ? LIMIT 1').bind(origem).first();
+  const modo = temIdentidade ? 'provada' : 'absorcao';
+
+  const resultado = await fundirContas(env, { origem, destino, modo });
+  return { ...resultado, modo, horaDoServidor: agora() };
 });
 
 rota('GET', '/v1/cliente/cartoes', async (env, pedido) => {
