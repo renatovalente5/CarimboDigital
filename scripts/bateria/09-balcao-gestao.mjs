@@ -601,7 +601,12 @@ export async function correr(palco, certo) {
   {
     const antes = await palco.contar('#logo-previa img');
     await palco.js(`
-      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
+      /* Um PNG de 8×8 COM DESENHO LÁ DENTRO — um quadrado escuro sobre
+         branco. Era um de 1×1 de uma cor só, e isso deixou de ser um
+         logótipo: uma imagem de uma cor única passa a ser recusada, porque é
+         exactamente o que sai de uma exportação com a camada errada
+         escondida. Uma fixture que o produto recusa não prova nada. */
+      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAKElEQVR4nGP8////fwY8gAmfJAiwwBiioqIoEq9fvybOBMoVMFLsCwAh1wsJwaXYzgAAAABJRU5ErkJggg==';
       const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
       const f = new File([bytes], 'marca.png', { type: 'image/png' });
       const dt = new DataTransfer();
@@ -724,8 +729,15 @@ export async function correr(palco, certo) {
     await esperarCamara(palco);
     await irAo(palco, 'programa');
     const escura = await comMarca('#2B1810', '255,255,255,1');
-    certo(escura && escura[0] < 80 && escura[1] < 80 && escura[2] < 80,
-      'logótipo claro + marca escura: usa-se a cor da marca, que contrasta',
+    /* A COR EXACTA DA MARCA, e não «uma cor escura». A afirmação pedia os
+       três canais abaixo de 80 — e o preto de recurso (#17161C) também passa
+       nisso. Media «é escuro», não «é a marca», que é justamente o ramo em
+       prova. */
+    certo(escura && escura[0] === 0x2B && escura[1] === 0x18 && escura[2] === 0x10,
+      'logótipo claro + marca escura: usa-se a COR DA MARCA (#2B1810), que contrasta',
+      JSON.stringify(escura));
+    certo(!(escura && escura[0] === 0x17 && escura[1] === 0x16 && escura[2] === 0x1C),
+      'e não o preto de recurso — que também é escuro e não provaria nada',
       JSON.stringify(escura));
 
     /* Marca CLARA + logótipo claro: a cor da marca NÃO serve. */
@@ -771,14 +783,35 @@ export async function correr(palco, certo) {
        no ecrã que explicasse porquê.
        ---------------------------------------------------------------- */
     /* Um logótipo com fundo PRÓPRIO não regista cor nenhuma: o fundo é de
-       quem o desenhou e não envelhece com a marca. É o que está guardado
-       neste ponto do módulo, do bloco de cima. */
+       quem o desenhou e não envelhece com a marca.
+
+       E envia-se um AQUI, em vez de contar com o que o bloco de cima deixou —
+       o que lá estava era transparente, e a afirmação passava por uma razão
+       diferente da que anuncia. Pior: o fundo próprio é DE PROPÓSITO igual à
+       cor do cartão, que é o caso em que a decisão «é da marca?» se enganava
+       se fosse tomada por comparação de cores em vez de pelo ramo. */
     const opaco = await palco.js(`
       const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
       const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
-      return { fundo: n.logotipo_fundo || null, cor: n.cor };`);
+      const cor = n.cor;
+      const tela = document.createElement('canvas');
+      tela.width = 32; tela.height = 32;
+      const c = tela.getContext('2d');
+      c.fillStyle = cor; c.fillRect(0, 0, 32, 32);          /* a moldura do ficheiro */
+      c.fillStyle = '#FFFFFF'; c.fillRect(10, 10, 12, 12);  /* a marca */
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'proprio.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1200));
+      const e2 = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n2 = e2.negocios.find((x) => x.id === 'n-torrado') || e2.negocios[0];
+      return { fundo: n2.logotipo_fundo || null, cor: n2.cor };`);
     certo(opaco && opaco.fundo === null,
-      'um logótipo com fundo próprio não regista cor cozida — não há nada que envelheça',
+      'um logótipo com fundo PRÓPRIO não regista cor cozida — mesmo quando esse fundo é a cor do cartão',
       JSON.stringify(opaco));
     certo(!(await palco.ver('.aviso-demo')) || !(await palco.texto('.aviso-demo')).includes('cor antiga'),
       'e por isso não há aviso nenhum');
@@ -985,7 +1018,7 @@ export async function correr(palco, certo) {
     const antes = await palco.js(`
       const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
       const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
-      return n.logotipo ? n.logotipo.slice(0, 40) : null;`);
+      return n.logotipo || null;`);
 
     const resposta = await palco.js(`
       const tela = document.createElement('canvas');
@@ -1004,13 +1037,41 @@ export async function correr(palco, certo) {
       'uma imagem sem nada visível é recusada, e diz-se porquê',
       String(resposta).slice(0, 160));
 
+    /* E UMA OPACA DE UMA COR SÓ TAMBÉM. A guarda antiga perguntava «há píxeis
+       opacos?», o que num JPEG é sempre verdade — era código morto para
+       metade dos formatos que a rota aceita. Uma folha digitalizada em branco,
+       ou uma exportação com a camada errada escondida, passava e ficava
+       guardada como um quadrado de cor. */
+    const opacaSo = await palco.js(`
+      const tela = document.createElement('canvas');
+      tela.width = 64; tela.height = 64;
+      const c = tela.getContext('2d');
+      c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 64, 64);
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'branco.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1200));
+      return document.body.innerText;`);
+    certo(/vazia|só uma cor/i.test(opacaSo),
+      'e uma imagem OPACA de uma cor só também — um JPEG nunca tem transparência',
+      String(opacaSo).slice(0, 160));
+
     const depois = await palco.js(`
       const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
       const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
-      return n.logotipo ? n.logotipo.slice(0, 40) : null;`);
+      return n.logotipo || null;`);
+    /* O DATA URL INTEIRO, e não os primeiros 40 caracteres. Os 22 primeiros
+       são `data:image/png;base64,` e os 18 seguintes codificam a assinatura
+       do PNG e o início do IHDR — iguais em QUALQUER png de 512×512. Comparar
+       40 caracteres era comparar duas constantes: a afirmação dava certo
+       mesmo com o logótipo substituído por um quadrado branco. */
     certo(depois === antes,
-      'e o logótipo que lá estava não é substituído por um quadrado branco',
-      `${String(antes).slice(0, 24)} → ${String(depois).slice(0, 24)}`);
+      'e o logótipo que lá estava não é substituído — byte a byte, o data URL inteiro',
+      `${String(antes).length} caracteres → ${String(depois).length}`);
   }
 
   {

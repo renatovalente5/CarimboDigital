@@ -369,6 +369,24 @@ grupo('Muitos cartões não rebentam a resposta');
   const c = await pedir('/v1/cliente/registar', { metodo: 'POST' });
   const sessaoM = c.dados.sessao;
 
+  /* A LIMPEZA CORRE MESMO QUE ISTO REBENTE. Estava no fim do bloco, sem rede:
+     um `sql()` que falhasse — ou um `Object.keys` sobre `undefined` — deixava
+     doze negócios de mentira na base local, e os grupos que leem o
+     `/v1/descobrir` passavam a provar outro programa qualquer, a verde. Um
+     teste que estraga o estado de outro só se nota à segunda corrida, que é
+     quando já ninguém liga o resultado à causa. */
+  const levantarAMesa = () => {
+    try {
+      sql(`DELETE FROM marcos WHERE programa_id LIKE 'p-muitos-%';
+           DELETE FROM programas WHERE id LIKE 'p-muitos-%';
+           DELETE FROM negocios WHERE id LIKE 'n-muitos-%';
+           DELETE FROM programas WHERE id LIKE 'p-cem-%';
+           DELETE FROM negocios WHERE id LIKE 'n-cem-%'`);
+    } catch { /* se nem isto dá, o `--limpo` resolve */ }
+  };
+
+  try {
+
   const programas = [];
   for (let i = 0; i < 12; i += 1) {
     const nid = `n-muitos-${i}`;
@@ -412,22 +430,34 @@ grupo('Muitos cartões não rebentam a resposta');
   /* A FORMA TEM DE SER A MESMA. Há dois caminhos para moldar um cartão — um
      a um, e em lote — e duas cópias de uma forma divergem ao primeiro campo
      novo. Compara-se um contra o outro. */
-  const umPorUm = await pedir(`/v1/cliente/cartoes/${carteira.dados[0].id}`, { sessao: sessaoM });
-  const { movimentos: _m, ...soCartao } = umPorUm.dados;
-  const emLote = carteira.dados.find((x) => x.id === soCartao.id);
-  certo(JSON.stringify(Object.keys(soCartao).sort()) === JSON.stringify(Object.keys(emLote).sort()),
-    'um cartão pedido sozinho e o mesmo pedido em lote têm exactamente os mesmos campos',
-    `sozinho ${Object.keys(soCartao).sort().join(',')} | lote ${Object.keys(emLote).sort().join(',')}`);
-  certo(JSON.stringify(soCartao) === JSON.stringify(emLote),
-    'e exactamente os mesmos valores',
-    `${JSON.stringify(soCartao).slice(0, 100)} ≠ ${JSON.stringify(emLote).slice(0, 100)}`);
+  /* UM DE CADA TIPO, e o de PONTOS não é opcional: os `marcos` são o ÚNICO
+     campo que os dois caminhos calculam de maneira diferente — um com um
+     `SELECT ... FROM marcos`, o outro a encher um mapa à mão — e num cartão de
+     carimbos são `null` nos dois por razões triviais. Comparar só o primeiro
+     cartão caía sempre num de carimbos, e a afirmação passava por cima
+     justamente do sítio onde eles podem divergir. */
+  for (const tipo of ['carimbos', 'pontos']) {
+    const alvo = carteira.dados.find((x) => x.programa.tipo === tipo);
+    certo(!!alvo, `há um cartão de ${tipo} para comparar`, String(Boolean(alvo)));
+    if (!alvo) continue;
+    const umPorUm = await pedir(`/v1/cliente/cartoes/${alvo.id}`, { sessao: sessaoM });
+    const { movimentos: _m, ...soCartao } = umPorUm.dados;
+    certo(JSON.stringify(Object.keys(soCartao).sort()) === JSON.stringify(Object.keys(alvo).sort()),
+      `${tipo}: sozinho e em lote têm exactamente os mesmos campos`,
+      `sozinho ${Object.keys(soCartao).sort().join(',')} | lote ${Object.keys(alvo).sort().join(',')}`);
+    certo(JSON.stringify(soCartao) === JSON.stringify(alvo),
+      `${tipo}: e exactamente os mesmos valores`,
+      `${JSON.stringify(soCartao).slice(0, 110)} ≠ ${JSON.stringify(alvo).slice(0, 110)}`);
+  }
+  const deMarcos = carteira.dados.find((x) => x.programa.tipo === 'pontos');
+  certo(deMarcos && Array.isArray(deMarcos.programa.marcos)
+     && deMarcos.programa.marcos.length === 1
+     && deMarcos.programa.marcos[0].pontos === 50
+     && deMarcos.programa.marcos[0].premio === 'Meio caminho',
+    'e os marcos vêm inteiros — pontos E prémio, que é onde o lote podia perder um campo',
+    JSON.stringify(deMarcos && deMarcos.programa.marcos));
 
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoM });
-  for (let i = 0; i < 12; i += 1) {
-    sql(`DELETE FROM marcos WHERE programa_id = 'p-muitos-${i}'`);
-    sql(`DELETE FROM programas WHERE id = 'p-muitos-${i}'`);
-    sql(`DELETE FROM negocios WHERE id = 'n-muitos-${i}'`);
-  }
 
   {
     /* E ACIMA DOS CEM. O D1 aceita cem parâmetros por consulta e nem um a
@@ -467,8 +497,9 @@ grupo('Muitos cartões não rebentam a resposta');
       `${exp.estado} · ${exp.dados && exp.dados.cartoes ? exp.dados.cartoes.length : JSON.stringify(exp.dados).slice(0, 90)}`);
 
     await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c2.dados.sessao });
-    sql(`DELETE FROM programas WHERE id LIKE 'p-cem-%'; DELETE FROM negocios WHERE id LIKE 'n-cem-%'`);
   }
+
+  } finally { levantarAMesa(); }
 }
 
 grupo('O código do passe carimba mesmo');
@@ -2147,6 +2178,49 @@ grupo('O cartão na Apple Wallet');
           `assinatura ${assinatura.length} bytes`);
       }
 
+      {
+        /* A CADEIA AO CONTRÁRIO NÃO ASSINA EM SILÊNCIO. O primeiro bloco é
+           tomado como signatário; se a ordem não corresponder à chave, o
+           `SignerInfo` apontava para um certificado que não tem nada que ver
+           com a assinatura e nada se queixava — o `emissorESerie` lê o emissor
+           e a série de qualquer SEQUENCE que lhe dêem. O passe saía, o
+           telemóvel recusava-o, e não havia por onde perceber porquê. */
+        let aoContrario = null;
+        try {
+          await p.construirPasse({
+            passe, imagens: { 'icon.png': PNG1 },
+            certificado: `${intermedio}${cert}`, chave, quando: '2026-09-16T00:00:00Z',
+          });
+        } catch (erro) { aoContrario = erro.message; }
+        certo(aoContrario && /não corresponde/i.test(aoContrario),
+          'a cadeia colada ao contrário é recusada — a chave não bate com o primeiro certificado',
+          String(aoContrario).slice(0, 110));
+        certo(aoContrario && /PRIMEIRO/.test(aoContrario),
+          'e diz qual é a ordem certa', String(aoContrario).slice(0, 130));
+
+        /* UM CERTIFICADO EM BRANCO NÃO PROMOVE A CADEIA A SIGNATÁRIO. */
+        let embranco = null;
+        try {
+          await p.construirPasse({
+            passe, imagens: { 'icon.png': PNG1 },
+            certificado: '   ', chave, cadeia: [intermedio], quando: '2026-09-16T00:00:00Z',
+          });
+        } catch (erro) { embranco = erro.message; }
+        certo(embranco && /APPLE_CERTIFICADO/.test(embranco),
+          'um APPLE_CERTIFICADO em branco é recusado — a cadeia não serve de signatário',
+          String(embranco).slice(0, 110));
+
+        /* UM BLOCO TRUNCADO DIZ QUAL. Lendo mais do que um bloco, um caracter
+           perdido num copiar-colar do segundo dava um «Erro interno» que não
+           nomeava nada. */
+        const partido = `${cert}${intermedio.replace(/^(.{80})./m, '$1')}`;
+        let truncado = null;
+        try { p.todosOsPEM(partido); } catch (erro) { truncado = erro.message; }
+        certo(truncado === null || /bloco \d/.test(truncado),
+          'e um bloco estragado diz QUAL dos blocos é que está estragado',
+          String(truncado));
+      }
+
       /* Com os `\n` achatados, que é como um PEM cabe numa variável. */
       const achatado = await p.construirPasse({
         passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
@@ -2353,6 +2427,17 @@ grupo('O passe da Apple, de ponta a ponta');
       `${r5.estado} ${r5.dados.codigo}`);
     certo(/PNG/.test(String(r5.dados.erro)) && /balcão/i.test(String(r5.dados.erro)),
       'e diz o que fazer', String(r5.dados.erro));
+
+    /* E A APP NÃO PROMETE O BOTÃO. Este campo existe justamente para que um
+       botão não falhe só quando é tocado — prometer a Apple a um negócio com
+       logótipo JPEG era pôr aqui o defeito que ele veio resolver. */
+    const comJpeg = await pedir(`/v1/cliente/cartoes/${cartaoId}`, { sessao: sessaoA });
+    certo(comJpeg.dados.carteiras && comJpeg.dados.carteiras.apple === false,
+      'e a app deixa de prometer o botão da Apple a um negócio com logótipo JPEG',
+      JSON.stringify(comJpeg.dados.carteiras));
+    certo(comJpeg.dados.carteiras && comJpeg.dados.carteiras.google === true,
+      'mas a Google continua — essa aceita JPEG',
+      JSON.stringify(comJpeg.dados.carteiras));
     sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}' WHERE id = 'n1'`);
   }
 

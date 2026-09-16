@@ -254,7 +254,8 @@ async function programaCompleto(env, programaId) {
     `SELECT p.*, n.nome AS negocio_nome, n.slug AS negocio_slug, n.cor AS negocio_cor,
             n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
             n.morada AS negocio_morada, n.telefone AS negocio_telefone,
-            (n.logotipo IS NOT NULL) AS negocio_tem_logotipo
+            (n.logotipo IS NOT NULL) AS negocio_tem_logotipo,
+            (substr(n.logotipo, 1, 10) = 'image/png;') AS negocio_logotipo_png
        FROM programas p JOIN negocios n ON n.id = p.negocio_id
       WHERE p.id = ?`
   ).bind(programaId).first();
@@ -329,7 +330,12 @@ function moldeDeCartao(env, cartao, p, premios) {
        vê os botões que servem. */
     carteiras: {
       google: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
-      apple: Boolean(applePronta(env) && p.negocio_tem_logotipo),
+      /* A APPLE EXIGE PNG, e a promessa tem de saber disso. O `pecasDoPasse`
+         recusa um logótipo JPEG com 409 — e este campo existe justamente para
+         que um botão não falhe só quando é tocado. Prometer a Apple a um
+         negócio com logótipo JPEG era pôr aqui o defeito que o campo veio
+         resolver. */
+      apple: Boolean(applePronta(env) && p.negocio_tem_logotipo && p.negocio_logotipo_png),
     },
     /* O NOME ANTIGO FICA. Isto chamava-se `wallet` e era um booleano, e mudar
        o nome apagou o botão da Wallet da aplicação que estava no ar — o
@@ -383,7 +389,8 @@ async function moldarCartoes(env, cartoes) {
     `SELECT p.*, n.nome AS negocio_nome, n.slug AS negocio_slug, n.cor AS negocio_cor,
             n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
             n.morada AS negocio_morada, n.telefone AS negocio_telefone,
-            (n.logotipo IS NOT NULL) AS negocio_tem_logotipo
+            (n.logotipo IS NOT NULL) AS negocio_tem_logotipo,
+            (substr(n.logotipo, 1, 10) = 'image/png;') AS negocio_logotipo_png
        FROM programas p JOIN negocios n ON n.id = p.negocio_id
       WHERE p.id IN (${marcas})`);
   const porPrograma = new Map(programas.map((p) => [p.id, p]));
@@ -1645,8 +1652,19 @@ async function garantirClasse(env, programa, negocio, origemAPI) {
         metodo: 'PATCH', corpo: actualizacaoDeClasse(programa, negocio, { logotipo }),
       });
     } catch (erro) {
+      /* A classe EXISTE — é isso que o 409 diz — por isso o passe pode sair, e
+         é por isso que não se deixa a excepção subir. Mas NÃO se carimba o
+         `wallet_classe`: o `garantirClasse` começa por `if (wallet_classe)
+         return`, e carimbá-lo aqui fechava para sempre a única porta que
+         voltaria a tentar esta actualização. A classe ficaria com os dados de
+         uma vida anterior — o nome antigo do café — e ninguém teria por onde
+         a corrigir.
+
+         Sem o carimbo, a próxima pessoa que peça o passe repete o POST (que dá
+         409 outra vez, barato) e volta a tentar o PATCH. */
       console.error('wallet: a classe existe mas não deu para actualizar',
         programa.id, String(erro));
+      return;
     }
   }
   await env.DB.prepare('UPDATE programas SET wallet_classe = ? WHERE id = ?')
@@ -1718,14 +1736,22 @@ async function espelharClassesDoNegocio(env, negocioId, pedido, ctx) {
     'SELECT id FROM programas WHERE negocio_id = ? AND wallet_classe IS NOT NULL'
   ).bind(negocioId).all()).results;
   const origem = origemDaAPI(pedido);
-  /* UMA tarefa, em fila, e não N ao mesmo tempo. Cada `espelharClasse` pede um
-     testemunho de acesso à Google, e a cache dele só protege ENTRE invocações:
-     doze tarefas a arrancar juntas vêem-na fria as doze e fazem doze pedidos
-     de OAuth em paralelo — que a Google estrangula, e que gastam doze dos
-     cinquenta subpedidos que o plano gratuito dá por invocação. Em fila, a
-     primeira aquece a cache e as outras aproveitam-na. */
+  /* A PRIMEIRA SOZINHA, AS OUTRAS JUNTAS.
+
+     Doze tarefas a arrancar ao mesmo tempo vêem a cache do testemunho fria as
+     doze e fazem doze pedidos de OAuth em paralelo — que a Google estrangula,
+     e que gastam doze dos cinquenta subpedidos que o plano gratuito dá por
+     invocação. Mas pô-las todas em FILA era o extremo oposto: o orçamento do
+     `waitUntil` é tempo de relógio, e com a Google lenta as primeiras
+     gastavam-no todo e as últimas nem chegavam a ser tentadas.
+
+     A primeira corre sozinha e aquece a cache; as restantes vão juntas e
+     aproveitam-na. Uma espera em vez de doze, e uma janela partilhada em vez
+     de uma corrida. */
   ctx.waitUntil((async () => {
-    for (const p of ps) await espelharClasse(env, p.id, origem);
+    const [primeira, ...resto] = ps;
+    await espelharClasse(env, primeira.id, origem);
+    await Promise.all(resto.map((p) => espelharClasse(env, p.id, origem)));
   })());
 }
 

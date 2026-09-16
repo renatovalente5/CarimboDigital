@@ -642,9 +642,15 @@ const LOGOTIPO_LADO = 512;
  * O mínimo é 3:1, que é o que a WCAG pede a um elemento gráfico — isto não é
  * texto corrido, é uma marca dentro de um círculo de 38 pt.
  */
-/* O fundo tanto pode sair em `#RRGGBB` como em `rgb(r,g,b)` — o ramo da
-   moldura própria devolve o segundo. Guarda-se sempre na primeira forma, que
-   é a que o resto do sistema usa para cores. */
+/* A curva do sRGB para luz linear. É esta que a WCAG usa, e é a razão de a
+   luminância não se poder calcular sobre a média das componentes: a curva é
+   convexa, e a média de curvas não é a curva da média. */
+const linear = (v) => { const u = v / 255; return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; };
+const luminancia = (r, g, b) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+const razaoDeContraste = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+/* O fundo tanto pode sair em `#RRGGBB` como em `rgb(r,g,b)`. Guarda-se sempre
+   na primeira forma, que é a que o resto do sistema usa para cores. */
 function hexDe(cor) {
   const t = String(cor || '').trim();
   if (/^#[0-9a-fA-F]{6}$/.test(t)) return t.toUpperCase();
@@ -653,21 +659,42 @@ function hexDe(cor) {
   return `#${n.slice(0, 3).map((v) => Number(v).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
 }
 
-function fundoQueContrasta(mediaDoDesenho, claro, corDaMarca) {
-  if (!claro) return '#FFFFFF';
-  const m = /^#([0-9a-fA-F]{6})$/.exec(String(corDaMarca || ''));
-  if (!m) return '#17161C';
-
-  const canal = (v) => { const u = v / 255; return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; };
+const rgbDe = (hex) => {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || ''));
+  if (!m) return null;
   const n = parseInt(m[1], 16);
-  const luzDaMarca = 0.2126 * canal((n >> 16) & 255)
-    + 0.7152 * canal((n >> 8) & 255) + 0.0722 * canal(n & 255);
-  /* A média do desenho vem em 0..255 já ponderada; passa-se pela mesma curva
-     para as duas luminâncias serem comparáveis. */
-  const luzDoDesenho = canal(mediaDoDesenho);
-  const a = Math.max(luzDaMarca, luzDoDesenho) + 0.05;
-  const b = Math.min(luzDaMarca, luzDoDesenho) + 0.05;
-  return (a / b) >= 3 ? corDaMarca : '#17161C';
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+
+/**
+ * O fundo em que um logótipo transparente se lê.
+ *
+ * UM LOGÓTIPO ESCURO ASSENTA EM BRANCO, sempre. Branco contrasta com o que é
+ * escuro, e é o que a Google já desenha à volta — o círculo dela é branco, e
+ * assim o fundo não se vê.
+ *
+ * UM LOGÓTIPO CLARO precisa de fundo escuro, e é aí que estava o defeito: a
+ * cor da marca era usada sem se lhe perguntar nada. Não é suposição que se
+ * possa fazer — há um selector de cor livre no ecrã ao lado e o Worker aceita
+ * qualquer `#RRGGBB`. Uma pastelaria em creme com um logótipo branco ficava
+ * com branco sobre creme: 1,2:1, o mesmo que não estar lá.
+ *
+ * O mínimo é 3:1, que é o que a WCAG pede a um elemento gráfico — isto não é
+ * texto corrido, é uma marca dentro de um círculo de 38 pt.
+ *
+ * Devolve TAMBÉM de onde veio a cor, e isso não é enfeite: só a cor da marca
+ * envelhece quando o dono muda o cartão. Decidir pela cor — comparar o
+ * resultado com `estado.negocio.cor` — dava falsos positivos sempre que o
+ * recurso ou a moldura do ficheiro calhassem de ser a mesma cor.
+ */
+function fundoQueContrasta(luzDoDesenho, claro, corDaMarca) {
+  if (!claro) return { cor: '#FFFFFF', daMarca: false };
+  const rgb = rgbDe(corDaMarca);
+  if (!rgb) return { cor: '#17161C', daMarca: false };
+  const passa = razaoDeContraste(luminancia(...rgb), luzDoDesenho) >= 3;
+  return passa
+    ? { cor: hexDe(corDaMarca), daMarca: true }
+    : { cor: '#17161C', daMarca: false };
 }
 
 function reduzirLogotipo(ficheiro) {
@@ -687,74 +714,61 @@ function reduzirLogotipo(ficheiro) {
         const mctx = medida.getContext('2d', { willReadFrequently: true });
         mctx.drawImage(img, 0, 0, M, M);
         const px = mctx.getImageData(0, 0, M, M).data;
-        const em = (x, y) => (y * M + x) * 4;
-        const pixel = (x, y) => { const i = em(x, y); return [px[i], px[i + 1], px[i + 2], px[i + 3]]; };
+        const pixel = (x, y) => { const i = (y * M + x) * 4; return [px[i], px[i + 1], px[i + 2], px[i + 3]]; };
 
-        /* A COR DA MOLDURA: os quatro cantos. Se concordarem, o ficheiro tem
-           uma cor de fundo própria — transparente ou não — e é por ela que se
-           apara o que sobra e se preenche o que falta. Dois transparentes são
-           iguais seja qual for o RGB por baixo, que os editores não garantem. */
-        const iguais = (a, b) => (a[3] < 32 && b[3] < 32)
-          || (Math.abs(a[0] - b[0]) < 12 && Math.abs(a[1] - b[1]) < 12
-            && Math.abs(a[2] - b[2]) < 12 && Math.abs(a[3] - b[3]) < 12);
+        /* UM SÓ PREDICADO para detectar a moldura E para a aparar.
+           Estiveram dois, com tolerâncias diferentes — 12 para detectar, 3
+           para aparar — e entre eles caía uma família inteira de ficheiros:
+           os exportados sobre um fundo quase-liso (branco a #FAFAFA, que o
+           Figma e o Illustrator produzem aos molhos). Os cantos concordavam
+           dentro de 12, portanto havia moldura; nenhuma linha concordava
+           dentro de 3, portanto não se aparava nada. O logótipo ficava com a
+           margem toda e encolhido dentro do círculo.
+
+           Três valores em 255 é o limiar abaixo do qual nem um ecrã bom mostra
+           diferença; a transparência fica nos 32, que é onde um halo deixa de
+           contar. São duas perguntas e cada uma tem o seu número, mas são as
+           MESMAS duas em toda a função. */
+        const daMesmaCor = (a, b) => (a[3] < 32 && b[3] < 32)
+          || (Math.abs(a[0] - b[0]) < 3 && Math.abs(a[1] - b[1]) < 3
+            && Math.abs(a[2] - b[2]) < 3 && Math.abs(a[3] - b[3]) < 3);
+
         const cantos = [pixel(0, 0), pixel(M - 1, 0), pixel(0, M - 1), pixel(M - 1, M - 1)];
-        const moldura = cantos.every((c) => iguais(c, cantos[0])) ? cantos[0] : null;
+        const moldura = cantos.every((c) => daMesmaCor(c, cantos[0])) ? cantos[0] : null;
 
         /* APARA-SE A MOLDURA antes de encolher. Quase todos os ficheiros de
            logótipo trazem margem a mais — e sem a tirar, o desenho fica ainda
            mais pequeno dentro do círculo do que precisava de ficar. */
-        /* A TOLERÂNCIA DA APARAGEM É MENOR DO QUE A DA MOLDURA, e não é um
-           pormenor. As medições fazem-se na cópia esmagada para 128×128, onde
-           cada célula é a MÉDIA de muitos píxeis do original. Num logótipo de
-           4000 px com traços de um píxel, um traço desloca a média uns
-           poucos valores — e com a tolerância de 12 a linha era declarada «só
-           moldura» e deitada fora. Medido: de doze traços, onze desapareciam,
-           e o que ficava guardado era uma nódoa.
-
-           Aqui a pergunta é outra: não «isto é igual à moldura?» mas «isto é
-           indistinguível dela?». Três valores em 255 é o limiar abaixo do qual
-           nem um ecrã bom mostra diferença.
-
-           E o limiar da TRANSPARÊNCIA fica nos 32, onde sempre esteve. Baixá-lo
-           para 8 «por coerência» com o do RGB deixava de aparar halos e sombras
-           suaves: a caixa crescia até onde o halo chegasse, e como a escala é
-           pela DIAGONAL da caixa, o desenho era encolhido pelo halo em vez de
-           pelo logótipo. Medido: uma marca que ocupava 333 dos 512 píxeis
-           passava a ocupar 117. São duas perguntas diferentes e cada uma tem o
-           seu número. */
-        const indistinguivel = (a, b) => (a[3] < 32 && b[3] < 32)
-          || (Math.abs(a[0] - b[0]) < 3 && Math.abs(a[1] - b[1]) < 3
-            && Math.abs(a[2] - b[2]) < 3 && Math.abs(a[3] - b[3]) < 3);
         let x0 = 0; let y0 = 0; let x1 = M - 1; let y1 = M - 1;
         if (moldura) {
-          const daMoldura = (x, y) => indistinguivel(pixel(x, y), moldura);
+          const daMoldura = (x, y) => daMesmaCor(pixel(x, y), moldura);
           const linhaSo = (y) => { for (let x = 0; x < M; x += 1) if (!daMoldura(x, y)) return false; return true; };
           const colunaSo = (x) => { for (let y = 0; y < M; y += 1) if (!daMoldura(x, y)) return false; return true; };
           while (y0 < y1 && linhaSo(y0)) y0 += 1;
           while (y1 > y0 && linhaSo(y1)) y1 -= 1;
           while (x0 < x1 && colunaSo(x0)) x0 += 1;
           while (x1 > x0 && colunaSo(x1)) x1 -= 1;
-          /* Se TUDO era moldura, os ciclos param por `x0 < x1` e não por
-             terem acabado o que aparar — e o que sobra é uma célula. Isso não
-             é um logótipo aparado, é uma imagem vazia: repõe-se a tela toda,
-             e a recusa lá em baixo trata do resto. */
-          if (x1 - x0 < 2 || y1 - y0 < 2) { x0 = 0; y0 = 0; x1 = M - 1; y1 = M - 1; }
+          /* SE TUDO ERA MOLDURA repõe-se a tela; se só um dos eixos ficou
+             estreito, NÃO se mexe no outro. A versão anterior repunha os
+             quatro limites assim que um dos lados ficasse com menos de três
+             células — e num banner de 4000×500 com uma marca vertical estreita
+             isso deitava fora a aparagem do eixo longo, que era justamente a
+             que valia a pena. */
+          const nada = linhaSo(y0) && colunaSo(x0);
+          if (nada) { x0 = 0; y0 = 0; x1 = M - 1; y1 = M - 1; }
         }
 
-        /* MEDE-SE O QUE FOI MESMO DESENHADO, e não a grelha de medição.
+        /* DESENHA-SE PRIMEIRO, E MEDE-SE O QUE FOI DESENHADO.
 
            Havia aqui dois limiares de transparência a responder a perguntas
-           diferentes — a aparagem dizia «nada abaixo de 8», a contagem do
-           desenho dizia «nada abaixo de 32» — e entre eles cabia um logótipo
-           inteiro. Num ficheiro de 4000 px com traços de 1 px, cada célula da
-           grelha de 128 fica com alfa ≈ 8: a aparagem encontrava a caixa
-           certa e a contagem dizia que não havia desenho nenhum. A recusa de
-           «imagem vazia» rejeitava um logótipo bom — e sem logótipo não há
-           Wallet nenhuma.
+           diferentes, e entre eles cabia um logótipo inteiro: num ficheiro de
+           2048 px com traços de 1 px, cada célula da grelha de 128 fica com
+           alfa ≈ 16, a aparagem encontrava a caixa certa e a contagem dizia
+           que não havia desenho nenhum.
 
            A saída não é escolher melhor o número: é parar de perguntar à
-           grelha. Desenha-se primeiro, em cima de transparente e no tamanho
-           final, e mede-se ISSO. É a imagem que vai ser guardada. */
+           grelha. Desenha-se em cima de transparente, no tamanho final, e
+           mede-se ISSO — que é a imagem que vai ser guardada. */
         const desenho = document.createElement('canvas');
         desenho.width = LOGOTIPO_LADO;
         desenho.height = LOGOTIPO_LADO;
@@ -783,66 +797,75 @@ function reduzirLogotipo(ficheiro) {
           Math.round((LOGOTIPO_LADO - altura) / 2),
           largura, altura);
 
-        /* Duas perguntas, dois limiares — mas agora ditos em voz alta.
-           «Há ALGUMA coisa?» é qualquer alfa acima de zero. «O que lá está é
-           claro ou escuro?» é uma média PESADA pelo alfa, que é a forma certa
-           de dar a cor média de um desenho com transparência: um traço fino e
-           esbatido conta pouco, mas conta. */
-        const px2 = dctx.getImageData(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO).data;
-        let soma = 0; let peso = 0; let algumaCoisa = 0;
-        for (let k = 0; k < px2.length; k += 4) {
-          const a = px2[k + 3];
+        /* A luminância do desenho, pesada pelo alfa — que é a forma certa de
+           dar a cor média de um desenho com transparência: um traço fino e
+           esbatido conta pouco, mas conta. E cada píxel é linearizado ANTES de
+           entrar na média: a curva do sRGB é convexa, e linearizar a média dá
+           sempre menos do que a média das linearizadas. O erro é zero num
+           cinzento e cresce com a saturação — num verde puro dava 3,01:1 onde
+           a verdade era 2,10:1, e deixava passar um fundo que não contrasta. */
+        const dados = dctx.getImageData(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO).data;
+        let soma = 0; let peso = 0;
+        for (let k = 0; k < dados.length; k += 4) {
+          const a = dados[k + 3];
           if (a === 0) continue;
-          algumaCoisa += 1;
-          soma += a * (0.2126 * px2[k] + 0.7152 * px2[k + 1] + 0.0722 * px2[k + 2]);
+          soma += a * luminancia(dados[k], dados[k + 1], dados[k + 2]);
           peso += a;
         }
+        const luzDoDesenho = peso > 0 ? soma / peso : 0;
+        /* O mesmo limiar de sempre (140 em 255), dito em luz linear. */
+        const claro = luzDoDesenho > linear(140);
 
-        /* UMA IMAGEM SEM NADA VISÍVEL NÃO É UM LOGÓTIPO. Um PNG que ficou
-           todo transparente na exportação passava por aqui inteiro: o fundo
-           ficava branco e o que se guardava era um quadrado branco. O dono lia
-           «Logótipo guardado», o botão da Wallet passava a aparecer, e os
-           clientes ficavam com um círculo vazio no cartão. */
-        if (algumaCoisa === 0) {
-          recusar(new Error('Essa imagem está vazia — não tem nada visível lá dentro.'));
-          return;
-        }
-
-        /* O FUNDO ESCOLHE-SE A OLHAR PARA O LOGÓTIPO, e isto levou voltas.
-
-           Primeiro pus fundo branco — e o primeiro logótipo a sério que
-           apanhei, o da barbearia, é BRANCO sobre transparente, feito para
-           fundos escuros. Desaparecia por completo.
-
-           Depois tirei o fundo e deixei a transparência. Mas a Google desenha
-           o `programLogo` dentro de um círculo BRANCO, e o logótipo branco
-           voltou a sumir-se — desta vez no cartão a sério, que é onde dói.
-
-           Se o ficheiro já traz fundo próprio e opaco, é esse que se usa: quem
-           desenhou o logótipo já escolheu o fundo em que ele se lê. Se o fundo
-           é transparente, MEDE-SE — ver o `fundoQueContrasta`. */
-        const mediaDoDesenho = peso > 0 ? soma / peso : 0;
-        const claro = mediaDoDesenho > 140;
-        const fundo = (moldura && moldura[3] >= 32)
-          ? `rgb(${moldura[0]},${moldura[1]},${moldura[2]})`
-          : fundoQueContrasta(mediaDoDesenho, claro, estado.negocio.cor);
+        /* O FUNDO. Se o ficheiro já traz fundo próprio e opaco, é esse que se
+           usa: quem desenhou o logótipo já escolheu o fundo em que ele se lê.
+           Se é transparente, mede-se. */
+        const escolha = (moldura && moldura[3] >= 32)
+          ? { cor: hexDe(`rgb(${moldura[0]},${moldura[1]},${moldura[2]})`), daMarca: false }
+          : fundoQueContrasta(luzDoDesenho, claro, estado.negocio.cor);
 
         const tela = document.createElement('canvas');
         tela.width = LOGOTIPO_LADO;
         tela.height = LOGOTIPO_LADO;
-        const ctx = tela.getContext('2d');
-        ctx.fillStyle = fundo;
+        const ctx = tela.getContext('2d', { willReadFrequently: true });
+        ctx.fillStyle = escolha.cor;
         ctx.fillRect(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
         ctx.drawImage(desenho, 0, 0);
 
-        /* Devolve-se a cor cozida SÓ quando ela é a COR DA MARCA. A partir
-           daqui ela está dentro dos bytes, e refazer a imagem depois não dá —
-           o ficheiro original não fica em lado nenhum. Mas só fica obsoleta se
-           for a cor da marca: um fundo que veio do próprio ficheiro é escolha
-           de quem desenhou o logótipo e não envelhece, e o quase-preto e o
-           branco de recurso também não. */
-        const daMarca = hexDe(fundo) === hexDe(estado.negocio.cor);
-        resolve({ imagem: tela.toDataURL('image/png'), fundo: daMarca ? hexDe(fundo) : null });
+        /* UMA IMAGEM SEM NADA VISÍVEL NÃO É UM LOGÓTIPO — e a pergunta faz-se
+           ao RESULTADO, não à origem.
+        
+           A guarda anterior era «não há píxeis opacos», o que só apanhava
+           ficheiros transparentes: um JPEG tem alfa 255 em todo o lado, por
+           isso para metade dos formatos que a rota aceita era código morto. Um
+           ficheiro exportado todo branco — a camada errada escondida, uma
+           folha digitalizada — passava e ficava guardado como um quadrado de
+           cor. O dono lia «Logótipo guardado», o botão da Wallet aparecia, e
+           os clientes ficavam com um círculo vazio no cartão.
+        
+           Agora olha-se para a imagem composta e pergunta-se se há ali alguma
+           coisa DIFERENTE do fundo. Se não há, não há logótipo. */
+        const composta = ctx.getImageData(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO).data;
+        const doFundo = rgbDe(escolha.cor) || [255, 255, 255];
+        let diferentes = 0;
+        for (let k = 0; k < composta.length; k += 4) {
+          if (Math.abs(composta[k] - doFundo[0]) > 8
+            || Math.abs(composta[k + 1] - doFundo[1]) > 8
+            || Math.abs(composta[k + 2] - doFundo[2]) > 8) diferentes += 1;
+        }
+        if (diferentes === 0) {
+          recusar(new Error('Essa imagem está vazia — é só uma cor, sem nada desenhado.'));
+          return;
+        }
+
+        /* Devolve-se a cor cozida SÓ quando ela é a COR DA MARCA, e isso sabe-
+           se pelo RAMO e não por comparação de cores. A partir daqui a cor está
+           dentro dos bytes, e refazer a imagem depois não dá — o original não
+           fica em lado nenhum. Mas só a cor da marca envelhece: um fundo que
+           veio do próprio ficheiro é escolha de quem desenhou o logótipo, e o
+           quase-preto e o branco de recurso também não envelhecem. Decidir por
+           igualdade de cor punha um aviso impossível de limpar sempre que
+           calhassem de ser a mesma cor. */
+        resolve({ imagem: tela.toDataURL('image/png'), fundo: escolha.daMarca ? escolha.cor : null });
       };
       img.src = leitor.result;
     };

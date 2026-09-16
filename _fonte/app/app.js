@@ -420,12 +420,30 @@ function botaoWallet(cartao) {
         : (erro && erro.message) || 'Não deu para preparar o passe.', 'mau');
     } finally {
       /* Só se reactiva se a página NÃO estiver de saída — ver o comentário no
-         ramo de sucesso. */
+         ramo de sucesso. Quem trata do REGRESSO é o `pageshow` lá em baixo:
+         sem ele, quem carregasse em «voltar» na página da Google encontrava o
+         botão esbatido e morto, e num telemóvel isso lê-se como avaria. */
       if (!aCaminhoDaGoogle) {
         botao.removeAttribute('aria-disabled');
         botao.classList.remove('a-carregar');
       }
     }
+  });
+
+  /* O REGRESSO. A ida para a Google deixa o botão desactivado de propósito —
+     a página ainda está viva enquanto a navegação acontece. Mas quem carrega
+     em «voltar» traz o documento de volta da cache do browser com o botão
+     exactamente como ficou: esbatido, com `aria-disabled`, e morto. Numa app
+     instalada no ecrã inicial é pior ainda, porque o `location.href` para um
+     domínio de fora abre o Safari e a app NEM CHEGA a sair — a pessoa volta a
+     ela pelo alternador e encontra um botão que não responde.
+
+     O `pageshow` dispara nos dois casos, com `persisted` verdadeiro quando
+     vem da cache; e dispara também no arranque normal, onde não faz mal
+     nenhum. */
+  addEventListener('pageshow', () => {
+    botao.removeAttribute('aria-disabled');
+    botao.classList.remove('a-carregar');
   });
 
   return el('div', { class: 'wallet-caixa' },

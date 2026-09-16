@@ -181,35 +181,84 @@ function semComentarios(sql) {
 }
 
 /**
- * Corre uma MIGRAÇÃO, instrução a instrução.
+ * Corta um SQL em instruções, a sério.
  *
- * E é instrução a instrução por uma razão que custou um índice: o D1 corre um
- * `--file` numa TRANSACÇÃO só. Numa base acabada de nascer, o `esquema.sql` já
- * criou a coluna `convite`, por isso o `ALTER TABLE` da migração 002 dá
- * «duplicate column name» — e o que se perdia não era só essa linha, era o
- * ficheiro inteiro. O `CREATE INDEX ix_negocios_convite` que vinha a seguir
- * nunca chegou a existir na base local nem na do CI, enquanto existia na
- * produção. A base contra a qual se testa deixou de ter o formato da base a
- * sério, em silêncio, e o perdão do erro dizia que estava tudo bem.
+ * Um `split(';')` chega para DDL simples e parte-se em dois casos que hão-de
+ * aparecer: um `;` dentro de um literal, e o corpo de um `CREATE TRIGGER …
+ * BEGIN … END`, que em SQLite leva `;` internos que não são fim de instrução.
+ * Nenhum dos dois dá erro — dão meia migração aplicada, que é pior.
  *
- * Cortar por `;` no fim da linha chega para estes ficheiros — são DDL, não
- * têm literais com ponto e vírgula lá dentro. Se um dia tiverem, isto tem de
- * passar a um analisador a sério, e é melhor que rebente aqui do que aplique
- * metade.
+ * Percorre-se caractere a caractere: dentro de aspas nada conta, e depois de
+ * um `BEGIN` os `;` só voltam a contar a seguir ao `END` que lhe corresponde.
+ */
+function cortarInstrucoes(sql) {
+  const fora = [];
+  let actual = '';
+  let emTexto = false;
+  let profundidade = 0;   /* quantos BEGIN … END abertos */
+  for (let i = 0; i < sql.length; i += 1) {
+    const c = sql[i];
+    if (emTexto) {
+      actual += c;
+      if (c === "'" && sql[i + 1] === "'") { actual += sql[i + 1]; i += 1; }
+      else if (c === "'") emTexto = false;
+      continue;
+    }
+    if (c === "'") { emTexto = true; actual += c; continue; }
+
+    /* As palavras só contam soltas: um `BEGIN` dentro de `BEGINNING` não é
+       um bloco, e um nome de coluna chamado `end_em` também não. */
+    const resto = sql.slice(i);
+    const palavra = /^(BEGIN|END|CASE)\b/i.exec(resto);
+    const antes = i === 0 ? ' ' : sql[i - 1];
+    if (palavra && !/[\w$]/.test(antes)) {
+      const nome = palavra[1].toUpperCase();
+      /* O `CASE … END` também fecha com `END`; conta-se para os dois se
+         equilibrarem. */
+      if (nome === 'BEGIN' || nome === 'CASE') profundidade += 1;
+      else if (profundidade > 0) profundidade -= 1;
+      actual += sql.slice(i, i + palavra[1].length);
+      i += palavra[1].length - 1;
+      continue;
+    }
+
+    if (c === ';' && profundidade === 0) {
+      if (actual.trim()) fora.push(actual.trim());
+      actual = '';
+      continue;
+    }
+    actual += c;
+  }
+  if (actual.trim()) fora.push(actual.trim());
+  return fora;
+}
+
+/**
+ * Corre uma MIGRAÇÃO.
+ *
+ * TENTA O FICHEIRO INTEIRO PRIMEIRO, que é uma invocação do wrangler em vez
+ * de uma por instrução — e cada invocação custa mais de um segundo de
+ * arranque. Só quando o ficheiro falha é que se desce à instrução, que é o
+ * caso raro e é o que interessa tratar bem.
+ *
+ * E é preciso descer, porque o D1 corre um `--file` numa TRANSACÇÃO só: numa
+ * base acabada de nascer o `esquema.sql` já criou a coluna `convite`, o
+ * `ALTER TABLE` da migração 002 dá «duplicate column name» — e o que se perdia
+ * não era essa linha, era o ficheiro inteiro. O `CREATE INDEX` que vinha a
+ * seguir nunca chegou a existir na base local nem na do CI, enquanto existia
+ * na produção. Instrução a instrução, o perdão perdoa só a instrução que o
+ * deu.
  */
 function correrMigracao(ficheiro) {
   const caminho = join(WORKER, ficheiro);
-  const bruto = readFileSync(caminho, 'utf8');
-  const limpo = semComentarios(bruto);
-  /* Um `;` dentro de um literal partia a instrução a meio. Não há nenhum
-     hoje — isto é DDL — mas se um dia houver, é melhor rebentar aqui com uma
-     frase do que aplicar metade de uma migração. */
-  if (/'[^']*;[^']*'/.test(limpo)) {
-    throw new Error(`A migração ${ficheiro} tem um ';' dentro de um literal — `
-      + 'o corte por instrução deixou de servir e é preciso um analisador a sério.');
-  }
-  const instrucoes = limpo.split(';').map((x) => x.trim()).filter(Boolean);
+  try {
+    execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+      '--config', './wrangler.toml', '--local', `--file=${ficheiro}`],
+    { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+    return;
+  } catch { /* o caminho lento trata disto, e diz porquê */ }
 
+  const instrucoes = cortarInstrucoes(semComentarios(readFileSync(caminho, 'utf8')));
   for (const instrucao of instrucoes) {
     try {
       execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
@@ -217,10 +266,10 @@ function correrMigracao(ficheiro) {
       { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
     } catch (erro) {
       const dito = `${erro.stdout || ''}${erro.stderr || ''}`;
-      /* O ÚNICO erro que se perdoa, e agora só perdoa a instrução que o deu:
-         um `ALTER TABLE ADD COLUMN` numa base que já tem a coluna. Numa base
-         nova é o esquema que a criou; numa velha é a migração já aplicada.
-         Nos dois casos é sinal de bom. */
+      /* O ÚNICO erro que se perdoa, e só na instrução que o deu: um
+         `ALTER TABLE ADD COLUMN` numa base que já tem a coluna. Numa base nova
+         é o esquema que a criou; numa velha é a migração já aplicada. Nos dois
+         casos é sinal de bom. */
       if (/duplicate column name/i.test(dito)) continue;
       throw new Error(`A migração ${ficheiro} parou em:\n  ${instrucao.slice(0, 160)}\n${dito.slice(-800)}`);
     }
@@ -229,38 +278,87 @@ function correrMigracao(ficheiro) {
 
 /**
  * Confere que a base local ficou com TUDO o que o esquema e as migrações
- * mandam — tabelas e índices.
+ * mandam — tabelas, índices e COLUNAS.
  *
- * Existe porque a montagem falhou duas vezes em silêncio, de maneiras
- * diferentes: uma transacção desfeita por um `ALTER` repetido, e um ficheiro
- * inteiro perdido por uma instrução fora de ordem. As duas deixaram a base a
- * parecer boa. Aqui lê-se o que os ficheiros PROMETEM e pergunta-se à base se
- * está lá — que é a única forma de a promessa não ser a única prova.
+ * Existe porque a montagem falhou em silêncio de duas maneiras: uma
+ * transacção desfeita por um `ALTER` repetido, e um ficheiro perdido por uma
+ * instrução fora de ordem. As duas deixaram a base a parecer boa. Aqui lê-se o
+ * que os ficheiros PROMETEM e pergunta-se à base se está lá — que é a única
+ * forma de a promessa não ser a única prova.
+ *
+ * AS COLUNAS SÃO O CASO QUE FALTAVA, e é o mais provável de todos: um
+ * `CREATE TABLE IF NOT EXISTS` com uma coluna nova não faz nada numa base que
+ * já existe. No CI, que parte do vazio, passa sempre; na máquina de quem
+ * desenvolve, que é onde o comportamento por omissão não leva `--limpo`, a
+ * coluna nunca chega e o que se vê é um erro do Worker sem relação aparente.
+ *
+ * E o que foi LARGADO deixa de ser prometido: uma migração antiga que criou
+ * um índice é história, e se uma nova o largar a conferência não pode passar
+ * a exigi-lo para sempre.
  */
 function conferirBase() {
-  const nomes = { tabelas: new Set(), indices: new Set() };
-  const ficheiros = ['esquema.sql', ...listarMigracoes()];
-  for (const f of ficheiros) {
+  const tabelas = new Set();
+  const indices = new Set();
+  const colunas = new Set();   /* «tabela.coluna» */
+
+  for (const f of ['esquema.sql', ...listarMigracoes()]) {
     /* SEM COMENTÁRIOS. Um comentário que mencione «CREATE TABLE» — a explicar
        o que a migração faz, por exemplo — punha esta conferência a exigir uma
-       tabela que nunca ninguém quis criar, e a falhar por isso. */
+       tabela que nunca ninguém quis criar. */
     const texto = semComentarios(readFileSync(join(WORKER, f), 'utf8'));
-    for (const m of texto.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)/gi)) nomes.tabelas.add(m[1]);
-    for (const m of texto.matchAll(/CREATE(?: UNIQUE)? INDEX(?: IF NOT EXISTS)?\s+(\w+)/gi)) nomes.indices.add(m[1]);
+
+    for (const m of texto.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)\s*\(([\s\S]*?)\n\s*\)/gi)) {
+      tabelas.add(m[1]);
+      /* As colunas são as linhas que começam por um nome; ignora-se o que
+         começa por uma palavra-chave de restrição. */
+      for (const linha of m[2].split('\n')) {
+        const c = /^\s*(\w+)\s+[A-Za-z]/.exec(linha);
+        if (c && !/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)$/i.test(c[1])) {
+          colunas.add(`${m[1]}.${c[1]}`);
+        }
+      }
+    }
+    for (const m of texto.matchAll(/CREATE(?: UNIQUE)? INDEX(?: IF NOT EXISTS)?\s+(\w+)/gi)) indices.add(m[1]);
+    for (const m of texto.matchAll(/ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)/gi)) colunas.add(`${m[1]}.${m[2]}`);
+
+    /* O que foi largado sai das promessas. */
+    for (const m of texto.matchAll(/DROP INDEX(?: IF EXISTS)?\s+(\w+)/gi)) indices.delete(m[1]);
+    for (const m of texto.matchAll(/DROP TABLE(?: IF EXISTS)?\s+(\w+)/gi)) {
+      tabelas.delete(m[1]);
+      for (const c of [...colunas]) if (c.startsWith(`${m[1]}.`)) colunas.delete(c);
+    }
+    for (const m of texto.matchAll(/ALTER TABLE\s+(\w+)\s+DROP COLUMN\s+(\w+)/gi)) colunas.delete(`${m[1]}.${m[2]}`);
   }
+
+  /* Uma consulta só: o `sql` do `sqlite_master` traz o `CREATE TABLE` inteiro,
+     e o SQLite reescreve-o a cada `ALTER TABLE ADD COLUMN`. */
   const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
     '--config', './wrangler.toml', '--local', '--json', '--command',
-    "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"],
+    "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"],
   { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const linhas = saida.split('\n');
   const i = linhas.findIndex((l) => l.trimStart().startsWith('['));
-  const existe = new Set(JSON.parse(linhas.slice(i).join('\n'))[0].results.map((r) => r.name));
+  const naBase = JSON.parse(linhas.slice(i).join('\n'))[0].results;
+  const nomes = new Set(naBase.map((r) => r.name));
+  const sqlDaTabela = new Map(naBase.filter((r) => r.type === 'table').map((r) => [r.name, r.sql || '']));
 
-  const faltam = [...nomes.tabelas, ...nomes.indices].filter((n) => !existe.has(n));
+  const faltam = [
+    ...[...tabelas].filter((n) => !nomes.has(n)).map((n) => `tabela ${n}`),
+    ...[...indices].filter((n) => !nomes.has(n)).map((n) => `índice ${n}`),
+    ...[...colunas].filter((tc) => {
+      const [t, c] = tc.split('.');
+      const sql = sqlDaTabela.get(t);
+      if (sql === undefined) return false;   /* a tabela em falta já foi acusada */
+      return !new RegExp(`(^|[(,\\s\`"])${c}[\\s\`"]`, 'i').test(sql);
+    }).map((tc) => `coluna ${tc}`),
+  ];
+
   if (faltam.length) {
     throw new Error('A base local ficou incompleta — falta o que os ficheiros prometem:\n  '
-      + faltam.join(', ')
-      + '\nIsto quer dizer que alguma instrução foi desfeita em silêncio.');
+      + faltam.join('\n  ')
+      + '\nIsto quer dizer que alguma instrução foi desfeita em silêncio.'
+      + '\nSe for uma coluna, é quase de certeza um `CREATE TABLE IF NOT EXISTS`'
+      + '\nalterado sem a migração que lhe corresponde.');
   }
 }
 

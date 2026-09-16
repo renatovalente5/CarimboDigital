@@ -130,8 +130,19 @@ export function todosOsPEM(entrada) {
   /* O RÓTULO VAI JUNTO, e não é pormenor: é por ele que se distingue um
      certificado de uma chave privada. Ignorá-lo foi o que pôs a chave de
      assinatura dentro de um ficheiro servido publicamente. */
+  /* O bloco que não descodifica é NOMEADO. O `atob` atira uma `DOMException`
+     sem contexto nenhum, e como agora se lê mais do que um bloco, um caracter
+     perdido num copiar-colar do segundo certificado dava um 500 «Erro
+     interno» que não dizia qual dos blocos estava truncado. */
   const blocos = [...s.matchAll(/-----BEGIN ([^-]+)-----([\s\S]*?)-----END [^-]+-----/g)]
-    .map((m) => ({ rotulo: m[1].trim(), bytes: deBase64(m[2]) }));
+    .map((m, i) => {
+      const rotulo = m[1].trim();
+      try { return { rotulo, bytes: deBase64(m[2]) }; }
+      catch {
+        throw new Error(`O bloco ${i + 1} do PEM (${rotulo}) está truncado ou estragado — `
+          + 'o conteúdo entre BEGIN e END não é base64 válido.');
+      }
+    });
   /* Sem cabeçalhos nenhuns é base64 puro, que é como cabe numa variável. Não
      há rótulo para inspeccionar, e quem o põe assim sabe o que lá está. */
   return blocos.length ? blocos : [{ rotulo: '', bytes: deBase64(s) }];
@@ -339,7 +350,11 @@ export function emissorESerie(certificadoDER) {
   pos = serie.fim;
   pos = ler(b, pos).fim;                     // signature AlgorithmIdentifier
   const emissor = ler(b, pos);               // issuer Name
-  return { serie: serie.todo, emissor: emissor.todo };
+  pos = emissor.fim;
+  pos = ler(b, pos).fim;                     // validity
+  pos = ler(b, pos).fim;                     // subject Name
+  const spki = ler(b, pos);                  // subjectPublicKeyInfo
+  return { serie: serie.todo, emissor: emissor.todo, chavePublica: spki.todo };
 }
 
 /* =========================================================================
@@ -365,13 +380,22 @@ export async function assinar(conteudo, { certificado, chave, cadeia = [], quand
      instruções à letra põe um em cada variável. Os dois casos têm de dar o
      mesmo passe. O PRIMEIRO é o signatário — é a folha, em qualquer exportação
      que siga a convenção — e os outros vão como cadeia. */
+  /* O SIGNATÁRIO SAI DO `certificado`, e nunca da cadeia. Um `throw` que só
+     disparava com os dois vazios promovia o primeiro certificado da CADEIA a
+     signatário sempre que o `APPLE_CERTIFICADO` fosse um espaço, uma quebra de
+     linha solta, ou um segredo que ficou por preencher — e o passe saía
+     assinado com o nome errado, em silêncio. */
+  const daFolha = certificadosDoPEM(certificado, 'APPLE_CERTIFICADO');
+  if (!daFolha.length) {
+    throw new Error('Não há certificado nenhum em APPLE_CERTIFICADO — '
+      + 'a cadeia não serve de signatário.');
+  }
   const todos = [
-    ...certificadosDoPEM(certificado, 'APPLE_CERTIFICADO'),
+    ...daFolha,
     ...cadeia.filter(Boolean).flatMap((c) => certificadosDoPEM(c, 'APPLE_CADEIA')),
   ];
-  if (!todos.length) throw new Error('Não há certificado nenhum para assinar.');
   const [certDER, ...cadeiaDER] = todos;
-  const { serie, emissor } = emissorESerie(certDER);
+  const { serie, emissor, chavePublica } = emissorESerie(certDER);
 
   const resumo = new Uint8Array(await crypto.subtle.digest('SHA-256', conteudo));
 
@@ -390,6 +414,32 @@ export async function assinar(conteudo, { certificado, chave, cadeia = [], quand
   );
   const bruta = new Uint8Array(await crypto.subtle.sign(
     'RSASSA-PKCS1-v1_5', chaveRSA, paraAssinar));
+
+  /* A CHAVE E O CERTIFICADO TÊM DE SER UM PAR, e isto verifica-o.
+
+     O primeiro bloco do PEM é tomado como signatário. Se a cadeia vier colada
+     ao contrário — a raiz primeiro, que é uma ordem que ninguém garante —, o
+     `SignerInfo` apontava para um certificado cuja chave pública não tem nada
+     que ver com a assinatura, e nada se queixava: o `emissorESerie` lê o
+     emissor e a série de qualquer SEQUENCE que lhe dêem. O passe saía, o
+     telemóvel recusava-o, e não havia por onde perceber porquê.
+
+     Verifica-se com a chave PÚBLICA que está dentro do certificado: se ela
+     não valida o que a privada acabou de assinar, não são um par. */
+  const chaveDoCertificado = await crypto.subtle.importKey(
+    'spki', chavePublica, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify'],
+  ).catch(() => null);
+  if (!chaveDoCertificado) {
+    throw new Error('O primeiro certificado não tem uma chave pública RSA legível — '
+      + 'é mesmo um certificado, e não outra coisa qualquer?');
+  }
+  const eParDeFacto = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5', chaveDoCertificado, bruta, paraAssinar);
+  if (!eParDeFacto) {
+    throw new Error('A chave não corresponde ao primeiro certificado. '
+      + 'Se colaste vários, o do Pass Type ID tem de vir PRIMEIRO — '
+      + 'os intermédios vão em APPLE_CADEIA.');
+  }
 
   const signerInfo = sequencia(
     inteiro(1),
