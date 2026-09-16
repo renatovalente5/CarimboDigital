@@ -317,6 +317,19 @@ async function moldarCartao(env, cartao) {
       google: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
       apple: Boolean(applePronta(env) && p.negocio_tem_logotipo),
     },
+    /* O NOME ANTIGO FICA. Isto chamava-se `wallet` e era um booleano, e mudar
+       o nome apagou o botão da Wallet da aplicação que estava no ar — o
+       Worker publica-se num minuto e o site demora dez, e nesse intervalo a
+       app pedia um campo que já não vinha.
+
+       E o intervalo é o menor dos problemas: isto é uma app instalada no ecrã
+       inicial de gente, com o JavaScript em cache de um service worker. A
+       cópia que uma pessoa tem pode ser de há semanas. Uma API que muda nomes
+       parte essas cópias em silêncio — ninguém vê um erro, só um botão que
+       deixou de lá estar.
+
+       A regra, daqui em diante: esta API ACRESCENTA. Não renomeia nem tira. */
+    wallet: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
   };
 }
 

@@ -161,6 +161,43 @@ grupo('Carimbar');
   certo(r.dados.cartao?.programa?.objetivo === 10, 'traz o programa junto');
 }
 
+grupo('O que a app que está nos telemóveis espera');
+{
+  /* ESTA API ACRESCENTA. NÃO RENOMEIA NEM TIRA.
+
+     A regra custou um botão a menos na produção. O campo `wallet` de um
+     cartão passou a `carteiras`, o Worker publica-se num minuto e o site
+     demora dez — e nesse intervalo a app pedia um campo que já não vinha,
+     sem erro nenhum, só um botão que deixou de lá estar.
+
+     E o intervalo é o menor dos problemas. Isto é uma aplicação instalada no
+     ecrã inicial de gente, com o JavaScript em cache de um service worker: a
+     cópia que uma pessoa tem pode ser de há semanas, e nenhuma publicação a
+     obriga a actualizar. Um nome que muda parte essas cópias em silêncio.
+
+     Por isso esta lista. Tirar um destes nomes tem de doer AQUI, e não no
+     telemóvel de alguém. Acrescentar não mexe nesta lista; tirar obriga a
+     apagar a linha à mão, que é o momento em que se pensa duas vezes. */
+  const r = await pedir('/v1/cliente/cartoes', { sessao: sessaoCliente });
+  const cartao = r.dados[0];
+  const CAMPOS = ['id', 'carimbos', 'pontos', 'totalCarimbos', 'premiosGanhos',
+    'aderiuEm', 'ultimoEm', 'negocio', 'programa', 'porResgatar', 'premios',
+    'wallet', 'carteiras'];
+  const faltam = CAMPOS.filter((c) => !(c in cartao));
+  certo(faltam.length === 0,
+    'um cartão continua a trazer todos os campos que a app espera',
+    `faltam: ${faltam.join(', ')}`);
+
+  const DO_NEGOCIO = ['id', 'nome', 'slug', 'cor', 'categoria', 'localidade', 'morada', 'telefone'];
+  const faltamN = DO_NEGOCIO.filter((c) => !(c in (cartao.negocio || {})));
+  certo(faltamN.length === 0, 'e o negócio também', `faltam: ${faltamN.join(', ')}`);
+
+  certo(typeof cartao.wallet === 'boolean' && cartao.carteiras
+     && typeof cartao.carteiras.google === 'boolean',
+    'o nome velho e o novo convivem, que é o que deixa publicar os dois lados por ordens diferentes',
+    JSON.stringify({ wallet: cartao.wallet, carteiras: cartao.carteiras }));
+}
+
 grupo('Defesas');
 {
   /* Arrefecimento a zero para este grupo: senão o que recusa o segundo
