@@ -60,6 +60,28 @@ DOMINIO = "carimbodigital.pt"
 GOOGLE_EMAIL = "carimbo-wallet@project-8cb31867-5da0-4e4e-9c3.iam.gserviceaccount.com"
 GOOGLE_EMISSOR = "3388000000023200429"
 
+# A APPLE WALLET. Estes dois NÃO são segredo, e é por isso que estão aqui e não
+# num `wrangler secret`: vão dentro de cada `.pkpass` servido, em texto simples,
+# no `pass.json`. Qualquer pessoa que descarregue um passe os lê. Guardá-los
+# como segredo só dava a ideia errada a quem viesse a seguir.
+#
+#   APPLE_PASS_TIPO — o Pass Type ID criado no portal da Apple.
+#   APPLE_EQUIPA    — o Team ID, dez caracteres. É o `OU` do certificado.
+#
+# Os três que SÃO segredo vivem fora daqui:
+#
+#   npx wrangler secret put APPLE_CERTIFICADO   (só o certificado, sem a chave)
+#   npx wrangler secret put APPLE_CHAVE         (a chave privada, em PKCS#8)
+#   npx wrangler secret put APPLE_CADEIA        (o intermédio WWDR da Apple)
+#
+# Enquanto os três não existirem, as rotas do passe respondem 404 e o botão da
+# Apple não aparece na app — ver `appleLigada` no `index.js`.
+#
+# O certificado CADUCA a 16 de Outubro de 2027. Nesse dia os passes deixam de
+# poder ser emitidos; os que já estão nas carteiras continuam lá.
+APPLE_PASS_TIPO = "pass.pt.carimbodigital.cartao"
+APPLE_EQUIPA = "6M2QCLR98V"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "carimbodigital"
