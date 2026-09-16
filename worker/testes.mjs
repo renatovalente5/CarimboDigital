@@ -72,6 +72,18 @@ function sql(instrucao) {
     '--local', '--command', instrucao], { cwd: AQUI, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 }
 
+/** Corre um ficheiro de migração, para se poder provar o que ele faz. */
+function sqlFicheiro(caminho) {
+  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+    '--local', '--file', caminho], { cwd: AQUI, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+}
+
+/** As linhas de um SELECT, já desembrulhadas do JSON que o wrangler cospe. */
+function linhas(instrucao) {
+  const o = sql(instrucao);
+  return JSON.parse(o.slice(o.indexOf('[')))[0].results;
+}
+
 const b64url = (b) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const deB64url = (s) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
 
@@ -2721,6 +2733,154 @@ grupo('Criar contas em série');
     sql(`DELETE FROM clientes WHERE id IN ('${lote.join("','")}')`);
   }
   sql(`DELETE FROM registos`);
+}
+
+grupo('A identidade é (provedor, sujeito)');
+{
+  /* A conta tinha UMA forma de entrar, guardada em duas colunas da própria
+     conta. Com o Google e a Apple a caminho, a morada deixa de poder ser a
+     chave: o `sub` de cada provedor é um espaço de nomes diferente, e a mesma
+     morada em dois sítios não prova nada.
+
+     O que estes testes provam é que a decisão MUDOU DE SÍTIO — que quem manda
+     é a tabela e já não a coluna. Sem isso, a migração era só uma tabela nova
+     a apanhar pó ao lado do código que continuava a decidir como antes. */
+  const correio = 'identidade@exemplo.pt';
+  sql(`DELETE FROM entradas`); sql(`DELETE FROM envios`);
+  sql(`DELETE FROM identidades WHERE sujeito = '${correio}'`);
+  sql(`UPDATE clientes SET email = NULL, email_verificado = 0 WHERE email = '${correio}'`);
+
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const forjar = (alvo, codigo, morada) => {
+    const r = createHash('sha256').update(`${morada}|${codigo}`).digest('hex');
+    sql(`DELETE FROM entradas WHERE alvo = '${alvo}'`);
+    sql(`INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em)
+         VALUES ('${r}', '${alvo}', '${morada}', datetime('now'),
+                 '${new Date(Date.now() + 600000).toISOString()}')`);
+  };
+
+  forjar(`cliente:${c.dados.cliente.id}`, '111111', correio);
+  const entrou = await pedir('/v1/cliente/entrar',
+    { metodo: 'POST', corpo: { email: correio, codigo: '111111' } });
+  certo(entrou.estado === 200, 'confirmar a morada continua a funcionar', String(entrou.estado));
+
+  const ident = linhas(`SELECT provedor, sujeito, email, relay, cliente_id, verificada_em, usada_em
+                          FROM identidades WHERE sujeito = '${correio}'`);
+  certo(ident.length === 1, 'e nasce UMA identidade', JSON.stringify(ident).slice(0, 120));
+  certo(ident[0]?.provedor === 'email' && ident[0]?.sujeito === correio,
+    'com o provedor e o sujeito certos', JSON.stringify(ident[0]));
+  certo(ident[0]?.cliente_id === c.dados.cliente.id,
+    'colada à conta que provou a caixa', String(ident[0]?.cliente_id));
+  certo(!!ident[0]?.verificada_em,
+    'já verificada — não existe estado «por verificar», que é o que mata o pré-registo');
+  certo(!!ident[0]?.usada_em, 'e marcada como usada, que é o que permite caducar as paradas');
+
+  const espelho = linhas(`SELECT email, email_verificado FROM clientes WHERE id = '${c.dados.cliente.id}'`)[0];
+  certo(espelho.email === correio && espelho.email_verificado === 1,
+    'o espelho em clientes.email continua escrito — a PWA de alguém pode ser de há semanas',
+    JSON.stringify(espelho));
+
+  /* O TESTE QUE PROVA QUE A DECISÃO MUDOU DE SÍTIO. Põe-se uma conta com a
+     coluna preenchida e SEM identidade nenhuma: se o dono ainda saísse do
+     `clientes.email`, esta conta era encontrada e a outra pessoa entrava na
+     conta dela. */
+  const fantasma = 'so-na-coluna@exemplo.pt';
+  sql(`DELETE FROM identidades WHERE sujeito = '${fantasma}'`);
+  const outro = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`UPDATE clientes SET email = '${fantasma}', email_verificado = 1
+        WHERE id = '${outro.dados.cliente.id}'`);
+
+  const terceiro = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`DELETE FROM envios`);
+  const pedido = await pedir('/v1/cliente/email', { metodo: 'POST',
+    sessao: terceiro.dados.sessao, corpo: { email: fantasma } });
+  certo(pedido.dados?.recuperar === false,
+    'uma morada que só existe na COLUNA já não reclama conta nenhuma — quem decide é a tabela',
+    JSON.stringify(pedido.dados));
+
+  /* A exportação do RGPD leva-as: são dados da pessoa, e quando a Google e a
+     Apple entrarem é a única forma de ela saber o que está ligado à conta. */
+  const dados = await pedir('/v1/cliente/dados', { sessao: c.dados.sessao });
+  certo(Array.isArray(dados.dados?.identidades) && dados.dados.identidades.length === 1,
+    'o «descarregar os meus dados» leva as formas de entrar',
+    JSON.stringify(dados.dados?.identidades));
+  certo(dados.dados?.identidades?.[0]?.sujeito === correio,
+    'e são as certas', JSON.stringify(dados.dados?.identidades?.[0]));
+
+  /* Apagar a conta leva-as à frente. O QUE ISTO PROVA É O RESULTADO, não o
+     mecanismo: o `PRAGMA foreign_keys` está a 1 no D1, por isso a cascata
+     sozinha já cumpre, e tirar o DELETE explícito do Worker não põe esta
+     afirmação a vermelho. Fica porque o invariante é que interessa — uma
+     identidade órfã trancava aquela morada para sempre, pelo índice único, e
+     ninguém perceberia porquê. Quem prova mesmo que a morada se liberta é a
+     afirmação a seguir, que reutiliza a morada numa conta nova. */
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
+  certo(linhas(`SELECT 1 FROM identidades WHERE sujeito = '${correio}'`).length === 0,
+    'apagar a conta apaga as identidades — senão a morada ficava trancada para sempre');
+
+  const revive = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`DELETE FROM envios`);
+  forjar(`cliente:${revive.dados.cliente.id}`, '222222', correio);
+  const outraVez = await pedir('/v1/cliente/entrar',
+    { metodo: 'POST', corpo: { email: correio, codigo: '222222' } });
+  certo(outraVez.estado === 200,
+    'e a morada volta a poder ser usada por outra pessoa', String(outraVez.estado));
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: outraVez.dados.sessao });
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: outro.dados.sessao });
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: terceiro.dados.sessao });
+}
+
+grupo('A migração das identidades corre sobre dados que já existem');
+{
+  /* A PARTE QUE SÓ CORRE UMA VEZ, e por isso é a única que não se pode
+     remendar depois. Numa base limpa o `INSERT ... SELECT` não encontra
+     ninguém e não faz nada — o que passaria por verde sem provar nada. Aqui
+     põe-se uma conta como as que JÁ estão em produção: morada verificada na
+     coluna, identidade nenhuma. */
+  const antigo = 'veterano@exemplo.pt';
+  sql(`DELETE FROM identidades WHERE sujeito = '${antigo}'`);
+  sql(`DELETE FROM clientes WHERE email = '${antigo}'`);
+  const idAntigo = randomBytes(16).toString('hex');
+  sql(`INSERT INTO clientes (id, publico, criado_em, visto_em, email, email_verificado)
+       VALUES ('${idAntigo}', 'VET111', '2026-01-02T03:04:05.000Z', '2026-05-06T07:08:09.000Z',
+               '${antigo}', 1)`);
+  certo(linhas(`SELECT 1 FROM identidades WHERE sujeito = '${antigo}'`).length === 0,
+    'a conta antiga começa sem identidade nenhuma (o teste é válido)');
+
+  sqlFicheiro('migracoes/009-identidades.sql');
+
+  const veio = linhas(`SELECT provedor, sujeito, email, cliente_id, criada_em, verificada_em, usada_em
+                         FROM identidades WHERE sujeito = '${antigo}'`);
+  certo(veio.length === 1, 'a migração dá-lhe uma identidade', JSON.stringify(veio).slice(0, 140));
+  certo(veio[0]?.cliente_id === idAntigo && veio[0]?.provedor === 'email',
+    'da conta certa e com o provedor certo', JSON.stringify(veio[0]));
+  certo(veio[0]?.criada_em === '2026-01-02T03:04:05.000Z',
+    'com a data da CONTA, que é a única que existe — nunca se guardou quando é que a morada foi confirmada',
+    String(veio[0]?.criada_em));
+  certo(veio[0]?.usada_em === '2026-05-06T07:08:09.000Z',
+    'e o `usada_em` traz o último sinal de vida, para não caducar quem está activo',
+    String(veio[0]?.usada_em));
+
+  /* Correr duas vezes não pode duplicar: uma migração que só se possa correr
+     uma vez é uma migração que não se pode repetir quando falha a meio. */
+  sqlFicheiro('migracoes/009-identidades.sql');
+  certo(linhas(`SELECT 1 FROM identidades WHERE sujeito = '${antigo}'`).length === 1,
+    'e correr a migração outra vez não duplica nada');
+
+  /* Uma conta com morada NÃO verificada não ganha identidade: nunca ninguém
+     provou aquela caixa, e dar-lhe linha era escrever pré-registo na base. */
+  const porProvar = 'nunca-provou@exemplo.pt';
+  sql(`DELETE FROM clientes WHERE email = '${porProvar}'`);
+  sql(`INSERT INTO clientes (id, publico, criado_em, visto_em, email, email_verificado)
+       VALUES ('${randomBytes(16).toString('hex')}', 'VET222', datetime('now'), datetime('now'),
+               '${porProvar}', 0)`);
+  sqlFicheiro('migracoes/009-identidades.sql');
+  certo(linhas(`SELECT 1 FROM identidades WHERE sujeito = '${porProvar}'`).length === 0,
+    'uma morada por verificar NÃO ganha identidade — isso era escrever pré-registo na base');
+
+  sql(`DELETE FROM identidades WHERE sujeito = '${antigo}'`);
+  sql(`DELETE FROM clientes WHERE email IN ('${antigo}', '${porProvar}')`);
 }
 
 /* --------------------------------------------------------------------- */

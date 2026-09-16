@@ -132,6 +132,31 @@ CREATE INDEX IF NOT EXISTS ix_identidades_cliente ON identidades(cliente_id);
 CREATE INDEX IF NOT EXISTS ix_identidades_email ON identidades(email);
 ```
 
+> **FEITA — 16 set 2026** (migração 009). A tabela existe, e **a decisão mudou
+> mesmo de sítio**: `donoDaIdentidade` é quem responde a «de quem é esta
+> morada», nas duas rotas do email. Há um teste que põe uma conta com o
+> `clientes.email` preenchido e identidade nenhuma, e prova que essa conta já
+> não reclama a morada — sem ele, a tabela era enfeite ao lado do código
+> antigo.
+>
+> O `clientes.email` **continua a ser escrito como espelho**, de propósito: a
+> PWA no telemóvel de alguém pode ser de há semanas e lê-o, e o aviso de conta
+> parada também. Sai quando não houver quem o leia.
+>
+> O `telefone` não entrou na tabela — ficou decidido que não há SMS (§0).
+>
+> Duas coisas que só se viram a escrever isto:
+>
+> - **Falhar o índice único deixou de ser um «Erro interno».** Quem perde a
+>   corrida por microssegundos provou a mesma caixa de correio que o outro: a
+>   resposta certa é entrar na conta que ficou com ela. Antes a rede era o
+>   índice parcial sobre `clientes.email` e ninguém a apanhava.
+> - **O `PRAGMA foreign_keys` está a 1 no D1**, local e remoto — conferido. O
+>   `ON DELETE CASCADE` cumpre sozinho, e o `DELETE` explícito no Worker é rede
+>   a mais. Fica escrito no código que é rede a mais, para ninguém o tomar por
+>   necessário — e o teste que interessa é o que reutiliza a morada numa conta
+>   nova, não o que conta linhas.
+
 ### A regra de ligação, que é uma só
 
 > **Uma identidade nova só se cola a uma conta que JÁ provou ser daquela
@@ -307,7 +332,7 @@ nosso *client secret*.
 | # | o quê | esforço | depende de ti |
 |---|---|---|---|
 | ~~0~~ | ~~Dívidas 3.1 e 3.3, mais o `/v1/cliente/eu`~~ — **feita, 16 set 2026** (e metade da 3.2 veio atrás) | — | nada |
-| 1 | Migração `identidades` + email a passar por lá | 1–2 dias | correr a migração em remoto |
+| ~~1~~ | ~~Migração `identidades` + email a passar por lá~~ — **feita, 16 set 2026** | — | nada |
 | 2 | As contas-sombra (`fundida_em`) — o `/v1/cliente/eu` já saiu na fase 0 | meio dia | nada |
 | 3 | A fusão, com a bateria a prová-la | 2–3 dias | decidir a regra dos prémios |
 | 4 | Ecrã de entrada e os seis textos, **mais o botão «sair nos outros aparelhos»** que a fase 0 deixou sem quem o chame | 2–3 dias | **aprovar os textos** |

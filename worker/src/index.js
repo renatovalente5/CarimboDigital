@@ -962,6 +962,70 @@ rota('POST', '/v1/cliente/registar', async (env, pedido) => {
   };
 });
 
+/* =========================================================================
+   Identidades — as formas de entrar numa conta
+
+   A chave é `(provedor, sujeito)` e NÃO a morada. Ver `migracoes/009`.
+   ========================================================================= */
+
+/**
+ * De quem é esta identidade — ou `null` se ainda não é de ninguém.
+ *
+ * É esta pergunta que decide o dono de uma conta, e é por isso que se faz
+ * contra `identidades` e não contra `clientes.email`: a morada é pista. Duas
+ * contas podem mostrar a mesma morada sem serem a mesma pessoa (uma delas
+ * mostrou-a pela Google e ninguém a provou aqui), e tratá-las como uma é
+ * exactamente o pré-registo que o modelo existe para impedir.
+ */
+async function donoDaIdentidade(env, provedor, sujeito) {
+  const l = await env.DB.prepare(
+    'SELECT cliente_id FROM identidades WHERE provedor = ? AND sujeito = ?'
+  ).bind(provedor, sujeito).first();
+  return l ? l.cliente_id : null;
+}
+
+/**
+ * As instruções que colam uma identidade a uma conta.
+ *
+ * Devolve instruções em vez de as correr, para poderem ir num `batch` com o
+ * resto — se o índice único recusar a identidade, a escrita do espelho também
+ * não acontece, e não fica uma conta com o email preenchido e sem identidade
+ * nenhuma a sustentá-lo.
+ *
+ * O ESPELHO EM `clientes.email` CONTINUA A SER ESCRITO, e não é descuido: a
+ * PWA no telemóvel de alguém pode ser de há semanas e lê aquela coluna, e o
+ * aviso de conta parada também. A API acrescenta, não renomeia. Sai quando já
+ * não houver quem o leia.
+ */
+function instrucoesDeIdentidade(env, { clienteId, provedor, sujeito, email, relay = 0, rotulo = null }) {
+  const agoraISO = agora();
+  const instrucoes = [
+    env.DB.prepare(
+      `INSERT INTO identidades
+         (id, cliente_id, provedor, sujeito, email, relay, rotulo, criada_em, verificada_em, usada_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id(), clienteId, provedor, sujeito, email || null, relay ? 1 : 0, rotulo,
+           agoraISO, agoraISO, agoraISO),
+  ];
+  /* Só o email alimenta o espelho. Um `sub` da Google não é uma morada, e a
+     morada que a Google mostra é pista — pô-la aqui era deixá-la decidir de
+     quem é a conta pela porta das traseiras. E um relay da Apple nunca, que a
+     pessoa o pode desligar. */
+  if (provedor === 'email' && email && !relay) {
+    instrucoes.push(env.DB.prepare(
+      'UPDATE clientes SET email = ?, email_verificado = 1 WHERE id = ?'
+    ).bind(email, clienteId));
+  }
+  return instrucoes;
+}
+
+/** Marca que uma identidade acabou de servir para entrar. */
+async function marcarIdentidadeUsada(env, provedor, sujeito) {
+  await env.DB.prepare(
+    'UPDATE identidades SET usada_em = ? WHERE provedor = ? AND sujeito = ?'
+  ).bind(agora(), provedor, sujeito).run();
+}
+
 /**
  * Quem sou eu, e qual é o meu segredo AGORA.
  *
@@ -1196,11 +1260,11 @@ rota('POST', '/v1/cliente/email', async (env, pedido) => {
   const trava = await podeEnviar(env, correio);
   if (trava) throw new Falha(trava, { estado: 429, codigo: 'demasiados' });
 
-  const dono = await env.DB.prepare(
-    'SELECT id FROM clientes WHERE email = ? AND email_verificado = 1 LIMIT 1'
-  ).bind(correio).first();
-  const recuperar = Boolean(dono) && dono.id !== clienteId;
-  const alvo = `cliente:${recuperar ? dono.id : clienteId}`;
+  /* A pergunta é «de quem é esta identidade», e faz-se à tabela que a guarda.
+     O `clientes.email` continua a ser escrito, mas já não é ele que decide. */
+  const dono = await donoDaIdentidade(env, 'email', correio);
+  const recuperar = Boolean(dono) && dono !== clienteId;
+  const alvo = `cliente:${recuperar ? dono : clienteId}`;
 
   const codigo = await emitirCodigo(env, { email: correio, alvo });
   const r = await enviarEmail(env, {
@@ -1233,22 +1297,35 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
      A regra passa a ser uma só, e vale para os dois casos: quem prova a caixa
      de correio entra na conta que já é dela; se não houver nenhuma, a conta
      que pediu fica com ela. */
-  const dono = await env.DB.prepare(
-    'SELECT id FROM clientes WHERE email = ? AND email_verificado = 1 LIMIT 1'
-  ).bind(linha.email).first();
-  const alvoFinal = dono ? dono.id : valor;
+  let dono = await donoDaIdentidade(env, 'email', linha.email);
+  let alvoFinal = dono || valor;
+
+  /* É aqui que a morada passa a ser da conta, e não no pedido do código:
+     agora está provado que quem a escreveu a lê. O índice único sobre
+     `(provedor, sujeito)` é a rede por baixo disto — se duas verificações se
+     cruzarem no mesmo instante, a segunda falha em vez de duplicar.
+
+     E FALHAR AQUI NÃO É UM ERRO INTERNO. Quem perdeu a corrida por
+     microssegundos provou a mesma caixa de correio que o outro: a resposta
+     certa é entrar na conta que entretanto ficou com ela, não um 500. Antes,
+     a rede era o índice parcial sobre `clientes.email` e ninguém a apanhava —
+     a pessoa via «Erro interno» e não tinha por onde voltar. */
+  if (!dono) {
+    try {
+      await env.DB.batch(instrucoesDeIdentidade(env, {
+        clienteId: alvoFinal, provedor: 'email', sujeito: linha.email, email: linha.email,
+      }));
+    } catch (erro) {
+      if (!/UNIQUE|constraint/i.test(String(erro))) throw erro;
+      dono = await donoDaIdentidade(env, 'email', linha.email);
+      if (!dono) throw erro;
+      alvoFinal = dono;
+    }
+  }
+  await marcarIdentidadeUsada(env, 'email', linha.email);
 
   const cliente = await env.DB.prepare('SELECT * FROM clientes WHERE id = ?').bind(alvoFinal).first();
   if (!cliente) throw new Falha('Conta não encontrada', { estado: 404 });
-
-  /* É aqui que a morada passa a ser da conta, e não no pedido do código:
-     agora está provado que quem a escreveu a lê. O índice único parcial
-     (`migracoes/003`) é a rede por baixo disto — se duas verificações se
-     cruzarem no mesmo instante, a segunda falha em vez de duplicar. */
-  if (!dono) {
-    await env.DB.prepare('UPDATE clientes SET email = ?, email_verificado = 1 WHERE id = ?')
-      .bind(linha.email, alvoFinal).run();
-  }
 
   return {
     cliente: { id: cliente.id, publico: cliente.publico, email: linha.email, criadoEm: cliente.criado_em },
@@ -1257,7 +1334,7 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
     horaDoServidor: agora(),
     /* Diz-se a verdade: os cartões que vai ver podem não ser os que tinha
        neste aparelho. A app já sabe avisar. */
-    recuperada: Boolean(dono) && dono.id !== valor,
+    recuperada: Boolean(dono) && dono !== valor,
   };
 });
 
@@ -1286,8 +1363,18 @@ rota('GET', '/v1/cliente/dados', async (env, pedido) => {
       WHERE c.cliente_id = ? ORDER BY pr.ganho_em`
   ).bind(clienteId).all()).results : [];
 
+  /* AS FORMAS DE ENTRAR TAMBÉM SÃO DADOS DELA, e o artigo 20.º diz «os dados
+     que lhe digam respeito», não «os que nos der jeito listar». Hoje é só o
+     espelho do email; quando a Google e a Apple entrarem, é aqui que a pessoa
+     vê quais é que estão ligadas à conta — e é a única forma de o saber sem
+     nos perguntar. Uma consulta, com índice por `cliente_id`. */
+  const identidades = (await env.DB.prepare(
+    `SELECT provedor, sujeito, email, relay, rotulo, criada_em, verificada_em, usada_em
+       FROM identidades WHERE cliente_id = ? ORDER BY criada_em`
+  ).bind(clienteId).all()).results;
+
   const detalhados = await moldarCartoes(env, cartoes);
-  return { geradoEm: agora(), cliente, cartoes: detalhados, movimentos, premios };
+  return { geradoEm: agora(), cliente, identidades, cartoes: detalhados, movimentos, premios };
 });
 
 /**
@@ -1340,6 +1427,15 @@ async function apagarCliente(env, clienteId) {
     env.DB.prepare('DELETE FROM cartoes WHERE cliente_id = ?').bind(clienteId),
     env.DB.prepare('DELETE FROM sessoes WHERE sujeito = ?').bind(`cliente:${clienteId}`),
     env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`cliente:${clienteId}`),
+    /* REDE A MAIS, e fica dito para ninguém a tomar por necessária: o
+       `PRAGMA foreign_keys` está a 1 no D1, local e remoto — conferido — por
+       isso o ON DELETE CASCADE da declaração já leva estas linhas à frente.
+       Tirar esta instrução não parte nenhum teste, e não é por isso que ela
+       fica: é que o modo de falha do outro lado é silencioso e definitivo —
+       uma identidade que sobrevivesse à conta trancava aquela morada para
+       sempre, pelo índice único, e ninguém perceberia porquê. Uma instrução
+       num `batch` que já leva sete é barata de mais para se poupar nela. */
+    env.DB.prepare('DELETE FROM identidades WHERE cliente_id = ?').bind(clienteId),
     env.DB.prepare('DELETE FROM clientes WHERE id = ?').bind(clienteId),
   );
   await env.DB.batch(instrucoes);

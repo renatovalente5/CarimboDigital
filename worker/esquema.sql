@@ -239,6 +239,28 @@ CREATE TABLE IF NOT EXISTS registos (
   em     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_registos_origem ON registos(origem, em);
+
+-- --- as formas de entrar numa conta (ver migracoes/009) --------------------
+-- A identidade é `(provedor, sujeito)` e não a morada: o `sub` da Google e o
+-- da Apple são espaços de nomes diferentes, e a mesma morada em dois
+-- provedores não prova nada. O `email` daqui é PISTA, para escrever — nunca
+-- para decidir de quem é a conta, e é por isso que o índice não é único.
+CREATE TABLE IF NOT EXISTS identidades (
+  id             TEXT PRIMARY KEY,
+  cliente_id     TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  provedor       TEXT NOT NULL,        -- email | google | apple
+  sujeito        TEXT NOT NULL,        -- morada em minúsculas, ou o `sub`
+  email          TEXT,
+  relay          INTEGER NOT NULL DEFAULT 0,   -- 1 = relay da Apple
+  rotulo         TEXT,
+  criada_em      TEXT NOT NULL,
+  -- Não há estado «por verificar»: só chega a linha depois de provada.
+  verificada_em  TEXT NOT NULL,
+  usada_em       TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_identidades_unica ON identidades(provedor, sujeito);
+CREATE INDEX IF NOT EXISTS ix_identidades_cliente ON identidades(cliente_id);
+CREATE INDEX IF NOT EXISTS ix_identidades_email ON identidades(email);
 CREATE INDEX IF NOT EXISTS ix_entradas_expira ON entradas(expira_em);
 
 -- --- códigos já usados (anti-repetição) ---------------------------------
