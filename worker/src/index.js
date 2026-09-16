@@ -28,7 +28,9 @@ import {
   assinarRS256, classeDePrograma, objetoDeCartao, ligacaoDeGravacao, actualizacaoDeSaldo,
   actualizacaoDeClasse,
 } from './wallet.js';
-import { construirPasse, passeDeCartao } from './pkpass.js';
+import {
+  construirPasse, passeDeCartao, certificadosDoPEM, emissorESerie, doPEM,
+} from './pkpass.js';
 
 const JANELA = 15;                 // segundos de vida de um código
 const TOLERANCIA = 2;              // janelas de folga para relógios desencontrados
@@ -1942,6 +1944,32 @@ async function lerBilhete(env, bilhete) {
 }
 
 /**
+ * Os segredos da Apple servem mesmo para assinar?
+ *
+ * O `applePronta` responde a «estão preenchidos?», que é outra pergunta. Isto
+ * responde à de verdade, e responde barato: lê o certificado e importa a
+ * chave, sem assinar nada. Serve para o erro sair no POST — onde a app o
+ * apanha e o mostra — em vez de sair no GET, que é uma navegação do Safari e
+ * onde um erro é um ecrã com JSON em cima.
+ */
+async function verificarSegredosApple(env) {
+  try {
+    const certs = certificadosDoPEM(env.APPLE_CERTIFICADO, 'APPLE_CERTIFICADO');
+    if (!certs.length) throw new Error('não há certificado nenhum em APPLE_CERTIFICADO');
+    emissorESerie(certs[0]);
+    if (env.APPLE_CADEIA) certificadosDoPEM(env.APPLE_CADEIA, 'APPLE_CADEIA');
+    await crypto.subtle.importKey('pkcs8', doPEM(env.APPLE_CHAVE),
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  } catch (erro) {
+    /* A mensagem vai inteira de propósito: quem a lê é quem pôs os segredos,
+       e «Erro interno» não ajuda ninguém a perceber que a chave está no
+       formato errado. Não leva segredo nenhum lá dentro — só o diagnóstico. */
+    throw new Falha(`Os segredos da Apple não servem para assinar: ${erro.message}`,
+      { estado: 500, codigo: 'apple-mal-configurada' });
+  }
+}
+
+/**
  * As peças de um passe, e as razões por que ele pode não existir.
  *
  * Separado do `passeDoCartao` porque o POST só precisa de SABER se o passe é
@@ -2032,13 +2060,19 @@ rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/pkpass$/, async (env, pedido, [
     'SELECT id FROM cartoes WHERE id = ? AND cliente_id = ?'
   ).bind(cartaoId, clienteId).first();
   if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404 });
-  /* VERIFICA-SE antes de dar o endereço, mas não se CONSTRÓI. Assim um
-     negócio sem logótipo — ou um logótipo em JPEG — é um erro aqui, com uma
-     frase que se percebe, e não um ficheiro que o Safari recusa sem dizer
-     nada. Construir o passe inteiro só para o deitar fora era pagar a
-     assinatura RSA e a descodificação do logótipo duas vezes por cada
-     «adicionar à carteira», num Worker com dez milissegundos de tecto. */
+  /* VERIFICA-SE antes de dar o endereço, mas não se CONSTRÓI. Construir o
+     passe inteiro só para o deitar fora era pagar a assinatura RSA e a
+     descodificação do logótipo duas vezes por cada «adicionar à carteira»,
+     num Worker com dez milissegundos de tecto.
+
+     Mas verificar é mesmo verificar: os SEGREDOS também. O `applePronta` só
+     diz que as quatro variáveis não estão vazias, não que sirvam — e uma
+     chave em PKCS#1 em vez de PKCS#8 (que é o que o `openssl genrsa` dá) só
+     rebentava lá à frente, no GET, que é uma navegação do Safari. O que a
+     pessoa via era um JSON de erro no ecrã em vez do passe. Ler o certificado
+     e importar a chave custa microssegundos; assinar é que não. */
   await pecasDoPasse(env, cartaoId);
+  await verificarSegredosApple(env);
   return { ligacao: `${origemDaAPI(pedido)}/v1/passe/${await bilheteDoPasse(env, cartaoId)}` };
 });
 

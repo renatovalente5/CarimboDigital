@@ -713,8 +713,16 @@ function reduzirLogotipo(ficheiro) {
 
            Aqui a pergunta é outra: não «isto é igual à moldura?» mas «isto é
            indistinguível dela?». Três valores em 255 é o limiar abaixo do qual
-           nem um ecrã bom mostra diferença. */
-        const indistinguivel = (a, b) => (a[3] < 8 && b[3] < 8)
+           nem um ecrã bom mostra diferença.
+
+           E o limiar da TRANSPARÊNCIA fica nos 32, onde sempre esteve. Baixá-lo
+           para 8 «por coerência» com o do RGB deixava de aparar halos e sombras
+           suaves: a caixa crescia até onde o halo chegasse, e como a escala é
+           pela DIAGONAL da caixa, o desenho era encolhido pelo halo em vez de
+           pelo logótipo. Medido: uma marca que ocupava 333 dos 512 píxeis
+           passava a ocupar 117. São duas perguntas diferentes e cada uma tem o
+           seu número. */
+        const indistinguivel = (a, b) => (a[3] < 32 && b[3] < 32)
           || (Math.abs(a[0] - b[0]) < 3 && Math.abs(a[1] - b[1]) < 3
             && Math.abs(a[2] - b[2]) < 3 && Math.abs(a[3] - b[3]) < 3);
         let x0 = 0; let y0 = 0; let x1 = M - 1; let y1 = M - 1;
@@ -733,52 +741,30 @@ function reduzirLogotipo(ficheiro) {
           if (x1 - x0 < 2 || y1 - y0 < 2) { x0 = 0; y0 = 0; x1 = M - 1; y1 = M - 1; }
         }
 
-        /* O FUNDO ESCOLHE-SE A OLHAR PARA O LOGÓTIPO, e isto levou voltas.
+        /* MEDE-SE O QUE FOI MESMO DESENHADO, e não a grelha de medição.
 
-           Primeiro pus fundo branco — e o primeiro logótipo a sério que
-           apanhei, o da barbearia, é BRANCO sobre transparente, feito para
-           fundos escuros. Desaparecia por completo.
+           Havia aqui dois limiares de transparência a responder a perguntas
+           diferentes — a aparagem dizia «nada abaixo de 8», a contagem do
+           desenho dizia «nada abaixo de 32» — e entre eles cabia um logótipo
+           inteiro. Num ficheiro de 4000 px com traços de 1 px, cada célula da
+           grelha de 128 fica com alfa ≈ 8: a aparagem encontrava a caixa
+           certa e a contagem dizia que não havia desenho nenhum. A recusa de
+           «imagem vazia» rejeitava um logótipo bom — e sem logótipo não há
+           Wallet nenhuma.
 
-           Depois tirei o fundo e deixei a transparência. Mas a Google desenha
-           o `programLogo` dentro de um círculo BRANCO, e o logótipo branco
-           voltou a sumir-se — desta vez no cartão a sério, que é onde dói.
+           A saída não é escolher melhor o número: é parar de perguntar à
+           grelha. Desenha-se primeiro, em cima de transparente e no tamanho
+           final, e mede-se ISSO. É a imagem que vai ser guardada. */
+        const desenho = document.createElement('canvas');
+        desenho.width = LOGOTIPO_LADO;
+        desenho.height = LOGOTIPO_LADO;
+        const dctx = desenho.getContext('2d', { willReadFrequently: true });
+        dctx.imageSmoothingQuality = 'high';
 
-           A resposta tem dois ramos. Se o ficheiro já traz fundo próprio e
-           opaco, é esse que se usa: quem desenhou o logótipo já escolheu o
-           fundo em que ele se lê, e não há que inventar melhor. Se o fundo é
-           transparente, MEDE-SE.
-
-           E mede-se mesmo, que era o que faltava. O ramo escuro escolhia
-           branco, que contrasta sempre; o ramo claro escolhia a cor da marca
-           SEM lhe perguntar nada. Só que a cor da marca pode ser clara — há um
-           selector de cor livre no ecrã ao lado, e o Worker aceita qualquer
-           `#RRGGBB`. Uma pastelaria em creme com um logótipo branco ficava com
-           branco sobre creme: 1,2:1, invisível. Agora a cor da marca só é
-           usada se PASSAR; se não passar, cai-se no preto ou no branco, que
-           passam sempre. */
-        let soma = 0; let visiveis = 0;
-        for (let y = y0; y <= y1; y += 1) {
-          for (let x = x0; x <= x1; x += 1) {
-            const p = pixel(x, y);
-            if (p[3] < 32) continue;
-            /* Luminosidade percebida: o verde pesa muito mais do que o azul. */
-            soma += (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]);
-            visiveis += 1;
-          }
-        }
-        const claro = visiveis > 0 && (soma / visiveis) > 140;
-        const mediaDoDesenho = visiveis > 0 ? soma / visiveis : 0;
-        const fundo = (moldura && moldura[3] >= 32)
-          ? `rgb(${moldura[0]},${moldura[1]},${moldura[2]})`
-          : fundoQueContrasta(mediaDoDesenho, claro, estado.negocio.cor);
-
-        const tela = document.createElement('canvas');
-        tela.width = LOGOTIPO_LADO;
-        tela.height = LOGOTIPO_LADO;
-        const ctx = tela.getContext('2d');
-        ctx.fillStyle = fundo;
-        ctx.fillRect(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
-
+        const fx = (x0 / M) * img.width;
+        const fy = (y0 / M) * img.height;
+        const fl = ((x1 - x0 + 1) / M) * img.width;
+        const fa = ((y1 - y0 + 1) / M) * img.height;
         /* CABE INTEIRO, E DENTRO DO CÍRCULO. Antes cortava-se um quadrado ao
            centro, e um logótipo em palavra larga — que é o que quase toda a
            gente tem: o nome do café escrito — perdia as pontas. «TITI
@@ -789,35 +775,72 @@ function reduzirLogotipo(ficheiro) {
            num círculo quando a sua DIAGONAL não passa o diâmetro — por isso é
            pela diagonal que se encolhe, e não pelo lado maior. Os 0,92 são
            folga para o desenho não encostar à borda. */
-        const fx = (x0 / M) * img.width;
-        const fy = (y0 / M) * img.height;
-        const fl = ((x1 - x0 + 1) / M) * img.width;
-        const fa = ((y1 - y0 + 1) / M) * img.height;
         const escala = (LOGOTIPO_LADO * 0.92) / Math.hypot(fl, fa);
         const largura = Math.max(1, Math.round(fl * escala));
         const altura = Math.max(1, Math.round(fa * escala));
-        /* UMA IMAGEM SEM NADA VISÍVEL NÃO É UM LOGÓTIPO. Um PNG que ficou
-           todo transparente na exportação passava por aqui inteiro: o ciclo
-           da luminosidade nunca contava nada, o fundo ficava branco, e o que
-           se guardava era um quadrado branco. O dono lia «Logótipo guardado»,
-           o botão da Wallet passava a aparecer, e os clientes ficavam com um
-           círculo vazio no cartão. */
-        if (visiveis === 0) {
-          recusar(new Error('Essa imagem está vazia — não tem nada visível lá dentro.'));
-          return;
-        }
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, fx, fy, fl, fa,
+        dctx.drawImage(img, fx, fy, fl, fa,
           Math.round((LOGOTIPO_LADO - largura) / 2),
           Math.round((LOGOTIPO_LADO - altura) / 2),
           largura, altura);
+
+        /* Duas perguntas, dois limiares — mas agora ditos em voz alta.
+           «Há ALGUMA coisa?» é qualquer alfa acima de zero. «O que lá está é
+           claro ou escuro?» é uma média PESADA pelo alfa, que é a forma certa
+           de dar a cor média de um desenho com transparência: um traço fino e
+           esbatido conta pouco, mas conta. */
+        const px2 = dctx.getImageData(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO).data;
+        let soma = 0; let peso = 0; let algumaCoisa = 0;
+        for (let k = 0; k < px2.length; k += 4) {
+          const a = px2[k + 3];
+          if (a === 0) continue;
+          algumaCoisa += 1;
+          soma += a * (0.2126 * px2[k] + 0.7152 * px2[k + 1] + 0.0722 * px2[k + 2]);
+          peso += a;
+        }
+
+        /* UMA IMAGEM SEM NADA VISÍVEL NÃO É UM LOGÓTIPO. Um PNG que ficou
+           todo transparente na exportação passava por aqui inteiro: o fundo
+           ficava branco e o que se guardava era um quadrado branco. O dono lia
+           «Logótipo guardado», o botão da Wallet passava a aparecer, e os
+           clientes ficavam com um círculo vazio no cartão. */
+        if (algumaCoisa === 0) {
+          recusar(new Error('Essa imagem está vazia — não tem nada visível lá dentro.'));
+          return;
+        }
+
+        /* O FUNDO ESCOLHE-SE A OLHAR PARA O LOGÓTIPO, e isto levou voltas.
+
+           Primeiro pus fundo branco — e o primeiro logótipo a sério que
+           apanhei, o da barbearia, é BRANCO sobre transparente, feito para
+           fundos escuros. Desaparecia por completo.
+
+           Depois tirei o fundo e deixei a transparência. Mas a Google desenha
+           o `programLogo` dentro de um círculo BRANCO, e o logótipo branco
+           voltou a sumir-se — desta vez no cartão a sério, que é onde dói.
+
+           Se o ficheiro já traz fundo próprio e opaco, é esse que se usa: quem
+           desenhou o logótipo já escolheu o fundo em que ele se lê. Se o fundo
+           é transparente, MEDE-SE — ver o `fundoQueContrasta`. */
+        const mediaDoDesenho = peso > 0 ? soma / peso : 0;
+        const claro = mediaDoDesenho > 140;
+        const fundo = (moldura && moldura[3] >= 32)
+          ? `rgb(${moldura[0]},${moldura[1]},${moldura[2]})`
+          : fundoQueContrasta(mediaDoDesenho, claro, estado.negocio.cor);
+
+        const tela = document.createElement('canvas');
+        tela.width = LOGOTIPO_LADO;
+        tela.height = LOGOTIPO_LADO;
+        const ctx = tela.getContext('2d');
+        ctx.fillStyle = fundo;
+        ctx.fillRect(0, 0, LOGOTIPO_LADO, LOGOTIPO_LADO);
+        ctx.drawImage(desenho, 0, 0);
+
         /* Devolve-se a cor cozida SÓ quando ela é a COR DA MARCA. A partir
            daqui ela está dentro dos bytes, e refazer a imagem depois não dá —
-           o ficheiro original não fica em lado nenhum. Mas só fica obsoleta
-           se for a cor da marca: um fundo que veio do próprio ficheiro é
-           escolha de quem desenhou o logótipo e não envelhece, e o
-           quase-preto e o branco de recurso também não. Registar esses
-           punha um aviso a aparecer onde não há nada de errado. */
+           o ficheiro original não fica em lado nenhum. Mas só fica obsoleta se
+           for a cor da marca: um fundo que veio do próprio ficheiro é escolha
+           de quem desenhou o logótipo e não envelhece, e o quase-preto e o
+           branco de recurso também não. */
         const daMarca = hexDe(fundo) === hexDe(estado.negocio.cor);
         resolve({ imagem: tela.toDataURL('image/png'), fundo: daMarca ? hexDe(fundo) : null });
       };

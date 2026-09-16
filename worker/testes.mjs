@@ -2102,6 +2102,51 @@ grupo('O cartão na Apple Wallet');
         'e dois colados na mesma variável contam os dois — era aqui que se perdia um',
         `${quantosCertificados(e2)}`);
 
+      {
+        /* A CHAVE PRIVADA NUNCA ENTRA NUM PASSE, e isto é a guarda de uma
+           fuga a sério que esteve escrita.
+
+           Ao passar a ler todos os blocos de um PEM — para a cadeia caber
+           numa variável — passou-se a enfiar no CMS tudo o que aparecesse,
+           sem olhar ao rótulo. E o ficheiro que a receita normal produz
+           (`openssl pkcs12 -in Certificates.p12 -nodes`) traz o certificado
+           E A CHAVE. Medido na altura: os bytes completos da chave de
+           assinatura ficavam dentro do ficheiro `signature` do `.pkpass` —
+           que a rota ABERTA serve a quem tiver o endereço.
+
+           Recusa-se em vez de se ignorar em silêncio: uma chave privada na
+           variável dos certificados quer dizer que um segredo foi colado no
+           sítio errado, e quem o fez tem de saber. */
+        const combinado = `${cert}\n${readFileSync(caminho('k8.pem'), 'utf8')}`;
+        let recusou = null;
+        try {
+          await p.construirPasse({
+            passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+            certificado: combinado, chave, quando: '2026-09-16T00:00:00Z',
+          });
+        } catch (erro) { recusou = erro.message; }
+        certo(recusou && /chave privada/i.test(recusou),
+          'um PEM com a chave lá dentro é RECUSADO — nunca chega a sair um passe',
+          String(recusou));
+        certo(recusou && /APPLE_CHAVE/.test(recusou),
+          'e diz onde é que a chave devia estar', String(recusou));
+
+        /* E a prova de que a recusa é o que interessa: com o certificado
+           sozinho, os bytes da chave NÃO aparecem na assinatura. */
+        const limpo = await p.construirPasse({
+          passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+          certificado: cert, chave, quando: '2026-09-16T00:00:00Z',
+        });
+        writeFileSync(caminho('limpo.pkpass'), limpo);
+        execFileSync('unzip', ['-o', '-q', caminho('limpo.pkpass'), '-d', caminho('c3')]);
+        openssl('pkey', '-in', caminho('k8.pem'), '-outform', 'DER', '-out', caminho('k8.der'));
+        const assinatura = readFileSync(join(caminho('c3'), 'signature'));
+        const chaveDER = readFileSync(caminho('k8.der'));
+        certo(assinatura.indexOf(chaveDER) === -1,
+          'e num passe bem feito a chave privada não está lá dentro, byte nenhum',
+          `assinatura ${assinatura.length} bytes`);
+      }
+
       /* Com os `\n` achatados, que é como um PEM cabe numa variável. */
       const achatado = await p.construirPasse({
         passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
@@ -2309,6 +2354,47 @@ grupo('O passe da Apple, de ponta a ponta');
     certo(/PNG/.test(String(r5.dados.erro)) && /balcão/i.test(String(r5.dados.erro)),
       'e diz o que fazer', String(r5.dados.erro));
     sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}' WHERE id = 'n1'`);
+  }
+
+  {
+    /* UM SEGREDO MAL POSTO É UM ERRO NO POST, e não um JSON dentro do Safari.
+
+       O `applePronta` só diz que as quatro variáveis não estão vazias. Uma
+       chave em PKCS#1 — a forma antiga, que o `openssl rsa -traditional`
+       ainda dá e que muita ferramenta mais velha dá por omissão — só rebentava
+       no GET, que é uma NAVEGAÇÃO: a pessoa tocava no botão, o Safari saía da
+       app, e o que aparecia era um ecrã com «Erro interno» em vez do passe.
+       (O `openssl genrsa` de hoje já dá PKCS#8; a armadilha continua a existir
+       para quem traga a chave de outro lado.)
+
+       Não se pode mexer nas variáveis do Worker a correr, por isso prova-se
+       pelo lado de cá: o mesmo caminho de verificação, com uma chave no
+       formato errado. */
+    const { execFileSync: correr2 } = await import('node:child_process');
+    const p2 = await import('./src/pkpass.js');
+    const { mkdtempSync: pasta2, readFileSync: ler2, rmSync: apagar2 } = await import('node:fs');
+    const { tmpdir: tmp2 } = await import('node:os');
+    const dir = pasta2(join(tmp2(), 'carimbo-pk1-'));
+    let recusou = null;
+    try {
+      correr2('openssl', ['genrsa', '-out', join(dir, 'p8.pem'), '2048'], { stdio: 'ignore' });
+      /* A forma ANTIGA, que é a que não serve ao WebCrypto. */
+      correr2('openssl', ['rsa', '-in', join(dir, 'p8.pem'), '-traditional',
+        '-out', join(dir, 'pk1.pem')], { stdio: 'ignore' });
+      correr2('openssl', ['req', '-x509', '-key', join(dir, 'p8.pem'), '-out',
+        join(dir, 'c.pem'), '-days', '2', '-subj', '/CN=x'], { stdio: 'ignore' });
+      await p2.construirPasse({
+        passe: { formatVersion: 1 },
+        imagens: { 'icon.png': Uint8Array.from(atob(PNG_FIXO), (c) => c.charCodeAt(0)) },
+        certificado: ler2(join(dir, 'c.pem'), 'utf8'),
+        chave: ler2(join(dir, 'pk1.pem'), 'utf8'),
+        quando: '2026-09-16T00:00:00Z',
+      });
+    } catch (erro) { recusou = erro.message; }
+    apagar2(dir, { recursive: true, force: true });
+    certo(recusou,
+      'uma chave em PKCS#1 não passa — e é por isso que o POST a experimenta antes de dar o endereço',
+      String(recusou).slice(0, 110));
   }
 
   {

@@ -861,6 +861,120 @@ export async function correr(palco, certo) {
     await irAo(palco, 'programa');
   }
 
+
+  {
+    /* --- um logótipo de traço fino NÃO é uma imagem vazia --------------
+       A recusa de «imagem vazia» e a aparagem estavam a responder com
+       limiares diferentes: a aparagem dizia «nada abaixo de 8», a contagem do
+       desenho dizia «nada abaixo de 32». Entre os dois cabia um logótipo
+       inteiro — num ficheiro de 2048 px com traços de 1 px, cada célula da
+       grelha de medição fica com alfa ≈ 16. A aparagem encontrava a caixa
+       certa e a contagem dizia que não havia desenho nenhum: o dono não
+       conseguia gravar, e sem logótipo não há Wallet.
+
+       Agora mede-se o que foi MESMO desenhado, no tamanho final.
+       ---------------------------------------------------------------- */
+    const traco = await palco.js(`
+      const L = 2048;
+      const tela = document.createElement('canvas');
+      tela.width = L; tela.height = L;
+      const c = tela.getContext('2d');
+      /* Um contorno de um píxel — o «monoline» de que estão cheios os
+         logótipos desenhados em vector. */
+      c.strokeStyle = '#101010'; c.lineWidth = 1;
+      for (let i = 0; i < 12; i += 1) {
+        c.beginPath();
+        c.moveTo(L * 0.2, L * 0.3 + i * 30);
+        c.lineTo(L * 0.8, L * 0.3 + i * 30);
+        c.stroke();
+      }
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'traco.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n.logotipo; });
+      const t2 = document.createElement('canvas');
+      t2.width = img.width; t2.height = img.height;
+      const cc = t2.getContext('2d');
+      cc.drawImage(img, 0, 0);
+      const d = cc.getImageData(0, 0, img.width, img.height).data;
+      /* O fundo é o canto; conta-se o que difere dele. */
+      const fundo = [d[0], d[1], d[2]];
+      let diferentes = 0;
+      for (let k = 0; k < d.length; k += 4) {
+        if (Math.abs(d[k] - fundo[0]) > 20 || Math.abs(d[k+1] - fundo[1]) > 20
+            || Math.abs(d[k+2] - fundo[2]) > 20) diferentes += 1;
+      }
+      return { aviso: document.body.innerText.includes('vazia'),
+               lado: img.width, diferentes, fundo };`);
+
+    certo(traco && traco.aviso === false,
+      'um logótipo de traço fino não é recusado como «imagem vazia»',
+      JSON.stringify(traco));
+    certo(traco && traco.diferentes > 500,
+      'e o que fica guardado tem mesmo desenho lá dentro',
+      JSON.stringify(traco && { diferentes: traco.diferentes, lado: traco.lado }));
+  }
+
+  {
+    /* --- um halo suave não encolhe a marca -----------------------------
+       A aparagem trata como moldura tudo o que esteja abaixo de alfa 32.
+       Baixar esse limiar para 8 «por coerência» com o do RGB deixava de
+       aparar halos e sombras: a caixa crescia até onde o halo chegasse, e
+       como a escala é pela DIAGONAL da caixa, o desenho era encolhido pelo
+       halo em vez de pelo logótipo.
+       ---------------------------------------------------------------- */
+    const halo = await palco.js(`
+      const L = 512;
+      const tela = document.createElement('canvas');
+      tela.width = L; tela.height = L;
+      const c = tela.getContext('2d');
+      /* Um halo muito ténue por quase toda a tela... */
+      c.fillStyle = 'rgba(0,0,0,0.05)';
+      c.fillRect(L * 0.05, L * 0.05, L * 0.9, L * 0.9);
+      /* ...e a marca a sério, pequena e opaca, no meio. */
+      c.fillStyle = '#101010';
+      c.fillRect(L * 0.35, L * 0.35, L * 0.3, L * 0.3);
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'halo.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n.logotipo; });
+      const t2 = document.createElement('canvas');
+      t2.width = img.width; t2.height = img.height;
+      const cc = t2.getContext('2d');
+      cc.drawImage(img, 0, 0);
+      const d = cc.getImageData(0, 0, img.width, img.height).data;
+      /* Mede-se a largura da MARCA na linha do meio: o que é bem escuro. */
+      const meio = (img.height / 2 | 0);
+      let esq = img.width; let dir = 0;
+      for (let x = 0; x < img.width; x += 1) {
+        const k = (meio * img.width + x) * 4;
+        if (d[k] < 90 && d[k+1] < 90 && d[k+2] < 90) { if (x < esq) esq = x; if (x > dir) dir = x; }
+      }
+      return { lado: img.width, marca: dir >= esq ? dir - esq + 1 : 0 };`);
+
+    certo(halo && halo.marca > halo.lado * 0.25,
+      'um halo ténue à volta não encolhe a marca — a aparagem apara-o',
+      JSON.stringify(halo));
+  }
+
   {
     /* --- uma imagem vazia não é um logótipo ---------------------------
        Um PNG que ficou todo transparente na exportação passava inteiro: o

@@ -74,7 +74,38 @@ export function paraBase64(bytes) {
 export function doPEM(entrada) {
   const todos = todosOsPEM(entrada);
   if (!todos.length) throw new Error('PEM vazio');
-  return todos[0];
+  return todos[0].bytes;
+}
+
+/**
+ * SÓ os certificados de um PEM — e rebenta se lá vier uma chave privada.
+ *
+ * Isto existe por causa de uma fuga que eu próprio abri. Ao passar a ler
+ * todos os blocos (para a cadeia da Apple caber numa variável), passei a
+ * enfiar no CMS tudo o que encontrasse, sem olhar ao rótulo. E o ficheiro que
+ * a receita normal produz — `openssl pkcs12 -in Certificates.p12 -nodes -out
+ * bundle.pem`, que é como se tira o PEM do que o Acesso a Chaves exporta —
+ * traz, por esta ordem: o certificado E A CHAVE PRIVADA.
+ *
+ * Medido: com esse ficheiro em `APPLE_CERTIFICADO`, os bytes completos da
+ * chave de assinatura do Pass Type ID ficavam dentro do ficheiro `signature`
+ * do `.pkpass` — que a rota ABERTA `GET /v1/passe/<bilhete>` serve a quem
+ * tiver o endereço. De caminho, o CMS deixava de ser analisável e o iPhone
+ * recusava o passe sem dizer porquê.
+ *
+ * Por isso NÃO se ignora a chave em silêncio: rebenta-se. Uma chave privada
+ * na variável dos certificados quer dizer que um segredo foi colado no sítio
+ * errado, e quem o fez tem de saber.
+ */
+export function certificadosDoPEM(entrada, onde = 'o certificado') {
+  const todos = todosOsPEM(entrada);
+  if (todos.some((b) => /PRIVATE KEY/i.test(b.rotulo))) {
+    throw new Error(`Há uma CHAVE PRIVADA dentro de ${onde}. `
+      + 'Isso é um segredo e não entra no passe: põe só os certificados aí, e a '
+      + 'chave em APPLE_CHAVE. (O `openssl pkcs12 -nodes` escreve as duas coisas '
+      + 'no mesmo ficheiro — é preciso separá-las.)');
+  }
+  return todos.filter((b) => !b.rotulo || /CERTIFICATE/i.test(b.rotulo)).map((b) => b.bytes);
 }
 
 /**
@@ -96,10 +127,14 @@ export function doPEM(entrada) {
 export function todosOsPEM(entrada) {
   const s = String(entrada || '').replace(/\\n/g, '\n').trim();
   if (!s) return [];
-  const blocos = [...s.matchAll(/-----BEGIN [^-]+-----([\s\S]*?)-----END [^-]+-----/g)]
-    .map((m) => deBase64(m[1]));
-  /* Sem cabeçalhos nenhuns é base64 puro, que é como cabe numa variável. */
-  return blocos.length ? blocos : [deBase64(s)];
+  /* O RÓTULO VAI JUNTO, e não é pormenor: é por ele que se distingue um
+     certificado de uma chave privada. Ignorá-lo foi o que pôs a chave de
+     assinatura dentro de um ficheiro servido publicamente. */
+  const blocos = [...s.matchAll(/-----BEGIN ([^-]+)-----([\s\S]*?)-----END [^-]+-----/g)]
+    .map((m) => ({ rotulo: m[1].trim(), bytes: deBase64(m[2]) }));
+  /* Sem cabeçalhos nenhuns é base64 puro, que é como cabe numa variável. Não
+     há rótulo para inspeccionar, e quem o põe assim sabe o que lá está. */
+  return blocos.length ? blocos : [{ rotulo: '', bytes: deBase64(s) }];
 }
 
 /* =========================================================================
@@ -331,8 +366,8 @@ export async function assinar(conteudo, { certificado, chave, cadeia = [], quand
      mesmo passe. O PRIMEIRO é o signatário — é a folha, em qualquer exportação
      que siga a convenção — e os outros vão como cadeia. */
   const todos = [
-    ...todosOsPEM(certificado),
-    ...cadeia.filter(Boolean).flatMap(todosOsPEM),
+    ...certificadosDoPEM(certificado, 'APPLE_CERTIFICADO'),
+    ...cadeia.filter(Boolean).flatMap((c) => certificadosDoPEM(c, 'APPLE_CADEIA')),
   ];
   if (!todos.length) throw new Error('Não há certificado nenhum para assinar.');
   const [certDER, ...cadeiaDER] = todos;
