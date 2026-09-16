@@ -422,6 +422,32 @@ com a trava de registos.
   passe na Carteira morre também neste telemóvel.
 - **Aparece na demonstração**, que existe para «experimentar a app inteira».
 
+**Um beco sem saída, encontrado a conduzir a app contra a produção.** Uma
+sessão que já não valia dava **«Sem ligação ao servidor»** — com a ligação
+óptima. A pessoa carregava em «Tentar outra vez», a app recarregava, e como a
+conta e o segredo continuavam guardados o arranque nunca se voltava a
+registar: 401, mesmo ecrã, para sempre. A única saída era limpar os dados do
+site.
+
+O `api.js` já deitava fora o testemunho morto, com um comentário a dizer que
+isso «devolve a app ao princípio, onde ela sabe registar-se de novo». **Não
+devolvia** — o `entrar()` só se volta a registar quando FALTA a conta ou o
+segredo. Meia correcção com um comentário inteiro.
+
+Isto passou a ser muito mais provável **por causa do botão que esta fase
+publicou**: «terminar sessão nos outros aparelhos» faz exactamente isto aos
+outros telemóveis. Agora há um ecrã que diz a verdade e dá dois caminhos —
+entrar com o email, ou começar de novo (com o preço escrito antes, porque não
+tem volta). E não se regista uma conta nova por baixo: era o atalho fácil e
+apagava a pessoa, que ficava com um número novo e a carteira vazia sem nada
+que dissesse que os cartões antigos continuam a existir.
+
+A bateria apanhou-me uma regressão no meio disto: pus uma guarda a olhar para
+«não há sessão guardada», e isso **não é** a mesma coisa que «o servidor
+recusou a sessão». Uma app aberta sem rede, com os cartões em cache, caía nessa
+guarda e mostrava «a sessão terminou» a quem só estava numa cave sem sinal.
+Quem decide que a sessão morreu é o servidor, e só ele.
+
 **Porque é que o ecrã de entrada esperou:** hoje só há uma porta. Um ecrã à
 Airbnb com **um** botão não é um ecrã de entrada, é um formulário com moldura —
 e os outros dois botões dependem de passos de consola que não são meus. Fazê-lo

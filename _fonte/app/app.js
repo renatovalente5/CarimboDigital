@@ -776,7 +776,7 @@ function ecraPerfil(principal) {
           await api.limpar();
           await esquecerSegredo();
           apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
-          apagar('sessao-por-juntar');
+        apagar('sessao-por-juntar');
           location.reload();
         },
       })));
@@ -1035,6 +1035,7 @@ function pedirCodigo(email, demo = false) {
           }
 
           fecharPainel();
+          if (RECARREGAR_DEPOIS) { location.reload(); return; }
           avisar(trocou
             ? `Cartões recuperados: ${estado.cartoes.length}.`
             : 'Conta guardada. Os cartões já não se perdem.', 'bom');
@@ -1119,7 +1120,7 @@ function apagarConta() {
         }
         await esquecerSegredo();
         apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
-          apagar('sessao-por-juntar');
+        apagar('sessao-por-juntar');
         location.reload();
       },
     }),
@@ -1634,6 +1635,97 @@ function ecraSemLigacao(erro) {
     el('p', { class: 'miudo', style: 'margin-top:8px', texto: erro?.message || '' })));
 }
 
+/**
+ * A sessão acabou neste telemóvel.
+ *
+ * ISTO ERA UM BECO SEM SAÍDA, e o ecrã mentia no caminho. Uma sessão que já não
+ * vale dava «Sem ligação ao servidor» — e a ligação estava óptima. A pessoa
+ * carregava em «Tentar outra vez», a app recarregava, e como a conta e o
+ * segredo continuavam guardados o arranque nunca voltava a registar-se: 401,
+ * mesmo ecrã, para sempre. A única saída era limpar os dados do site, que
+ * ninguém sabe fazer nem tem razão para adivinhar.
+ *
+ * O `api.js` já deitava fora o testemunho morto, com um comentário a dizer que
+ * isso «devolve a app ao princípio, onde ela sabe registar-se de novo». Não
+ * devolvia: o `entrar()` só se volta a registar quando FALTA a conta ou o
+ * segredo, e aqui os dois estão lá. Meia correcção com um comentário inteiro.
+ *
+ * Passou a haver isto, que se tornou muito mais provável desde que existe o
+ * «terminar sessão nos outros aparelhos»: é exactamente o que essa
+ * funcionalidade faz aos outros telemóveis, e mandá-los para um ecrã que diz
+ * «verifica a Internet» seria pôr a app a mentir por desenho.
+ *
+ * NÃO SE REGISTA UMA CONTA NOVA POR BAIXO. Era o atalho fácil e apagava a
+ * pessoa: ficava com um número de cartão diferente e a carteira vazia, sem
+ * nada que dissesse que os cartões antigos continuam a existir do outro lado.
+ */
+function ecraSessaoTerminada(cliente) {
+  $('#topo-titulo').textContent = '';
+  $('#barra').innerHTML = '';
+  const principal = $('#principal');
+  principal.innerHTML = '';
+
+  principal.append(el('div', { class: 'vazio' },
+    el('div', { class: 'vazio-desenho', html: icone('cadeado', { tamanho: 96 }) }),
+    el('h3', { texto: 'A sessão terminou neste telemóvel' }),
+    el('p', { texto: cliente?.email
+      ? 'Pode ter sido por já ter passado muito tempo, ou porque terminaste a '
+        + 'sessão a partir de outro aparelho. Entra outra vez e os cartões voltam.'
+      : 'Pode ter sido por já ter passado muito tempo, ou porque terminaste a '
+        + 'sessão a partir de outro aparelho. Se guardaste a conta com um email, '
+        + 'entra com ele e os cartões voltam.' }),
+    el('button', {
+      class: 'btn btn-cheio btn-grande',
+      texto: 'Entrar com o email',
+      aoClick: () => { RECARREGAR_DEPOIS = true; recuperarConta(); },
+    }),
+    el('button', {
+      class: 'btn btn-contorno', style: 'margin-top:8px',
+      texto: 'Começar de novo neste telemóvel',
+      aoClick: comecarDeNovo,
+    }),
+    el('p', { class: 'miudo', style: 'margin-top:12px', texto:
+      cliente?.publico ? `O número deste cartão era ${cliente.publico}.` : '' })));
+}
+
+/**
+ * Recomeçar com um cartão vazio.
+ *
+ * Um painel e não um `confirm()` do browser: esta casa nunca usou um, e o do
+ * browser aparece colado ao topo do ecrã com o nome do domínio por cima — num
+ * telemóvel, parece um aviso do sistema e não uma pergunta da app.
+ *
+ * E diz-se o que se perde ANTES, porque isto não tem volta: quem não tiver
+ * guardado a conta com um email fica sem caminho de regresso aos cartões
+ * antigos, que continuam a existir do outro lado sem ninguém que lhes chegue.
+ */
+function comecarDeNovo() {
+  const painel = abrirPainel('Começar de novo');
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      'Este telemóvel passa a ter um cartão novo e vazio, com um número novo.' }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        '<b>Os cartões antigos não se apagam</b> — ficam onde estão. Mas só '
+        + 'voltam a este telemóvel se entrares com o email que lhes associaste. '
+        + 'Se nunca guardaste a conta com um email, não há caminho de volta.' })),
+    el('button', {
+      class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Começar de novo',
+      aoClick: async () => {
+        apagar('cliente'); apagar('sessao'); apagar('cartoes');
+        apagar('desvio'); apagar('sessao-por-juntar');
+        await esquecerSegredo();
+        location.reload();
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
+}
+
+/* Quando a entrada se faz a partir do ecrã acima, a app não tem barra nem
+   separadores montados — o `irPara` do fim da recuperação não teria para onde
+   ir. Recarregar devolve uma app inteira e limpa, e custa um piscar de olhos. */
+let RECARREGAR_DEPOIS = false;
+
 async function entrar() {
   $('#aplicacao').hidden = false;
   let cliente = ler('cliente');
@@ -1663,6 +1755,19 @@ async function entrar() {
     estado.cartoes = await api.cartoes(cliente.id);
     guardar('cartoes', estado.cartoes);
   } catch (erro) {
+    /* UM 401 NÃO É FALTA DE REDE, e era tratado como tal.
+       Apanha OS DOIS arranques, e é por isso que não é preciso mais nada: no
+       primeiro o testemunho morto ainda vai no cabeçalho e é recusado; no
+       segundo já não há testemunho nenhum — o `api.js` deitou-o fora — e um
+       pedido sem ele leva o mesmo 401.
+
+       TENTEI ANTES PÔR UMA GUARDA À ENTRADA, a olhar para «não há sessão
+       guardada», e isso está errado e a bateria apanhou-o: faltar o testemunho
+       em local não quer dizer que o servidor o tenha recusado. Uma app aberta
+       sem rede, com os cartões em cache, caía nessa guarda e mostrava «a sessão
+       terminou» a quem só estava numa cave sem sinal. Quem decide que a sessão
+       morreu é o servidor, e só ele. */
+    if (erro.estado === 401) { ecraSessaoTerminada(cliente); return; }
     const guardados = ler('cartoes', null);
     if (!erro.rede || !guardados) throw erro;
     estado.cartoes = guardados;

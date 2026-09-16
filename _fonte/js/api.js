@@ -191,11 +191,16 @@ function criarRemoto(base) {
     let dados = null;
     try { dados = texto ? JSON.parse(texto) : null; } catch { /* resposta não-JSON */ }
     if (!r.ok) {
-      /* Uma sessão que já não vale não é um problema de rede, e tratá-la
-         como tal deixava a app presa: mostrava «Sem ligação ao servidor»,
-         a pessoa recarregava, e o testemunho morto continuava lá a dar 401
-         para sempre. Deitá-lo fora devolve a app ao princípio, onde ela
-         sabe registar-se de novo. */
+      /* Uma sessão que já não vale não é um problema de rede. Deita-se fora o
+         testemunho morto para não voltar a levar o mesmo 401 à próxima.
+
+         ISTO ERA METADE DA CORRECÇÃO, e o comentário que aqui estava dizia que
+         era toda — «devolve a app ao princípio, onde ela sabe registar-se de
+         novo». Não devolvia: o `entrar()` da app só se volta a registar quando
+         FALTA a conta ou o segredo, e nenhuma das duas some por o testemunho
+         morrer. A app recarregava e apanhava o mesmo ecrã, agora sem sessão
+         nenhuma — «Sem ligação ao servidor», com a ligação óptima, para
+         sempre. A outra metade está no `ecraSessaoTerminada` do `app.js`. */
       if (r.status === 401) {
         try { apagar(CHAVE_SESSAO); } catch { /* armazenamento trancado */ }
       }
