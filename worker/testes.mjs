@@ -2578,6 +2578,12 @@ grupo('Quem sou eu');
     'o segredo que devolve é o mesmo que o registo deu — é isto que permite recuperá-lo',
     `${String(eu.dados.segredo).slice(0, 8)} vs ${String(c.dados.segredo).slice(0, 8)}`);
 
+  certo(Array.isArray(eu.dados.identidades) && eu.dados.identidades.length === 0,
+    'e diz que ainda não há forma nenhuma de entrar — é isto que faz o perfil pedir login',
+    JSON.stringify(eu.dados.identidades));
+  certo(!('sujeito' in (eu.dados.identidades[0] || {})),
+    'sem o `sujeito`: o `sub` da Google não se mostra a ninguém nem serve para o ecrã');
+
   const codigo = codigoPara(eu.dados.cliente.publico, eu.dados.segredo);
   const r = await pedir('/v1/balcao/carimbar', {
     metodo: 'POST', sessao: sessaoBalcao, corpo: { codigo, programaId: 'p1' } });
@@ -2783,6 +2789,12 @@ grupo('A identidade é (provedor, sujeito)');
   const entrou = await pedir('/v1/cliente/entrar',
     { metodo: 'POST', corpo: { email: correio, codigo: '111111' } });
   certo(entrou.estado === 200, 'confirmar a morada continua a funcionar', String(entrou.estado));
+
+  const euDepois = await pedir('/v1/cliente/eu', { sessao: c.dados.sessao });
+  certo(euDepois.dados?.identidades?.length === 1
+        && euDepois.dados.identidades[0].provedor === 'email',
+    'e o /eu passa a dizer que há uma forma de entrar (a lista vazia de cima não passava por acidente)',
+    JSON.stringify(euDepois.dados?.identidades));
 
   const ident = linhas(`SELECT provedor, sujeito, email, relay, cliente_id, verificada_em, usada_em
                           FROM identidades WHERE sujeito = '${correio}'`);

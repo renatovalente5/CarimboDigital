@@ -695,6 +695,39 @@ function ecraPerfil(principal) {
         el('b', { texto: 'Carteira do telemóvel' }),
         el('span', { texto: 'O botão da Carteira do Google está em cada cartão. '
           + 'A Apple Wallet ainda não.' }))));
+
+  /* A CONTA QUE FICOU POR JUNTAR. O painel da recuperação diz «podes juntar
+     mais tarde no perfil», e uma frase dessas obriga — sem esta linha era mais
+     uma promessa que a app não cumpre, e dessas já se corrigiram demasiadas
+     aqui. Só aparece a quem tem mesmo uma conta à espera. */
+  if (ler('sessao-por-juntar')) {
+    conta.prepend(el('button', { class: 'linha', aoClick: () => {
+      juntarContas({ sessaoAntiga: ler('sessao-por-juntar'), quantos: 0 });
+    } },
+      el('span', { class: 'linha-icone', html: icone('cartoes', { tamanho: 20 }) }),
+      el('span', { class: 'linha-texto' },
+        el('b', { texto: 'Juntar os cartões da conta antiga' }),
+        el('span', { texto: 'Ficaram numa conta separada quando recuperaste esta' })),
+      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
+  }
+
+  /* EXPULSAR OS OUTROS APARELHOS. A rota existe desde a fase 0 e não tinha
+     quem a chamasse — e uma rota sem quem a chame é metade de um protocolo.
+     Não se mostra a quem não tem por onde voltar a entrar: sem forma de entrar
+     guardada, expulsar os outros aparelhos é expulsar-se a si próprio da conta
+     para sempre, e o botão não avisa disso nenhuma. */
+  /* Aparece TAMBÉM na demonstração — ela existe para «experimentar a app
+     inteira», e esconder-lhe uma funcionalidade fá-la mentir sobre o que a app
+     é. O esboço do lado da API trata do resto. */
+  if (estado.cliente?.email) {
+    conta.append(el('button', { class: 'linha', aoClick: sairDosOutros },
+      el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
+      el('span', { class: 'linha-texto' },
+        el('b', { texto: 'Terminar sessão nos outros aparelhos' }),
+        el('span', { texto: 'Se perdeste um telemóvel com a app aberta' })),
+      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
+  }
+
   principal.append(el('section', { class: 'seccao' },
     el('h2', { class: 'seccao-titulo', texto: 'Conta' }), conta));
 
@@ -743,10 +776,133 @@ function ecraPerfil(principal) {
           await api.limpar();
           await esquecerSegredo();
           apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
+          apagar('sessao-por-juntar');
           location.reload();
         },
       })));
   }
+}
+
+/**
+ * Expulsar os outros aparelhos.
+ *
+ * Pede confirmação porque tem um preço que não se adivinha: o passe que está
+ * na Carteira do telemóvel também morre — nos outros E neste. É o preço de o
+ * código do passe não levar assinatura nenhuma; quem ficar com ele na mão
+ * carimba, e a única forma de o fechar é deitá-lo fora. Diz-se antes, para
+ * não ser uma surpresa ao balcão.
+ */
+function sairDosOutros() {
+  const painel = abrirPainel('Terminar sessão nos outros aparelhos');
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      'Todos os outros telemóveis e computadores onde esta conta esteja aberta '
+      + 'deixam de lá entrar. Este continua.' }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        '<b>O código do teu cartão muda.</b> O antigo deixa de carimbar — é '
+        + 'isso que fecha a porta a quem tenha ficado com o telemóvel.<br>'
+        + '<b>Os cartões que tenhas na Carteira do telemóvel também deixam de '
+        + 'valer</b>, incluindo neste. Voltas a juntá-los quando quiseres, a '
+        + 'partir de cada cartão.' })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Terminar nos outros',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.disabled = true;
+        try {
+          const r = await api.sairDosOutros();
+          /* O SEGREDO NOVO GUARDA-SE, e é o passo que não se pode falhar: sem
+             ele este aparelho fica com o segredo da versão anterior e o seu
+             próprio código deixa de carimbar — a pessoa expulsava-se a si
+             própria com o botão que existe para não o fazer. */
+          if (r && r.segredo) await guardarSegredo(r.segredo);
+          estado.cartoes = await api.cartoes(estado.cliente.id);
+          fecharPainel();
+          avisar(r && r.passesRevogados
+            ? 'Feito. Os cartões que tinhas na Carteira precisam de ser juntos outra vez.'
+            : 'Feito. Os outros aparelhos deixaram de ter acesso.', 'bom');
+          irPara('perfil');
+        } catch (e) {
+          botao.disabled = false;
+          avisar(e.message, 'mau');
+        }
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
+}
+
+/**
+ * Juntar os cartões deste telemóvel à conta em que se acabou de entrar.
+ *
+ * Aparece no único momento em que faz sentido: a pessoa escreveu o código, a
+ * morada já era de outra conta, e a conta que estava neste telemóvel tinha
+ * cartões. Sem isto, esses cartões ficavam para trás em silêncio — no gesto
+ * que lhe prometia exactamente o contrário.
+ *
+ * PERGUNTA-SE, não se faz sozinho. Juntar não tem volta: dois cartões do mesmo
+ * café passam a um, e o ciclo fica pelo maior. É pouco provável que alguém
+ * prefira o contrário, mas «pouco provável» não é razão para decidir pela
+ * pessoa numa coisa irreversível.
+ */
+function juntarContas({ sessaoAntiga, quantos }) {
+  const painel = abrirPainel('Juntar os cartões');
+  /* Quem chega pelo perfil já não sabe quantos eram — a contagem era da conta
+     que já lá não está. Dizer «tinhas 0 cartões» seria pior do que não contar. */
+  const introducao = quantos > 0
+    ? `Tinhas ${quantos === 1 ? 'um cartão' : `${quantos} cartões`} neste telemóvel, `
+      + 'numa conta separada. Queres juntá-los aos que acabaste de recuperar?'
+    : 'Ficaram cartões numa conta separada quando recuperaste esta. '
+      + 'Queres juntá-los todos?';
+
+  const seguir = async (ev) => {
+    const botao = ev.currentTarget;
+    botao.disabled = true;
+    try {
+      await api.fundir(sessaoAntiga);
+      /* A sessão guardada morre aqui. Deixá-la ficar punha a linha «juntar os
+         cartões da conta antiga» a aparecer para sempre no perfil, a oferecer
+         uma fusão que já foi feita — e o servidor responderia «essa conta já
+         foi fundida», que não quer dizer nada a quem está a ler. */
+      apagar('sessao-por-juntar');
+      estado.cartoes = await api.cartoes(estado.cliente.id);
+      fecharPainel();
+      avisar(`Ficaste com ${estado.cartoes.length} cartões numa conta só.`, 'bom');
+      irPara('carteira');
+    } catch (e) {
+      botao.disabled = false;
+      /* O prémio por levantar trava a fusão, e isso diz-se com as palavras do
+         servidor em vez de um erro genérico: a pessoa tem uma coisa concreta
+         para fazer a seguir. */
+      avisar(e.message, 'mau');
+    }
+  };
+
+  painel.append(
+    el('p', { class: 'subtexto', texto: introducao }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        '<b>Se juntares:</b> ficas com tudo numa conta só. Se tiveres dois '
+        + 'cartões do mesmo café, ficam um — com os carimbos do que estava '
+        + 'mais adiantado, e o histórico dos dois.<br>'
+        /* «Podes juntar mais tarde no perfil» só se diz a quem NÃO está no
+           perfil. Quem chegou aqui pela linha do perfil já lá está, e mandá-lo
+           para onde está é o género de frase que faz uma pessoa duvidar se
+           carregou no sítio certo. */
+        + '<b>Não tem volta.</b>'
+        + (quantos > 0 ? ' Se preferires, podes juntar mais tarde no perfil.' : '') })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Juntar os cartões', aoClick: seguir }),
+    el('button', {
+      class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: quantos > 0 ? 'Agora não' : 'Cancelar',
+      aoClick: () => {
+        /* A sessão antiga fica guardada, senão «mais tarde» era mentira: sem
+           ela não há como provar que aquela conta também é desta pessoa. */
+        guardar('sessao-por-juntar', sessaoAntiga);
+        fecharPainel();
+        avisar(`Cartões recuperados: ${estado.cartoes.length}.`, 'bom');
+        irPara('carteira');
+      } }));
 }
 
 /**
@@ -846,6 +1002,21 @@ function pedirCodigo(email, demo = false) {
              na mesma. Estava prometido nas boas-vindas, no perfil e no
              próprio email que sai daqui. */
           const trocou = r && r.cliente && r.cliente.id !== estado.cliente?.id;
+
+          /* OS CARTÕES DESTE TELEMÓVEL NÃO SE DEITAM FORA, e era o que
+             acontecia. Quando a morada já pertencia a outra conta, a app
+             trocava de conta e dizia «Cartões recuperados: N» — e os cartões
+             que estavam AQUI, na conta local, ficavam para trás sem que uma
+             única palavra o dissesse. Quem tivesse andado a juntar carimbos
+             neste telemóvel antes de guardar a conta perdia-os no gesto que
+             lhe prometia o contrário.
+
+             Guarda-se a sessão antiga ANTES de a substituir: é ela a prova de
+             que esta conta também é desta pessoa, e sem ela não há por onde
+             juntar as duas depois. */
+          const sessaoAntiga = ler('sessao');
+          const cartoesDaqui = trocou ? (estado.cartoes || []).length : 0;
+
           if (r && r.cliente) {
             if (r.segredo) await guardarSegredo(r.segredo);
             if (r.sessao) guardar('sessao', r.sessao);
@@ -856,6 +1027,11 @@ function pedirCodigo(email, demo = false) {
           } else {
             estado.cliente = { ...estado.cliente, email };
             guardar('cliente', estado.cliente);
+          }
+
+          if (trocou && cartoesDaqui > 0 && sessaoAntiga) {
+            juntarContas({ sessaoAntiga, quantos: cartoesDaqui });
+            return;
           }
 
           fecharPainel();
@@ -943,6 +1119,7 @@ function apagarConta() {
         }
         await esquecerSegredo();
         apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
+          apagar('sessao-por-juntar');
         location.reload();
       },
     }),

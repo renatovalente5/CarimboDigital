@@ -381,7 +381,7 @@ nosso *client secret*.
 | ~~1~~ | ~~Migração `identidades` + email a passar por lá~~ — **feita, 16 set 2026** | — | nada |
 | ~~2~~ | ~~As contas-sombra (`fundida_em`)~~ — **feita, 16 set 2026** | — | nada |
 | ~~3~~ | ~~A fusão, com a bateria a prová-la~~ — **feita, 16 set 2026** | — | **confirmar a regra dos prémios** (ver abaixo) |
-| 4 | Ecrã de entrada e os seis textos, **mais o botão «sair nos outros aparelhos»** que a fase 0 deixou sem quem o chame | 2–3 dias | **aprovar os textos** |
+| 4 | **Metade feita (16 set 2026):** a fusão na app, o botão «sair nos outros aparelhos» e as seis frases conferidas. Falta o **ecrã de entrada**, que espera pelas fases 5 e 6 | 1 dia | ver o ecrã quando as portas existirem |
 | 5 | Continuar com Google | 3–4 dias | 3 passos de consola |
 | 6 | Continuar com Apple | 4–5 dias | 4 passos de consola |
 | ~~7~~ | ~~Telefone~~ | — | **fora, decidido** |
@@ -394,6 +394,39 @@ Um aviso sobre os números acima: um céptico argumentou, com o histórico deste
 repositório na mão, que a estimativa de código está errada por um factor
 próximo de dez quando se contam os testes, o condutor de demonstração e a
 bateria de browser. Trata as fases como ordem, não como calendário.
+
+---
+
+## 6.1 Fase 4: o que foi feito, e porque é que o ecrã de entrada esperou
+
+**As seis frases não precisam de mudar.** Aquela lista foi escrita quando o
+telefone ainda estava em cima da mesa; com ele fora, *«Não pedimos nome,
+telefone nem morada»* continua verdadeira nos seis sítios, e foram os seis
+conferidos um a um. O que **vai** precisar de linha nova na política de
+privacidade são a Google e a Apple, na fase em que entrarem — como aconteceu
+com a trava de registos.
+
+**O que foi feito, e não era enfeite:**
+
+- **Um defeito vivo, e não uma prenda da fase.** Quando alguém recuperava a
+  conta noutro telemóvel, a app trocava de conta e dizia «Cartões recuperados:
+  N» — e os cartões que estavam na conta local ficavam para trás **sem uma
+  palavra**. Quem tivesse andado a juntar carimbos antes de guardar a conta
+  perdia-os no gesto que lhe prometia o contrário. Agora a sessão antiga é
+  guardada antes de ser substituída, e a app oferece juntar as duas contas.
+- **Pergunta-se, não se faz sozinho.** Juntar não tem volta.
+- **«Podes juntar mais tarde no perfil» obriga**, por isso a linha existe no
+  perfil, e desaparece assim que a fusão é feita.
+- **O botão «terminar sessão nos outros aparelhos»** — a rota existia desde a
+  fase 0 e não tinha quem a chamasse. Avisa do preço que não se adivinha: o
+  passe na Carteira morre também neste telemóvel.
+- **Aparece na demonstração**, que existe para «experimentar a app inteira».
+
+**Porque é que o ecrã de entrada esperou:** hoje só há uma porta. Um ecrã à
+Airbnb com **um** botão não é um ecrã de entrada, é um formulário com moldura —
+e os outros dois botões dependem de passos de consola que não são meus. Fazê-lo
+agora era desenhá-lo duas vezes e, pior, pôr um portão à frente de quem hoje
+entra sem nenhum. Assim que a Google e a Apple existirem, é um dia de trabalho.
 
 ---
 

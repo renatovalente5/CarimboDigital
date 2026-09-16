@@ -1323,8 +1323,21 @@ rota('GET', '/v1/cliente/eu', async (env, pedido) => {
     'SELECT id, publico, email, criado_em, chave_versao FROM clientes WHERE id = ?'
   ).bind(clienteId).first();
   if (!c) throw new Falha('Conta não encontrada', { estado: 404 });
+
+  /* AS FORMAS DE ENTRAR VÊM JUNTAS, e é o que permite à app saber se há aqui
+     alguém — em vez de adivinhar pelo `email`, que é só o espelho de UMA
+     delas e que fica a NULL para quem entrar pela Google. É esta lista que
+     decide se o toque no perfil abre o perfil ou pede para entrar, e é ela que
+     desenha «entraste com...». Sem `sujeito`: o `sub` da Google não se mostra
+     a ninguém e não serve para nada do lado do ecrã. */
+  const identidades = (await env.DB.prepare(
+    `SELECT provedor, email, relay, rotulo, criada_em, usada_em
+       FROM identidades WHERE cliente_id = ? ORDER BY criada_em`
+  ).bind(clienteId).all()).results;
+
   return {
     cliente: { id: c.id, publico: c.publico, email: c.email, criadoEm: c.criado_em },
+    identidades,
     segredo: await derivarSegredo(env, c.id, c.chave_versao),
     horaDoServidor: agora(),
   };

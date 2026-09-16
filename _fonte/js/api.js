@@ -816,6 +816,25 @@ function criarDemo() {
       return { ok: true };
     },
 
+    /* Na demonstração não há contas a sério para juntar, mas as chaves têm de
+       existir nos dois lados: a app chama-as sem saber em que modo está, e uma
+       que faltasse rebentava com «api.fundir is not a function» — num ecrã que
+       só aparece a quem recupera a conta, ou seja, quase nunca em teste. */
+    async eu() {
+      const e = estado();
+      const cliente = e.clientes[0] || null;
+      return { cliente, identidades: cliente && cliente.email
+        ? [{ provedor: 'email', email: cliente.email, relay: 0 }] : [] };
+    },
+
+    async fundir() {
+      return { cartoesMudados: 0, cartoesJuntados: 0, passesRevogados: 0, modo: 'absorcao', demo: true };
+    },
+
+    async sairDosOutros() {
+      return { segredo: null, passesRevogados: 0, demo: true };
+    },
+
     async limpar() {
       guardar(CHAVE, null);
       try { localStorage.removeItem('carimbo:demo'); } catch { /* nada */ }
@@ -866,6 +885,15 @@ export const api = MODO === 'remoto'
       guardarEmail: (email) => remoto.pedir('/v1/cliente/email', { metodo: 'POST', corpo: { email } }),
       confirmarEmail: (email, codigo) =>
         remoto.pedir('/v1/cliente/entrar', { metodo: 'POST', corpo: { email, codigo } }),
+      /* Quem sou eu e por onde é que entrei. É esta lista que decide se tocar
+         no perfil abre o perfil ou pede para entrar. */
+      eu: () => remoto.pedir('/v1/cliente/eu'),
+      /* Juntar a conta deste telemóvel à conta em que se acabou de entrar. A
+         prova são as DUAS sessões — a de agora vai no cabeçalho, a antiga no
+         corpo. */
+      fundir: (sessaoOrigem) =>
+        remoto.pedir('/v1/cliente/fundir', { metodo: 'POST', corpo: { sessaoOrigem } }),
+      sairDosOutros: () => remoto.pedir('/v1/cliente/sair-dos-outros', { metodo: 'POST' }),
       apagarTudo: () => remoto.pedir('/v1/cliente', { metodo: 'DELETE' }),
       exportar: () => remoto.pedir('/v1/cliente/dados'),
       semear: async () => {},
