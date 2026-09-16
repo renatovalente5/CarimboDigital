@@ -97,9 +97,44 @@ export function doPEM(entrada) {
  * na variável dos certificados quer dizer que um segredo foi colado no sítio
  * errado, e quem o fez tem de saber.
  */
+/**
+ * É isto uma chave privada, a julgar pelos BYTES?
+ *
+ * Existe porque a guarda de baixo distinguia certificado de chave PELO RÓTULO,
+ * e há uma forma endossada de escrever um PEM que não tem rótulo nenhum: o
+ * base64 achatado, sem BEGIN/END, que é como um PEM cabe numa variável de
+ * ambiente — está documentado no `doPEM` e é o que a nota de entrega manda
+ * fazer. Por essa porta, a chave de assinatura voltava a entrar no CMS e a ser
+ * servida dentro de cada `.pkpass`. Foi reproduzido com a chave de produção
+ * antes de isto ser escrito: a guarda antiga recusava a forma com rótulos e
+ * deixava passar exactamente os mesmos bytes sem eles.
+ *
+ * Em DER, os dois começam por SEQUENCE e é o PRIMEIRO ELEMENTO DE DENTRO que
+ * os separa:
+ *
+ *   Certificate       ::= SEQUENCE { tbsCertificate SEQUENCE ... }  → 0x30
+ *   PrivateKeyInfo    ::= SEQUENCE { version INTEGER ... }          → 0x02
+ *   RSAPrivateKey     ::= SEQUENCE { version INTEGER ... }          → 0x02
+ *   ECPrivateKey      ::= SEQUENCE { version INTEGER ... }          → 0x02
+ *
+ * Ou seja: um INTEGER logo a seguir ao SEQUENCE de fora é chave, nas três
+ * formas que alguém pode ter à mão. Conferido contra os quatro ficheiros
+ * reais desta casa.
+ */
+function pareceChavePrivada(b) {
+  if (!b || b.length < 4 || b[0] !== 0x30) return false;
+  /* Salta o comprimento do SEQUENCE de fora: forma curta é um byte, forma
+     longa traz o número de bytes de comprimento no low nibble. */
+  let i = 1;
+  i += (b[i] & 0x80) ? 1 + (b[i] & 0x7f) : 1;
+  return b[i] === 0x02;
+}
+
 export function certificadosDoPEM(entrada, onde = 'o certificado') {
   const todos = todosOsPEM(entrada);
-  if (todos.some((b) => /PRIVATE KEY/i.test(b.rotulo))) {
+  /* SEM RÓTULO, QUEM DECIDE SÃO OS BYTES. Um bloco rotulado diz o que é; um
+     achatado não diz nada, e era por aí que a chave passava. */
+  if (todos.some((b) => (b.rotulo ? /PRIVATE KEY/i.test(b.rotulo) : pareceChavePrivada(b.bytes)))) {
     throw new Error(`Há uma CHAVE PRIVADA dentro de ${onde}. `
       + 'Isso é um segredo e não entra no passe: põe só os certificados aí, e a '
       + 'chave em APPLE_CHAVE. (O `openssl pkcs12 -nodes` escreve as duas coisas '

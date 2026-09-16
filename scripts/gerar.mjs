@@ -26,6 +26,15 @@ const SAIDA = join(RAIZ, '_site');
 
 const config = JSON.parse(readFileSync(join(FONTE, 'config.json'), 'utf8'));
 
+/* O CRACHÁ DA APPLE EXISTE? É a construção que responde, e não a app.
+   A arte do «Add to Apple Wallet» é da Apple e só se descarrega depois de
+   aceitar os termos de uso da marca — não é coisa que se desenhe nem se
+   substitua por um botão de texto. Enquanto o ficheiro não estiver cá, a app
+   não pode mostrar botão nenhum da Apple: mostraria uma imagem partida.
+   Largar o SVG nesta pasta é tudo o que falta para o botão aparecer. */
+const CRACHA_APPLE = 'apple-wallet-pt.svg';
+const TEM_CRACHA_APPLE = existsSync(join(FONTE, 'imagens', CRACHA_APPLE));
+
 /* O prefixo dos caminhos sai do CNAME: com domínio próprio o site fica na
    raiz; sem ele, fica em /<nome-do-repositório>/. Derivar em vez de escrever
    à mão evita o clássico site publicado com todas as ligações partidas. */
@@ -140,7 +149,11 @@ const SUBSTITUICOES = {
   '{{PRAZO_CODIGO_USADO}}': PRAZOS.USADOS_HORAS,
   '{{PRAZO_INACTIVA}}': PRAZOS.INACTIVA_MESES,
   '{{PRAZO_AVISO}}': PRAZOS.AVISO_DIAS,
-  '{{CONFIG}}': JSON.stringify({ base: BASE, api: config.api || '', versao: VERSAO }),
+  '{{CONFIG}}': JSON.stringify({
+    base: BASE, api: config.api || '', versao: VERSAO,
+    /* A app lê isto para decidir se desenha o botão da Apple. Ver acima. */
+    crachaApple: TEM_CRACHA_APPLE,
+  }),
   /* Dados da entidade. Enquanto não estiverem preenchidos aparecem como
      marcador visível — nunca como texto plausível mas falso, que é o pior
      dos dois mundos numa página legal. */
@@ -396,10 +409,13 @@ for (const app of ['app', 'balcao']) {
     `${BASE}/js/api.js?v=${VERSAO}`,
     ...(app === 'app'
       ? [`${BASE}/js/qr.js?v=${VERSAO}`,
-         /* O botão da Carteira do Google. Vai no casco para estar lá à
-            primeira e sem rede: a imagem é da Google e não se pode substituir
-            por texto, por isso, se faltasse, o botão ficava um buraco. */
-         `${BASE}/icones/google-wallet-pt.svg`]
+         /* Os crachás das carteiras. Vão no casco para estarem lá à primeira
+            e sem rede: as imagens são da Google e da Apple, não se podem
+            substituir por texto, e se faltassem o botão ficava um buraco.
+            O da Apple só entra se existir — senão o `install` do service
+            worker falhava inteiro num 404 e a app ficava sem casco nenhum. */
+         `${BASE}/icones/google-wallet-pt.svg`,
+         ...(TEM_CRACHA_APPLE ? [`${BASE}/icones/${CRACHA_APPLE}`] : [])]
       : [`${BASE}/js/qr-leitor.js?v=${VERSAO}`]),
   ];
 

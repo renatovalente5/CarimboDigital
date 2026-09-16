@@ -7,8 +7,8 @@ import {
   pintarCartao, haQuanto, dataCurta, horas, manterEcraAceso, seguro,
   prenderFoco, colunas,
 } from '../js/nucleo.js';
-import { api, MODO, DEMO_FORCADO, gerarCodigo, JANELA, guardarSegredo, temSegredo,
-         esquecerSegredo, guardarDesvio } from '../js/api.js';
+import { api, MODO, DEMO_FORCADO, CRACHA_APPLE, gerarCodigo, JANELA, guardarSegredo,
+         temSegredo, esquecerSegredo, guardarDesvio } from '../js/api.js';
 import { qrParaSVG } from '../js/qr.js';
 
 const estado = {
@@ -299,7 +299,16 @@ async function ecraCartao(principal) {
   /* Um botão por cartão, e no ecrã do cartão: cada cartão é um passe seu, com
      o seu saldo e o seu código de barras. No perfil não cabia — teria de
      perguntar primeiro qual deles. */
-  if (cheio.carteiras && cheio.carteiras.google) principal.append(botaoWallet(cheio));
+  if (cheio.carteiras && cheio.carteiras.google) principal.append(botaoWallet(cheio, 'google'));
+  /* A APPLE PRECISA DAS DUAS COISAS. O Worker diz se sabe assinar o passe; a
+     construção diz se o crachá oficial está publicado. Faltando o crachá, o
+     botão seria uma imagem partida — a arte é da Apple, não se desenha nem se
+     troca por texto. Isto esteve um dia inteiro só a olhar para a Google:
+     a rota do passe estava viva em produção e não havia um caminho na app que
+     lá chegasse. */
+  if (cheio.carteiras && cheio.carteiras.apple && CRACHA_APPLE) {
+    principal.append(botaoWallet(cheio, 'apple'));
+  }
 
   if (cheio.porResgatar) {
     const caixa = el('section', { class: 'seccao' },
@@ -375,13 +384,22 @@ async function ecraCartao(principal) {
    com a altura acima do mínimo, e é ele que ela manda usar quando o espaço é
    pouco.
    ========================================================================= */
-function botaoWallet(cartao) {
+function botaoWallet(cartao, carteira = 'google') {
+  /* UM BOTÃO, DUAS CARTEIRAS. O que muda entre elas é o crachá, o texto e a
+     chamada — o resto (o `aria-disabled` em vez do `disabled`, a navegação na
+     mesma janela, o `pageshow` do regresso) é o mesmo, e foi tudo aprendido a
+     doer com a Google. Duplicar a função era duplicar essas quatro lições e
+     deixá-las afastar-se em silêncio.
+
+     As medidas do crachá da Apple são as mesmas do da Google por opção: os
+     dois ficam empilhados e alinhados, e a folga do CSS já serve os dois. */
+  const daApple = carteira === 'apple';
+  const rotulo = daApple ? 'Adicionar à Apple Wallet' : 'Adicionar a Carteira do Google';
   const botao = el('button', {
-    class: 'btn-wallet', type: 'button',
-    'aria-label': 'Adicionar a Carteira do Google',
+    class: 'btn-wallet', type: 'button', 'aria-label': rotulo,
   }, el('img', {
-    src: `${base()}/icones/google-wallet-pt.svg`,
-    alt: 'Adicionar a Carteira do Google', width: 240, height: 55,
+    src: `${base()}/icones/${daApple ? 'apple-wallet-pt' : 'google-wallet-pt'}.svg`,
+    alt: rotulo, width: 240, height: 55,
   }));
 
   botao.addEventListener('click', async () => {
@@ -391,9 +409,9 @@ function botaoWallet(cartao) {
     if (botao.getAttribute('aria-disabled') === 'sim') return;
     botao.setAttribute('aria-disabled', 'sim');
     botao.classList.add('a-carregar');
-    let aCaminhoDaGoogle = false;
+    let aCaminhoDaCarteira = false;
     try {
-      const r = await api.walletGoogle(cartao.id);
+      const r = daApple ? await api.walletApple(cartao.id) : await api.walletGoogle(cartao.id);
       if (r && r.ligacao) {
         /* Abre-se na mesma janela. Numa app instalada no ecrã inicial, um
            `_blank` sai para o browser e a pessoa perde a app; e o que vem a
@@ -407,7 +425,7 @@ function botaoWallet(cartao) {
            esperava, e numa rede de café isso é um segundo a olhar para um
            botão que parece não ter feito nada. O gesto natural é tocar outra
            vez, e a segunda vez cria outro objecto na Google. */
-        aCaminhoDaGoogle = true;
+        aCaminhoDaCarteira = true;
         location.href = r.ligacao;
         return;
       }
@@ -416,14 +434,14 @@ function botaoWallet(cartao) {
         : 'Não deu para preparar o passe. Tenta daqui a pouco.', 'neutro');
     } catch (erro) {
       avisar(erro && erro.codigo === 'sem-logotipo'
-        ? 'Este sítio ainda não pôs o logótipo, e a Carteira do Google exige um.'
+        ? `Este sítio ainda não pôs o logótipo, e ${daApple ? 'a Apple Wallet' : 'a Carteira do Google'} exige um.`
         : (erro && erro.message) || 'Não deu para preparar o passe.', 'mau');
     } finally {
       /* Só se reactiva se a página NÃO estiver de saída — ver o comentário no
          ramo de sucesso. Quem trata do REGRESSO é o `pageshow` lá em baixo:
          sem ele, quem carregasse em «voltar» na página da Google encontrava o
          botão esbatido e morto, e num telemóvel isso lê-se como avaria. */
-      if (!aCaminhoDaGoogle) {
+      if (!aCaminhoDaCarteira) {
         botao.removeAttribute('aria-disabled');
         botao.classList.remove('a-carregar');
       }
@@ -686,15 +704,22 @@ function ecraPerfil(principal) {
         el('span', { texto: estado.cliente.email || 'Para não perderes os cartões se mudares de telemóvel' })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
     /* Isto era um botão que prometia «em breve» e não fazia nada. A Carteira
-       do Google já existe, e o botão dela está em cada cartão — que é onde
-       tem de estar, porque o passe é de um cartão e não da conta. Aqui fica
-       só a placa que diz onde é, e o que ainda não há. */
+       do telemóvel já existe, e o botão dela está em cada cartão — que é onde
+       tem de estar, porque o passe é de um cartão e não da conta. Aqui fica só
+       a placa que diz onde é.
+
+       DIZIA «A Apple Wallet ainda não», E DEIXOU DE SER VERDADE no dia em que
+       o certificado da Apple entrou no Worker. Ligar uma coisa do lado do
+       servidor tornou falsa uma frase que estava certa na véspera, e ninguém
+       teria ido ler o perfil por causa disso. Agora a frase não nomeia
+       carteira nenhuma: o cartão sabe quais é que estão prontas e mostra os
+       botões que existem. */
     el('div', { class: 'linha' },
       el('span', { class: 'linha-icone', html: icone('carteira', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { texto: 'Carteira do telemóvel' }),
-        el('span', { texto: 'O botão da Carteira do Google está em cada cartão. '
-          + 'A Apple Wallet ainda não.' }))));
+        el('span', { texto: 'Abre um cartão e junta-o à carteira a partir de lá — '
+          + 'o passe é de cada cartão, não da conta.' }))));
 
   /* A CONTA QUE FICOU POR JUNTAR. O painel da recuperação diz «podes juntar
      mais tarde no perfil», e uma frase dessas obriga — sem esta linha era mais

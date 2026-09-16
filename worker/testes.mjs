@@ -2217,6 +2217,51 @@ grupo('O cartão na Apple Wallet');
         certo(assinatura.indexOf(chaveDER) === -1,
           'e num passe bem feito a chave privada não está lá dentro, byte nenhum',
           `assinatura ${assinatura.length} bytes`);
+
+        /* A MESMA FUGA, POR UMA PORTA QUE A CORRECÇÃO DE 2026 NÃO FECHOU.
+           A guarda de cima distinguia certificado de chave PELO RÓTULO — e há
+           uma forma de escrever um PEM que não tem rótulo nenhum: o base64
+           achatado, sem BEGIN/END. Não é um caso exótico: é a forma que cabe
+           numa variável de ambiente, está documentada no `doPEM` como aceite,
+           e é a que a nota de entrega manda usar. Por aí, os MESMOS bytes que
+           a linha de cima recusa passavam direitos.
+
+           Foi reproduzido com a chave de produção antes de isto ser escrito.
+           Agora, sem rótulo, quem decide é o DER: um INTEGER logo a seguir ao
+           SEQUENCE de fora é chave; um SEQUENCE é certificado.
+
+           E prova-se nas DUAS variáveis. No `certificado` a verificação do par
+           chave/certificado apanhava-o por acidente mais à frente; na `cadeia`
+           não há verificação nenhuma, e era por lá que a chave saía inteira. */
+        const achatar = (pem) => pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+        const chaveAchatada = achatar(readFileSync(caminho('k8.pem'), 'utf8'));
+
+        for (const [onde, argumentos] of [
+          ['APPLE_CERTIFICADO', { certificado: chaveAchatada, chave }],
+          ['APPLE_CADEIA', { certificado: cert, chave, cadeia: [chaveAchatada] }],
+        ]) {
+          let recusa = null;
+          try {
+            await p.construirPasse({
+              passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+              quando: '2026-09-16T00:00:00Z', ...argumentos,
+            });
+          } catch (erro) { recusa = erro.message; }
+          certo(recusa && /chave privada/i.test(recusa),
+            `a chave ACHATADA (sem BEGIN/END) em ${onde} também é recusada — `
+            + 'era a porta que ficou aberta',
+            String(recusa));
+        }
+
+        /* E a guarda nova não pode recusar certificados: um certificado
+           achatado é exactamente a forma que uma variável de ambiente leva. */
+        const limpoAchatado = await p.construirPasse({
+          passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+          certificado: achatar(cert), chave, quando: '2026-09-16T00:00:00Z',
+        });
+        certo(limpoAchatado && limpoAchatado.length > 0,
+          'e um CERTIFICADO achatado continua a ser aceite — senão a guarda nova partia a configuração real',
+          `${limpoAchatado && limpoAchatado.length} bytes`);
       }
 
       {

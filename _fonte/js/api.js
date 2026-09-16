@@ -40,6 +40,10 @@ function pedidoDeDemo() {
   } catch { return false; }
 }
 
+/* A construção diz se o crachá oficial da Apple está publicado. Sem ele não
+   há botão da Apple: a arte é da Apple, não se desenha nem se troca por texto,
+   e um botão com a imagem em falta é um buraco. Ver `gerar.mjs`. */
+export const CRACHA_APPLE = Boolean(CONFIG.crachaApple);
 export const DEMO_FORCADO = Boolean(CONFIG.api) && pedidoDeDemo();
 export const MODO = CONFIG.api && !DEMO_FORCADO ? 'remoto' : 'demo';
 
@@ -716,6 +720,14 @@ function criarDemo() {
       return { demo: true };
     },
 
+    /* O par da Apple. Tem de existir mesmo não fazendo nada: a app chama-o sem
+       saber em que modo está, e uma chave em falta rebentava com
+       «api.walletApple is not a function» — num botão que só aparece a quem
+       tem iPhone, ou seja, quase nunca em teste. */
+    async walletApple() {
+      return { demo: true };
+    },
+
     base: () => '',
 
     async apagarTudo(clienteId) {
@@ -887,6 +899,11 @@ export const api = MODO === 'remoto'
          causas que não são desta casa. */
       walletGoogle: (cartaoId) =>
         remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`, { metodo: 'POST' }),
+      /* O passe da Apple. Devolve `{ ligacao }` — um endereço com um bilhete
+         assinado e de vida curta, para onde o Safari NAVEGA: é a navegação que
+         faz aparecer o «Adicionar à Wallet», e não um download. */
+      walletApple: (cartaoId) =>
+        remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`, { metodo: 'POST' }),
       guardarEmail: (email) => remoto.pedir('/v1/cliente/email', { metodo: 'POST', corpo: { email } }),
       confirmarEmail: (email, codigo) =>
         remoto.pedir('/v1/cliente/entrar', { metodo: 'POST', corpo: { email, codigo } }),
