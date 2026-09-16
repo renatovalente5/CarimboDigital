@@ -231,6 +231,14 @@ CREATE TABLE IF NOT EXISTS envios (
   em     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_envios_email ON envios(email, em);
+
+-- --- quem cria contas em série (ver migracoes/008) -------------------------
+-- Guarda-se um HMAC da origem, nunca a origem. Ver `travarRegistos`.
+CREATE TABLE IF NOT EXISTS registos (
+  origem TEXT NOT NULL,
+  em     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_registos_origem ON registos(origem, em);
 CREATE INDEX IF NOT EXISTS ix_entradas_expira ON entradas(expira_em);
 
 -- --- códigos já usados (anti-repetição) ---------------------------------

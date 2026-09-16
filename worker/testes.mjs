@@ -51,12 +51,13 @@ async function pedir(caminho, opcoes = {}) {
   }
 }
 
-async function pedirUmaVez(caminho, { metodo = 'GET', corpo, sessao } = {}) {
+async function pedirUmaVez(caminho, { metodo = 'GET', corpo, sessao, cabecalhos } = {}) {
   const r = await fetch(BASE + caminho, {
     method: metodo,
     headers: {
       'content-type': 'application/json',
       ...(sessao ? { authorization: `Bearer ${sessao}` } : {}),
+      ...(cabecalhos || {}),
     },
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
   });
@@ -82,6 +83,14 @@ function codigoPara(publico, segredo, deslocamento = 0) {
 }
 
 /* --------------------------------------------------------------------- */
+
+/* A TRAVA DE REGISTOS NÃO SE APLICA A ESTA BATERIA, e tem de ser dita assim.
+   O `wrangler dev` põe `cf-connecting-ip` como qualquer pedido da borda, por
+   isso a bateria inteira conta como UMA origem — e ela cria umas três dezenas
+   de contas, que é exactamente o padrão que a trava existe para travar. Limpa-
+   se o contador ao arrancar; o grupo «Criar contas em série» usa origens
+   próprias e confere, antes de limpar, quantas é que a bateria gastou. */
+sql(`DELETE FROM registos`);
 
 grupo('Saúde');
 {
@@ -2518,6 +2527,200 @@ grupo('O passe da Apple, de ponta a ponta');
      na base local e a corrida seguinte contava-os. */
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoA });
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoB });
+}
+
+grupo('Quem sou eu');
+{
+  /* O segredo saía uma vez no registo e outra na entrada, e nunca mais. Quem o
+     perdesse — ou quem ficasse com um de uma versão já revogada — tinha um
+     código QR que o balcão recusa e nenhuma forma de se endireitar. */
+  const semSessao = await pedir('/v1/cliente/eu');
+  certo(semSessao.estado === 401, 'sem sessão não se sabe quem é', String(semSessao.estado));
+
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const eu = await pedir('/v1/cliente/eu', { sessao: c.dados.sessao });
+  certo(eu.estado === 200, 'com sessão, a conta responde', String(eu.estado));
+  certo(eu.dados.cliente?.id === c.dados.cliente.id,
+    'e é a MESMA conta da sessão', String(eu.dados.cliente?.id));
+  certo(eu.dados.segredo === c.dados.segredo,
+    'o segredo que devolve é o mesmo que o registo deu — é isto que permite recuperá-lo',
+    `${String(eu.dados.segredo).slice(0, 8)} vs ${String(c.dados.segredo).slice(0, 8)}`);
+
+  const codigo = codigoPara(eu.dados.cliente.publico, eu.dados.segredo);
+  const r = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao, corpo: { codigo, programaId: 'p1' } });
+  certo(r.estado === 200, 'e um código feito com ele carimba mesmo',
+    JSON.stringify(r.dados).slice(0, 120));
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
+}
+
+grupo('Expulsar os outros aparelhos');
+{
+  /* A COLUNA QUE NUNCA TINHA SIDO LIDA. A `chave_versao` estava no esquema
+     desde o primeiro dia, com um comentário a explicar que servia para
+     revogar, e não aparecia em nenhum SELECT nem em nenhum UPDATE em todo o
+     Worker. Um telemóvel perdido com a app aberta era uma conta perdida para
+     sempre: quem o apanhasse mostrava o código e levava carimbos.
+
+     São TRÊS credenciais, e o teste prova as três. Provar só uma dava um botão
+     que diz «expulsei os outros» e deixa lá dentro as outras duas. */
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const sessaoA = c.dados.sessao;
+  const publico = c.dados.cliente.publico;
+  const segredoVelho = c.dados.segredo;
+
+  /* Um segundo aparelho na MESMA conta. É o que a recuperação por email faz;
+     aqui mete-se a sessão à mão para não se ter de a encenar outra vez. */
+  const testemunhoB = 'testemunho-do-outro-aparelho-' + randomBytes(8).toString('hex');
+  const resumoB = createHash('sha256').update(testemunhoB).digest('hex');
+  sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+       VALUES ('${resumoB}', 'cliente:${c.dados.cliente.id}', datetime('now'),
+               '${new Date(Date.now() + 86400000).toISOString()}')`);
+  const antes = await pedir('/v1/cliente/cartoes', { sessao: testemunhoB });
+  certo(antes.estado === 200, 'o segundo aparelho entra na conta', String(antes.estado));
+
+  /* E um passe na carteira, que é a terceira credencial. */
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: sessaoA,
+    corpo: { programaId: 'p1' } });
+  const meus = await pedir('/v1/cliente/cartoes', { sessao: sessaoA });
+  const cartaoId = meus.dados[0].id;
+  sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}',
+       logotipo_em = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 'n1'`);
+  await pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`, { metodo: 'POST', sessao: sessaoA });
+  const codigoPasse = (() => {
+    const o = sql(`SELECT wallet_codigo FROM cartoes WHERE id = '${cartaoId}'`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results[0].wallet_codigo;
+  })();
+  certo(typeof codigoPasse === 'string' && codigoPasse.length === 16,
+    'e o cartão ganha um passe na carteira', String(codigoPasse));
+
+  const passeAntes = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `W1.${codigoPasse}`, programaId: 'p1' } });
+  certo(passeAntes.estado === 200, 'que carimba, como deve ser', String(passeAntes.estado));
+
+  /* --- a expulsão --- */
+  const fora = await pedir('/v1/cliente/sair-dos-outros', { metodo: 'POST', sessao: sessaoA });
+  certo(fora.estado === 200, 'a conta manda expulsar os outros aparelhos',
+    JSON.stringify(fora.dados).slice(0, 120));
+
+  /* 1. a sessão */
+  const depois = await pedir('/v1/cliente/cartoes', { sessao: testemunhoB });
+  certo(depois.estado === 401, 'o outro aparelho perde a sessão', String(depois.estado));
+  const eu = await pedir('/v1/cliente/eu', { sessao: sessaoA });
+  certo(eu.estado === 200,
+    'e quem mandou expulsar NÃO se expulsa a si próprio', String(eu.estado));
+
+  /* 2. o segredo do código QR */
+  certo(fora.dados.segredo && fora.dados.segredo !== segredoVelho,
+    'o segredo muda — senão não havia revogação nenhuma');
+  certo(eu.dados.segredo === fora.dados.segredo,
+    'e é o novo que a conta passa a dar', `${String(eu.dados.segredo).slice(0, 8)}`);
+
+  const velho = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(publico, segredoVelho), programaId: 'p1' } });
+  certo(velho.estado === 403,
+    'O CÓDIGO DO APARELHO PERDIDO DEIXA DE CARIMBAR — é para isto que a coluna existe',
+    `${velho.estado} ${JSON.stringify(velho.dados)}`);
+
+  const novoQR = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(publico, fora.dados.segredo), programaId: 'p1' } });
+  certo(novoQR.estado === 200, 'e o novo carimba', `${novoQR.estado} ${JSON.stringify(novoQR.dados)}`);
+
+  /* 3. o passe na carteira — o que quase escapou. O `W1.` não leva assinatura
+        nenhuma: o código É a credencial, e o `carimbar()` nem sequer olha para
+        a versão da chave nesse caminho. Subir a versão não lhe tocava, e o
+        passe do telemóvel perdido continuava a carimbar para sempre. */
+  const passeDepois = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `W1.${codigoPasse}`, programaId: 'p1' } });
+  certo(passeDepois.estado === 404,
+    'O PASSE DA CARTEIRA TAMBÉM MORRE — subir a versão não lhe tocava, e ele não leva assinatura',
+    `${passeDepois.estado} ${JSON.stringify(passeDepois.dados)}`);
+  certo(fora.dados.passesRevogados === 1,
+    'e a resposta diz quantos passes caíram, para a app poder avisar',
+    String(fora.dados.passesRevogados));
+
+  const carteiras = (() => {
+    const o = sql(`SELECT wallet_codigo, wallet_em, apple_em FROM cartoes WHERE id = '${cartaoId}'`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results[0];
+  })();
+  certo(carteiras.wallet_em === null && carteiras.apple_em === null,
+    'o cartão volta a dizer que não tem passe — senão a app não oferecia juntá-lo outra vez',
+    JSON.stringify(carteiras));
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoA });
+}
+
+grupo('Criar contas em série');
+{
+  /* A rota de registo é a única aberta a quem nunca se identificou: devolve
+     uma conta, um segredo e uma sessão a quem bater à porta, e não contava
+     nada. Um ciclo de três linhas esgotava as 100 000 escritas diárias do D1 —
+     que são POR CONTA da Cloudflare, ou seja, levava atrás tudo o resto. */
+  /* Quanto é que a BATERIA gastou até aqui, na origem do wrangler. Sem esta
+     conta, acrescentar meia dúzia de registos à bateria um dia qualquer punha
+     um teste sem relação nenhuma a rebentar com «Cannot read properties of
+     undefined», que foi precisamente o que aconteceu ao escrever isto. */
+  const gastos = (() => {
+    const o = sql(`SELECT COUNT(*) AS n FROM registos`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results[0].n;
+  })();
+  certo(gastos < 50,
+    `a bateria cria ${gastos} contas da mesma origem, e o tecto é 60 — se isto falhar, `
+    + 'é a bateria que cresceu, não o código que partiu', String(gastos));
+
+  sql(`DELETE FROM registos`);
+  const origem = { 'cf-connecting-ip': '203.0.113.7' };
+  const criados = [];
+  let travado = null, quantas = 0;
+
+  for (let i = 0; i < 70; i++) {
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: origem });
+    if (r.estado === 429) { travado = r; break; }
+    if (r.dados?.cliente?.id) criados.push(r.dados.cliente.id);
+    quantas++;
+  }
+  certo(travado !== null, 'a mesma origem acaba por ser travada', `${quantas} passaram`);
+  certo(travado?.dados?.codigo === 'demasiados-registos',
+    'e diz porquê, em vez de um erro interno', JSON.stringify(travado?.dados));
+  certo(quantas <= 60, 'o tecto é de 60 por hora, não mais', String(quantas));
+
+  /* Outra origem não paga o que esta fez. Sem isto, a trava era um interruptor
+     para desligar o registo a toda a gente a partir de uma máquina só. */
+  const outra = await pedir('/v1/cliente/registar', {
+    metodo: 'POST', corpo: {}, cabecalhos: { 'cf-connecting-ip': '198.51.100.4' } });
+  certo(outra.estado === 200, 'outra origem continua a poder criar conta', String(outra.estado));
+  if (outra.dados?.cliente?.id) criados.push(outra.dados.cliente.id);
+
+  /* NÃO SE TESTA AQUI o caminho «sem cabeçalho não há trava»: o `wrangler dev`
+     põe sempre o `cf-connecting-ip`, por isso uma afirmação sobre a falta dele
+     passaria por acidente e não provaria nada. Na borda o cabeçalho também vem
+     sempre — a Cloudflare põe-no e substitui o que o cliente mandar, logo não
+     se forja nem se apaga —, e é por isso que o `return` que lá está serve só
+     para o desenvolvimento local não ficar refém do contador. */
+
+  /* O QUE SE GUARDA NÃO É A ORIGEM. A política de privacidade enumera o que é
+     recolhido, e o endereço não está lá: o que fica na base é um HMAC dele com
+     a chave-mestra, que não se percorre de trás para a frente. */
+  const guardadas = (() => {
+    const o = sql(`SELECT DISTINCT origem FROM registos`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results.map((l) => l.origem);
+  })();
+  certo(guardadas.length > 0 && !guardadas.some((o) => String(o).includes('203.0.113')),
+    'a base guarda um HMAC da origem, nunca a origem', JSON.stringify(guardadas).slice(0, 80));
+
+  /* Limpa-se o que este bloco criou: são dezenas de contas, e a corrida
+     seguinte contava-as. */
+  for (let i = 0; i < criados.length; i += 20) {
+    const lote = criados.slice(i, i + 20);
+    sql(`DELETE FROM clientes WHERE id IN ('${lote.join("','")}')`);
+  }
+  sql(`DELETE FROM registos`);
 }
 
 /* --------------------------------------------------------------------- */

@@ -40,6 +40,7 @@ const ENTRADA_TENTATIVAS = 5;
 const USADOS_HORAS = 24;           // quanto tempo se guarda um código já gasto
 const ENVIOS_HORA = 5;             // códigos por morada, por hora
 const ENVIOS_INTERVALO = 45;       // segundos entre dois pedidos para a mesma morada
+const REGISTOS_HORA = 60;          // contas novas por origem, por hora (ver `travarRegistos`)
 
 /* Tectos do que um negócio pode escrever. Não é desconfiança do dono do café:
    é que tudo isto é pintado na lista pública, a toda a gente, e uma conta
@@ -156,17 +157,35 @@ async function hmac(chaveBytes, mensagem) {
 }
 
 /**
- * O segredo de um dispositivo não se guarda: deriva-se.
+ * O segredo de uma CONTA não se guarda: deriva-se.
  *
- * segredo = HMAC(CHAVE_MESTRA, "c1:<cliente_id>")
+ * segredo = HMAC(CHAVE_MESTRA, "c1:<cliente_id>")           (versão 1)
+ * segredo = HMAC(CHAVE_MESTRA, "c1:<cliente_id>:<versão>")  (a partir da 2)
  *
  * A app guarda-o; o servidor volta a calculá-lo sempre que precisa. A tabela
  * `clientes` fica sem nada que sirva para forjar um código, e não há nenhuma
  * coluna de segredos para alguém deixar escapar num backup.
+ *
+ * E CHAMA-SE SEGREDO DA CONTA, não do aparelho — o nome anterior mentia. Não
+ * leva nada do telemóvel lá dentro: é o mesmo em todos os aparelhos que entrem
+ * na conta, e o próprio teste diz isso à letra («o QR de B vale tanto como o
+ * de A»). Enquanto só havia uma porta de entrada isso era um pormenor. Com
+ * várias portas e várias sessões, um aparelho perdido passa a ser um problema
+ * sem solução — e a coluna que existia para lhe dar solução, `chave_versao`,
+ * estava no esquema, tinha um comentário a explicar que servia para revogar, e
+ * NUNCA era lida nem escrita em lado nenhum. Uma coluna que só se escreve é um
+ * protocolo com metade; esta nem isso era.
+ *
+ * A VERSÃO 1 MANTÉM A FÓRMULA ANTIGA, sem sufixo, e isso não é elegância: é a
+ * única forma de não partir o código QR de todas as apps já instaladas. A
+ * cópia no telemóvel de alguém pode ser de há semanas e tem o segredo guardado
+ * de quando o gerou. Só a partir da 2 é que o sufixo entra — ou seja, só para
+ * quem tiver mandado expulsar os outros aparelhos.
  */
-async function derivarSegredo(env, clienteId) {
+async function derivarSegredo(env, clienteId, versao = 1) {
   const mestra = deBase64url(env.CHAVE_MESTRA);
-  return base64url(await hmac(mestra, `c1:${clienteId}`));
+  const n = Number(versao) || 1;
+  return base64url(await hmac(mestra, n > 1 ? `c1:${clienteId}:${n}` : `c1:${clienteId}`));
 }
 
 /* Comparação em tempo constante — a diferença é irrelevante para um HMAC de
@@ -201,7 +220,10 @@ async function lerSessao(env, pedido) {
   if (!linha) return null;
   if (new Date(linha.expira_em) < new Date()) return null;
   const [tipo, valor] = linha.sujeito.split(':');
-  return { tipo, id: valor };
+  /* O `resumo` vai junto para quem precise de distinguir ESTA sessão das
+     outras da mesma conta — é o que permite expulsar os outros aparelhos sem
+     se expulsar a si próprio. Acrescenta-se um campo; não se muda nenhum. */
+  return { tipo, id: valor, resumo: await resumo(testemunho) };
 }
 
 async function exigirCliente(env, pedido) {
@@ -487,14 +509,16 @@ async function carimbar(env, pedido, operador) {
     throw new Falha('Este código não é de um cartão Carimbo Digital.', { codigo: 'formato' });
   }
 
+  /* A `chave_versao` vem junto: é ela que decide qual é o segredo que vale
+     agora, e sem ela um QR revogado continuava a carimbar. */
   const cliente = porPasse
     ? await env.DB.prepare(
-        `SELECT cl.id, cl.publico FROM cartoes c
+        `SELECT cl.id, cl.publico, cl.chave_versao FROM cartoes c
            JOIN clientes cl ON cl.id = c.cliente_id
           WHERE c.wallet_codigo = ?`
       ).bind(porPasse).first()
     : await env.DB.prepare(
-        'SELECT id, publico FROM clientes WHERE publico = ?'
+        'SELECT id, publico, chave_versao FROM clientes WHERE publico = ?'
       ).bind(publico).first();
   if (!cliente) {
     throw new Falha(porPasse
@@ -510,7 +534,7 @@ async function carimbar(env, pedido, operador) {
     if (!Number.isFinite(janela) || Math.abs(atual - janela) > TOLERANCIA) {
       throw new Falha('Código expirado. Peça para atualizar o ecrã.', { codigo: 'expirado' });
     }
-    const segredo = await derivarSegredo(env, cliente.id);
+    const segredo = await derivarSegredo(env, cliente.id, cliente.chave_versao);
     const esperado = bytesParaHex(await hmac(deBase64url(segredo), `${publico}.${janela}`)).slice(0, 16);
     if (!iguais(esperado, partes[3])) {
       throw new Falha('Código inválido.', { estado: 403, codigo: 'assinatura' });
@@ -817,6 +841,51 @@ async function podeEnviar(env, email) {
   return null;
 }
 
+/**
+ * Trava quem cria contas em série.
+ *
+ * `/v1/cliente/registar` é a ÚNICA rota aberta a quem nunca se identificou —
+ * não pede email, não pede sessão, não pede nada: devolve uma conta, um
+ * segredo e uma sessão a quem bater à porta. É de propósito, e é isso que faz
+ * a app funcionar «a partir do primeiro segundo». Mas sem contador nenhum, um
+ * ciclo de três linhas escrevia até as 100 000 escritas diárias do D1 se
+ * esgotarem — e esse tecto é POR CONTA da Cloudflare, por isso levava atrás
+ * todos os outros projectos que lá vivem.
+ *
+ * Conta-se por origem e **guarda-se um HMAC dela, nunca a própria origem**. Um
+ * resumo simples não chegava: os endereços IPv4 são quatro mil milhões, que se
+ * percorrem todos numa tarde — com a chave-mestra pelo meio, não. A linha vive
+ * uma hora e a limpeza da madrugada leva o resto.
+ *
+ * SEM CABEÇALHO NÃO HÁ TRAVA, e isso não é um buraco: o `CF-Connecting-IP` é
+ * posto pela Cloudflare em todos os pedidos que lhe passam pela frente, e um
+ * valor que o cliente mande é substituído lá — não se pode forjar nem apagar.
+ * Faltar só acontece fora da borda, ou seja, em desenvolvimento local.
+ */
+async function travarRegistos(env, pedido) {
+  const ip = pedido.headers.get('cf-connecting-ip');
+  if (!ip) return;
+  const origem = base64url(await hmac(deBase64url(env.CHAVE_MESTRA), `ip:${ip}`));
+  const desde = new Date(Date.now() - 3600000).toISOString();
+  const { n } = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM registos WHERE origem = ? AND em >= ?'
+  ).bind(origem, desde).first();
+  if (n >= REGISTOS_HORA) {
+    /* FICA ESCRITO NO LOG, e não é zelo: os operadores móveis portugueses põem
+       muitos clientes atrás do mesmo IPv4 (CGNAT). Com um negócio a sério o
+       tecto nunca se alcança; com centenas de cafés, sessenta contas novas por
+       hora vindas do mesmo operador deixa de ser impossível — e o que a pessoa
+       vê é «não consigo criar o cartão», sem nada que o explique deste lado.
+       Se isto aparecer no `wrangler tail`, é sinal de que chegou a hora de
+       trocar a trava por um tecto global diário. */
+    console.warn('registar: origem travada', { tentativas: n });
+    throw new Falha('Demasiados cartões criados daqui. Tenta daqui a uma hora.',
+      { estado: 429, codigo: 'demasiados-registos' });
+  }
+  await env.DB.prepare('INSERT INTO registos (origem, em) VALUES (?, ?)')
+    .bind(origem, agora()).run();
+}
+
 /** Emite um código, guarda-o, e conta o envio para efeitos de tecto. */
 async function emitirCodigo(env, { email, alvo }) {
   await env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(alvo).run();
@@ -872,6 +941,7 @@ const rota = (metodo, padrao, mao) => rotas.push({ metodo, padrao, mao });
 rota('POST', '/v1/cliente/registar', async (env, pedido) => {
   /* Sem nome, sem email, sem nada. A conta nasce anónima e só ganha um email
      se a pessoa quiser poder recuperá-la noutro telemóvel. */
+  await travarRegistos(env, pedido);
   const clienteId = id();
   let publico, tentativas = 0;
   for (;;) {
@@ -888,6 +958,110 @@ rota('POST', '/v1/cliente/registar', async (env, pedido) => {
     cliente: { id: clienteId, publico, criadoEm: agora(), email: null },
     segredo: await derivarSegredo(env, clienteId),
     sessao: await criarSessao(env, `cliente:${clienteId}`),
+    horaDoServidor: agora(),
+  };
+});
+
+/**
+ * Quem sou eu, e qual é o meu segredo AGORA.
+ *
+ * O segredo não se guardava em lado nenhum do lado do servidor — deriva-se —
+ * mas também não havia por onde voltar a pedi-lo: saía uma vez no registo e
+ * outra na entrada, e quem o perdesse (ou quem o tivesse de uma versão já
+ * revogada) ficava com um código QR que o balcão recusa e sem forma de se
+ * endireitar a não ser criando outra conta. Uma sessão válida já prova tanto
+ * como qualquer das outras duas rotas provam — é a mesma credencial.
+ */
+rota('GET', '/v1/cliente/eu', async (env, pedido) => {
+  const clienteId = await exigirCliente(env, pedido);
+  const c = await env.DB.prepare(
+    'SELECT id, publico, email, criado_em, chave_versao FROM clientes WHERE id = ?'
+  ).bind(clienteId).first();
+  if (!c) throw new Falha('Conta não encontrada', { estado: 404 });
+  return {
+    cliente: { id: c.id, publico: c.publico, email: c.email, criadoEm: c.criado_em },
+    segredo: await derivarSegredo(env, c.id, c.chave_versao),
+    horaDoServidor: agora(),
+  };
+});
+
+/**
+ * Expulsar os outros aparelhos.
+ *
+ * Um telemóvel perdido com a app aberta é uma conta perdida: quem o tiver na
+ * mão mostra o código e leva carimbos, e até aqui não havia absolutamente nada
+ * a fazer quanto a isso. A coluna `chave_versao` existia para isto desde o
+ * primeiro dia, com um comentário a explicá-lo, e NUNCA era lida nem escrita.
+ *
+ * São TRÊS credenciais e não uma, e é por isso que esta rota faz três coisas.
+ * Deixar qualquer uma delas de fora tornava o botão uma mentira:
+ *
+ *   1. a SESSÃO — apagam-se as outras, fica só esta;
+ *   2. o SEGREDO do código QR — sobe a versão, e todos os códigos derivados da
+ *      anterior deixam de bater certo;
+ *   3. o CÓDIGO DO PASSE na carteira do telemóvel — e este é o que quase
+ *      escapou. O `W1.<codigo>` não leva assinatura nenhuma: o próprio código
+ *      É a credencial, e o `carimbar()` nem chega a olhar para a versão da
+ *      chave nesse caminho. Sem lhe mexer, o passe que ficou no telemóvel
+ *      perdido continuava a carimbar para sempre, com o segredo revogado e a
+ *      sessão apagada — exactamente o cenário que esta rota diz resolver.
+ *
+ * O preço do ponto 3 é que o passe TAMBÉM morre no aparelho que ficou, e isso
+ * diz-se na resposta (`passesRevogados`) para a app poder avisar em vez de o
+ * deixar falhar ao balcão. Voltar a juntar o cartão à carteira cunha um código
+ * novo; é um gesto, e é muito menos mau do que a alternativa.
+ */
+rota('POST', '/v1/cliente/sair-dos-outros', async (env, pedido) => {
+  const s = await lerSessao(env, pedido);
+  if (!s || s.tipo !== 'cliente') throw new Falha('Sessão inválida', { estado: 401 });
+  const clienteId = s.id;
+
+  const comPasse = (await env.DB.prepare(
+    'SELECT id FROM cartoes WHERE cliente_id = ? AND wallet_codigo IS NOT NULL'
+  ).bind(clienteId).all()).results;
+
+  /* Os passes da Google morrem na Google, senão ficava um rectângulo com saldo
+     velho na carteira de quem quer que fosse. Falhar aqui não trava o resto —
+     o código já deixou de valer do lado de cá, que é o que impede o carimbo, e
+     o reconciliador da madrugada volta a tentar. O tecto de 50 subpedidos por
+     invocação é real, por isso só vão os que têm passe da Google mesmo. */
+  if (walletLigada(env)) {
+    const naGoogle = (await env.DB.prepare(
+      'SELECT id FROM cartoes WHERE cliente_id = ? AND wallet_em IS NOT NULL LIMIT 20'
+    ).bind(clienteId).all()).results;
+    for (const c of naGoogle) {
+      try {
+        await googlePedir(env, `/loyaltyObject/${env.GOOGLE_EMISSOR}.${c.id}`, {
+          metodo: 'PATCH', corpo: { state: 'EXPIRED' },
+        });
+      } catch (erro) {
+        console.error('wallet: não deu para expirar o passe ao revogar', c.id, String(erro));
+      }
+    }
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('UPDATE clientes SET chave_versao = chave_versao + 1 WHERE id = ?')
+      .bind(clienteId),
+    env.DB.prepare('DELETE FROM sessoes WHERE sujeito = ? AND resumo != ?')
+      .bind(`cliente:${clienteId}`, s.resumo),
+    /* Os três de uma vez: sem o `wallet_em`/`apple_em` a NULL, o cartão dizia
+       à app que já tinha passe e ela não oferecia voltar a juntá-lo. */
+    env.DB.prepare(
+      `UPDATE cartoes SET wallet_codigo = NULL, wallet_em = NULL, apple_em = NULL
+        WHERE cliente_id = ?`
+    ).bind(clienteId),
+  ]);
+
+  const c = await env.DB.prepare('SELECT chave_versao FROM clientes WHERE id = ?')
+    .bind(clienteId).first();
+
+  /* O segredo NOVO vai na resposta: sem ele, o aparelho que mandou expulsar os
+     outros expulsava-se a si próprio — ficava com o segredo da versão anterior
+     e o seu próprio código deixava de carimbar. */
+  return {
+    segredo: await derivarSegredo(env, clienteId, c.chave_versao),
+    passesRevogados: comPasse.length,
     horaDoServidor: agora(),
   };
 });
@@ -1078,7 +1252,7 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
 
   return {
     cliente: { id: cliente.id, publico: cliente.publico, email: linha.email, criadoEm: cliente.criado_em },
-    segredo: await derivarSegredo(env, cliente.id),
+    segredo: await derivarSegredo(env, cliente.id, cliente.chave_versao),
     sessao: await criarSessao(env, `cliente:${cliente.id}`),
     horaDoServidor: agora(),
     /* Diz-se a verdade: os cartões que vai ver podem não ser os que tinha
@@ -2482,6 +2656,10 @@ export default {
       env.DB.prepare('DELETE FROM entradas WHERE expira_em < ?').bind(agora()),
       env.DB.prepare('DELETE FROM envios WHERE em < ?')
         .bind(new Date(Date.now() - 86400000).toISOString()),
+      /* A trava de registos conta uma hora; guardar mais do que isso era
+         guardar origens sem nenhuma razão para as guardar. */
+      env.DB.prepare('DELETE FROM registos WHERE em < ?')
+        .bind(new Date(Date.now() - 3600000).toISOString()),
     ]);
     await limparContasParadas(env);
     await reconciliarWallet(env);
