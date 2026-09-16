@@ -308,7 +308,7 @@ nosso *client secret*.
 |---|---|---|---|
 | ~~0~~ | ~~Dívidas 3.1 e 3.3, mais o `/v1/cliente/eu`~~ — **feita, 16 set 2026** (e metade da 3.2 veio atrás) | — | nada |
 | 1 | Migração `identidades` + email a passar por lá | 1–2 dias | correr a migração em remoto |
-| 2 | `GET /v1/cliente/eu` e a sombra | meio dia | nada |
+| 2 | As contas-sombra (`fundida_em`) — o `/v1/cliente/eu` já saiu na fase 0 | meio dia | nada |
 | 3 | A fusão, com a bateria a prová-la | 2–3 dias | decidir a regra dos prémios |
 | 4 | Ecrã de entrada e os seis textos, **mais o botão «sair nos outros aparelhos»** que a fase 0 deixou sem quem o chame | 2–3 dias | **aprovar os textos** |
 | 5 | Continuar com Google | 3–4 dias | 3 passos de consola |
