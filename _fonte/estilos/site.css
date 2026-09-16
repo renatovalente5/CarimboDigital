@@ -268,7 +268,12 @@
 .texto p + p { margin-top: var(--e-4); }
 .texto ul, .texto ol { margin: var(--e-4) 0; padding-left: var(--e-6); }
 .texto li + li { margin-top: var(--e-2); }
-.texto a { color: var(--marca); text-decoration: underline; text-underline-offset: 2px; }
+/* `:not(.btn)` NÃO é enfeite. Um `.texto a` tem especificidade (0,1,1) e o
+   `.btn-cheio` tem (0,1,0): dentro de um bloco de texto, esta regra ganhava e
+   pintava a tinta do botão com a cor da marca — que é a mesma cor do fundo
+   dele. O resultado era uma pastilha roxa vazia, com o texto lá dentro e
+   invisível. Aconteceu no botão principal da página 404, e esteve no ar. */
+.texto a:not(.btn) { color: var(--marca); text-decoration: underline; text-underline-offset: 2px; }
 .texto strong { color: var(--tinta); font-weight: 650; }
 .texto table {
   width: 100%; margin: var(--e-5) 0;

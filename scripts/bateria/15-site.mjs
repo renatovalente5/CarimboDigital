@@ -85,6 +85,19 @@ const PAGINAS = [
   { rota: '/termos/', fonte: 'termos.html' },
 ].map((p) => ({ ...p, esperado: cabecalhoDaFonte(p.fonte) }));
 
+/* AS PÁGINAS QUE SE MEDEM, que não são as mesmas que se auditam.
+
+   O `PAGINAS` é a lista das páginas com endereço próprio: é sobre elas que
+   fazem sentido o canónico, o título e os marcadores por resolver. A 404 não
+   é uma delas — e por isso ficava de fora da varredura do CONTRASTE, que é a
+   única que não tem nada que ver com ter endereço.
+
+   Custou um botão. Na 404, o «Ir para o início» é um `.btn-cheio` dentro de
+   um bloco `.texto`, e o `.texto a` do site.css tem mais especificidade do
+   que o `.btn-cheio` do nucleo.css: a tinta ficava com a cor da marca por
+   cima do fundo da marca. Contraste 1:1, uma pastilha roxa vazia, no ar. */
+const PARA_MEDIR = [...PAGINAS.map((p) => p.rota), '/isto-nao-existe-de-certeza/'];
+
 /**
  * Uma constante numérica do Worker.
  *
@@ -1050,14 +1063,14 @@ export async function correr(palco, certo) {
     await palco.tema(modo);
     const falhas = [];
     let medidos = 0;
-    for (const p of PAGINAS) {
-      await palco.ir(p.rota);
+    for (const rota of PARA_MEDIR) {
+      await palco.ir(rota);
       await dormir(150);
       const avaliados = avaliarTextos(await medirTextos(palco));
       medidos += avaliados.length;
       for (const t of avaliados) {
         if (t.contraste >= t.minimo - 0.005) continue;
-        falhas.push({ ...t, linha: `${p.rota} · ${linhaDeFalha(t)}` });
+        falhas.push({ ...t, linha: `${rota} · ${linhaDeFalha(t)}` });
       }
     }
     certo(medidos > 200,
