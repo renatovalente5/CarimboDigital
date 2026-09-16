@@ -250,7 +250,8 @@ async function programaCompleto(env, programaId) {
   const p = await env.DB.prepare(
     `SELECT p.*, n.nome AS negocio_nome, n.slug AS negocio_slug, n.cor AS negocio_cor,
             n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
-            n.morada AS negocio_morada, n.telefone AS negocio_telefone
+            n.morada AS negocio_morada, n.telefone AS negocio_telefone,
+            (n.logotipo IS NOT NULL) AS negocio_tem_logotipo
        FROM programas p JOIN negocios n ON n.id = p.negocio_id
       WHERE p.id = ?`
   ).bind(programaId).first();
@@ -300,6 +301,14 @@ async function moldarCartao(env, cartao) {
     programa: moldarPrograma(p),
     porResgatar: premios.length,
     premios: premios.map((x) => ({ id: x.id, descricao: x.descricao, ganhoEm: x.ganho_em })),
+    /* Se vale a pena mostrar o botão da Wallet neste cartão. São duas
+       condições e nenhuma delas é adivinhável do lado do telemóvel: o Worker
+       tem de ter conta na Google, e o negócio tem de ter logótipo — sem ele a
+       classe de fidelização é recusada. Vai aqui em vez de a app tentar e
+       apanhar o erro, porque um botão que só falha ao ser tocado é pior do
+       que um botão que não está lá. A coluna do logótipo NÃO viaja: o que
+       viaja é a resposta a «existe?». */
+    wallet: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
   };
 }
 

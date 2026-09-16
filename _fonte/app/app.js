@@ -296,6 +296,11 @@ async function ecraCartao(principal) {
     aoClick: () => abrirCodigo(),
   }));
 
+  /* Um botão por cartão, e no ecrã do cartão: cada cartão é um passe seu, com
+     o seu saldo e o seu código de barras. No perfil não cabia — teria de
+     perguntar primeiro qual deles. */
+  if (cheio.wallet) principal.append(botaoWallet(cheio));
+
   if (cheio.porResgatar) {
     const caixa = el('section', { class: 'seccao' },
       el('h2', { class: 'seccao-titulo', texto: cheio.porResgatar === 1 ? 'Prémio a levantar' : 'Prémios a levantar' }));
@@ -353,6 +358,65 @@ async function ecraCartao(principal) {
     texto: 'Deixar de usar este cartão',
     aoClick: () => avisar('Numa versão futura poderás arquivar cartões.', 'neutro'),
   }));
+}
+
+/* =========================================================================
+   O botão da Carteira do Google
+
+   A imagem é a que a Google distribui, byte a byte, e vai num `<img>` e não
+   inline de propósito: inline, uma regra de CSS desta casa — um `svg { fill:
+   currentColor }` qualquer — repintava-a, e as normas de marca dela proíbem
+   mexer na cor, no tipo de letra, no raio e no espaçamento.
+
+   É a versão CONDENSADA, e isso mediu-se. A coluna da app são 480 px com 20
+   de margem de cada lado, o que dá 335 úteis num telemóvel pequeno. O botão
+   largo tem 372×50: encolhido para caber ficava com 45 de altura, e o mínimo
+   que a Google exige são 48. O condensado tem 240×55 — cabe em qualquer ecrã
+   com a altura acima do mínimo, e é ele que ela manda usar quando o espaço é
+   pouco.
+   ========================================================================= */
+function botaoWallet(cartao) {
+  const botao = el('button', {
+    class: 'btn-wallet', type: 'button',
+    'aria-label': 'Adicionar a Carteira do Google',
+  }, el('img', {
+    src: `${base()}/icones/google-wallet-pt.svg`,
+    alt: 'Adicionar a Carteira do Google', width: 240, height: 55,
+  }));
+
+  botao.addEventListener('click', async () => {
+    /* `aria-disabled` e não `disabled`: desactivar um botão enquanto ele tem
+       o foco atira o foco para o corpo da página, e quem navega por teclado
+       ou leitor de ecrã perde o sítio onde estava. */
+    if (botao.getAttribute('aria-disabled') === 'sim') return;
+    botao.setAttribute('aria-disabled', 'sim');
+    botao.classList.add('a-carregar');
+    try {
+      const r = await api.walletGoogle(cartao.id);
+      if (r && r.ligacao) {
+        /* Abre-se na mesma janela. Numa app instalada no ecrã inicial, um
+           `_blank` sai para o browser e a pessoa perde a app; e o que vem a
+           seguir é a página da Google, que devolve o telemóvel à carteira. */
+        location.href = r.ligacao;
+        return;
+      }
+      avisar(r && r.demo
+        ? 'Isto é uma demonstração: o passe a sério é assinado pelo servidor.'
+        : 'Não deu para preparar o passe. Tenta daqui a pouco.', 'neutro');
+    } catch (erro) {
+      avisar(erro && erro.codigo === 'sem-logotipo'
+        ? 'Este sítio ainda não pôs o logótipo, e a Carteira do Google exige um.'
+        : (erro && erro.message) || 'Não deu para preparar o passe.', 'mau');
+    } finally {
+      botao.removeAttribute('aria-disabled');
+      botao.classList.remove('a-carregar');
+    }
+  });
+
+  return el('div', { class: 'wallet-caixa' },
+    botao,
+    el('p', { class: 'miudo wallet-nota', texto:
+      'Fica na carteira do telemóvel, e os carimbos actualizam-se sozinhos.' }));
 }
 
 function cartaoGrande(cartao) {
@@ -582,12 +646,16 @@ function ecraPerfil(principal) {
         el('b', { texto: 'Guardar a conta' }),
         el('span', { texto: estado.cliente.email || 'Para não perderes os cartões se mudares de telemóvel' })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
-    el('button', { class: 'linha', aoClick: () => avisar('Em breve: adicionar à Wallet do telemóvel.', 'neutro') },
+    /* Isto era um botão que prometia «em breve» e não fazia nada. A Carteira
+       do Google já existe, e o botão dela está em cada cartão — que é onde
+       tem de estar, porque o passe é de um cartão e não da conta. Aqui fica
+       só a placa que diz onde é, e o que ainda não há. */
+    el('div', { class: 'linha' },
       el('span', { class: 'linha-icone', html: icone('carteira', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
-        el('b', { texto: 'Adicionar à Wallet' }),
-        el('span', { texto: 'Apple Wallet e Google Wallet — a caminho' })),
-      el('span', { class: 'etiqueta', texto: 'em breve' })));
+        el('b', { texto: 'Carteira do telemóvel' }),
+        el('span', { texto: 'O botão da Carteira do Google está em cada cartão. '
+          + 'A Apple Wallet ainda não.' }))));
   principal.append(el('section', { class: 'seccao' },
     el('h2', { class: 'seccao-titulo', texto: 'Conta' }), conta));
 

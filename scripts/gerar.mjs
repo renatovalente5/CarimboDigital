@@ -395,7 +395,11 @@ for (const app of ['app', 'balcao']) {
     `${BASE}/js/nucleo.js?v=${VERSAO}`,
     `${BASE}/js/api.js?v=${VERSAO}`,
     ...(app === 'app'
-      ? [`${BASE}/js/qr.js?v=${VERSAO}`]
+      ? [`${BASE}/js/qr.js?v=${VERSAO}`,
+         /* O botão da Carteira do Google. Vai no casco para estar lá à
+            primeira e sem rede: a imagem é da Google e não se pode substituir
+            por texto, por isso, se faltasse, o botão ficava um buraco. */
+         `${BASE}/icones/google-wallet-pt.svg`]
       : [`${BASE}/js/qr-leitor.js?v=${VERSAO}`]),
   ];
 

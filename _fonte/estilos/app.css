@@ -764,3 +764,39 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
    onde está, só mete uma moldura roxa no meio da app. O anúncio fica; o aro
    sai. Os elementos que se navegam por tabulação continuam a tê-lo. */
 #principal:focus, #principal:focus-visible { outline: none; }
+
+/* --- o botão da Carteira do Google --------------------------------------
+   A imagem é da Google e as normas de marca dela proíbem mexer-lhe: nada de
+   cor, tipo de letra, raio ou espaçamento por cima. Por isso aqui só se trata
+   do que está À VOLTA — a folga mínima de 8 dp de todos os lados, a área de
+   toque, e o sinal de que está a carregar.
+
+   O `width`/`height` ficam no `<img>` para o espaço ser reservado antes de o
+   ficheiro chegar: sem isso a página dava um salto quando ele carregasse, e
+   um salto por baixo do dedo faz tocar no que não se queria. */
+.wallet-caixa { margin-top: var(--e-5); text-align: center; }
+
+.btn-wallet {
+  display: inline-block;
+  padding: 8px;                 /* a folga mínima que a Google exige */
+  border: 0; background: none; cursor: pointer;
+  border-radius: 31px;          /* 27 do botão + os 8 da folga, arredondado */
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-wallet img { display: block; width: 240px; height: 55px; }
+
+/* O foco desenha-se À VOLTA da folga, e não por cima da imagem. */
+.btn-wallet:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+
+.btn-wallet.a-carregar { opacity: .55; }
+.btn-wallet[aria-disabled="sim"] { cursor: progress; }
+
+.wallet-nota { margin: var(--e-2) auto 0; max-width: 34ch; }
+
+/* Num ecrã mesmo estreito o botão encolhe com a imagem, mantendo a
+   proporção — e a folga encolhe com ele. A altura nunca desce dos 48 dp que
+   a Google exige enquanto a coluna der 224 px, que é menos do que qualquer
+   telemóvel a sério tem. */
+@media (max-width: 320px) {
+  .btn-wallet img { width: 100%; height: auto; max-width: 240px; }
+}

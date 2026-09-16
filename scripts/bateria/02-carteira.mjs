@@ -568,6 +568,101 @@ export async function correr(palco, certo) {
   certo(!!ecraCartao.botaoCodigo,
     'cartão: há o botão de mostrar o código ao balcão', String(ecraCartao.botaoCodigo));
 
+  /* --- o botão da Carteira do Google -------------------------------------
+     Estava aqui uma linha no perfil que prometia «em breve» e não fazia nada.
+     Agora há passe a sério, e o botão é da Google: as normas de marca dela
+     proíbem desenhar um por nós, e obrigam a 48 dp de altura e 8 dp de folga
+     de todos os lados. Isso mede-se — não se confia em ter escrito o CSS.
+
+     Primeiro prova-se a AUSÊNCIA. Sem logótipo não há classe de fidelização
+     possível, e um botão que só falha quando se lhe toca é pior do que um
+     botão que não está lá. A semente não traz logótipo, por isso o estado em
+     que este ecrã está agora já é o caso a provar.
+     -------------------------------------------------------------------- */
+  certo(!(await palco.ver('.btn-wallet')),
+    'wallet: sem logótipo do negócio não aparece botão nenhum — a Google exigiria um');
+
+  {
+    /* E agora com logótipo, pelo caminho por onde a pessoa lá chega. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      for (const n of e.negocios) {
+        n.logotipo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
+        n.logotipo_em = new Date().toISOString();
+      }
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.clicar('#principal .voltar');
+    await palco.esperar('#principal .pilha .cartao', 8000);
+    await palco.clicar(seletorTorrado);
+    /* Espera-se SEM deixar rebentar. Um `esperar` que atira mata o módulo, e
+       com ele as duas dezenas de afirmações que vêm a seguir — o botão
+       desaparecia e o que se lia era «o módulo rebentou», com o resto do ecrã
+       do cartão por verificar. Uma coisa partida tem de dar UMA falha. */
+    const apareceu = await palco.esperar('.btn-wallet', 8000).then(() => true, () => false);
+    certo(apareceu, 'wallet: com logótipo, o cartão passa a ter o botão da Carteira');
+
+    const b = !apareceu ? null : await palco.js(`
+      const botao = document.querySelector('.btn-wallet');
+      if (!botao) return null;
+      const img = botao.querySelector('img');
+      if (img && !img.complete) await new Promise((r) => { img.onload = r; img.onerror = r; });
+      const rb = botao.getBoundingClientRect();
+      const ri = img ? img.getBoundingClientRect() : null;
+      const cs = getComputedStyle(botao);
+      const folga = ['Top', 'Right', 'Bottom', 'Left'].map((l) => parseFloat(cs['padding' + l]));
+      /* Onde está em relação ao código: o passe é uma comodidade, o código é
+         o que serve o cliente ao balcão hoje. */
+      const codigo = [...document.querySelectorAll('#principal button')]
+        .find((x) => x.textContent.includes('código'));
+      return {
+        existe: true,
+        fonte: img ? img.getAttribute('src') : null,
+        carregou: Boolean(img && img.complete && img.naturalWidth > 0),
+        natural: img ? [img.naturalWidth, img.naturalHeight] : null,
+        altura: Math.round(ri ? ri.height : 0),
+        largura: Math.round(ri ? ri.width : 0),
+        folga,
+        nome: botao.getAttribute('aria-label') || botao.textContent.trim(),
+        cabe: Math.round(rb.width) <= Math.round(document.querySelector('#principal').clientWidth),
+        depoisDoCodigo: Boolean(codigo
+          && (codigo.compareDocumentPosition(botao) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      };`);
+
+    certo(b && b.carregou && b.natural[0] === 240 && b.natural[1] === 55,
+      'wallet: e a imagem é a que a Google distribui, carregada de facto',
+      JSON.stringify(b && { fonte: b.fonte, natural: b.natural, carregou: b.carregou }));
+    certo(b && b.altura >= 48,
+      'wallet: com os 48 dp de altura mínima que as normas da Google exigem',
+      String(b && b.altura));
+    certo(b && b.folga.every((f) => f >= 8),
+      'wallet: e os 8 dp de folga de todos os lados',
+      JSON.stringify(b && b.folga));
+    certo(b && b.cabe,
+      'wallet: o botão cabe na coluna do telemóvel sem a rebentar',
+      JSON.stringify(b && { largura: b.largura }));
+    certo(b && /carteira do google/i.test(String(b.nome)),
+      'wallet: quem ouve o ecrã ouve o que o botão faz — a imagem sozinha não diz nada',
+      String(b && b.nome));
+    certo(b && b.depoisDoCodigo,
+      'wallet: fica DEPOIS do «mostrar o código» — o código é o que serve ao balcão hoje');
+
+    /* E tocar nele faz alguma coisa, e diz a verdade. Na demonstração não há
+       chave para assinar o passe: o botão tem de o dizer, e não ficar quieto
+       nem abrir uma página de erro da Google. */
+    if (apareceu) {
+      await palco.clicar('.btn-wallet');
+      await palco.esperar('.aviso, .brinde, [role="status"]', 6000).then(() => {}, () => {});
+      const dito = await palco.textoTodo();
+      certo(/demonstra/i.test(dito),
+        'wallet: na demonstração o botão diz que não há passe a sério, em vez de ficar quieto',
+        dito.slice(0, 160));
+      certo(!String(await palco.js('return location.href')).includes('pay.google.com'),
+        'wallet: e não atira ninguém para uma página de erro da Google',
+        String(await palco.js('return location.href')).slice(0, 80));
+    }
+  }
+
   /* As cores do comerciante têm de acompanhar o cartão para o ecrã grande. */
   const corGrande = await palco.estilo('#principal .cartao-grande', 'background-color');
   const corLista = vistos[indice].fundo;

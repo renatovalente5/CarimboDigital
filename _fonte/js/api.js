@@ -333,6 +333,11 @@ function criarDemo() {
       programa: p,
       porResgatar: premios.length,
       premios,
+      /* A mesma regra do servidor a sério: sem logótipo não há passe, porque
+         a classe de fidelização da Google exige um. Aqui não há Google
+         nenhuma — mas se a demonstração mostrasse o botão onde a aplicação a
+         sério não o mostra, deixava de servir para o provar. */
+      wallet: Boolean(negocio.logotipo),
     };
   }
 
@@ -689,6 +694,14 @@ function criarDemo() {
       return { logotipo: Boolean(logotipo), demo: true };
     },
 
+    /* Não há carteira de telemóvel numa demonstração que vive toda dentro do
+       browser: o passe é assinado com uma chave que só o Worker tem. Devolve-
+       se a dizer isso, em vez de um endereço inventado que abria uma página
+       de erro da Google — e quem chama mostra o aviso. */
+    async walletGoogle() {
+      return { demo: true };
+    },
+
     base: () => '',
 
     async apagarTudo(clienteId) {
@@ -835,6 +848,12 @@ export const api = MODO === 'remoto'
       /* O endereço da API, para quem precisa de o montar à mão — o logótipo é
          servido como IMAGEM e vai num `<img src>`, não passa pelo `pedir`. */
       base: () => CONFIG.api,
+      /* O passe da Wallet. Devolve `{ ligacao }` — o endereço que a Google
+         assinou e que grava o cartão na carteira do telemóvel. Cria o passe
+         lá fora, por isso demora mais do que uma leitura e pode falhar por
+         causas que não são desta casa. */
+      walletGoogle: (cartaoId) =>
+        remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`, { metodo: 'POST' }),
       guardarEmail: (email) => remoto.pedir('/v1/cliente/email', { metodo: 'POST', corpo: { email } }),
       confirmarEmail: (email, codigo) =>
         remoto.pedir('/v1/cliente/entrar', { metodo: 'POST', corpo: { email, codigo } }),
