@@ -502,7 +502,13 @@ async function ecraDescobrir(principal) {
           el('div', { class: 'cartao-topo' },
             el('div', { class: 'cartao-marca' },
               el('div', { class: 'cartao-nome', texto: n.nome }),
-              el('div', { class: 'cartao-tipo', texto: `${n.categoria} · ${n.localidade}` })),
+              /* O ponto do meio só existe se houver as duas coisas. Um negócio
+                 sem categoria — e há-os, o campo é opcional no balcão — punha
+                 «null · Ovar» no ecrã de quem está a descobrir sítios. O
+                 template literal transforma o `null` em texto sem se queixar,
+                 e é assim que ele chega aos olhos de alguém. */
+              el('div', { class: 'cartao-tipo',
+                texto: [n.categoria, n.localidade].filter(Boolean).join(' · ') })),
             el('div', { class: 'cartao-selo-tipo', html: icone(p.selo, { tipo: 'cheio', tamanho: 22 }) })),
           el('div', { class: 'cartao-rodape' },
             el('div', {},

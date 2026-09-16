@@ -88,6 +88,7 @@ class Palco {
     this.desculpar = desculpar || [];
     this.excepcoes = [];
     this.consola = [];
+    this.lixo = [];
     this.capturas = [];
   }
 
@@ -422,6 +423,84 @@ class Palco {
 }
 
 /* =========================================================================
+   O vigia do lixo visível
+
+   Um `null` não rebenta nada. Um template literal transforma-o em texto, o
+   browser desenha-o, e ninguém se queixa — nem uma excepção, nem um erro de
+   consola, nem uma afirmação da bateria. Só se vê a olhar para o ecrã certo
+   no momento certo. Aconteceu: um negócio sem categoria mostrava «null ·
+   Ovar» a quem estava a descobrir sítios, e a bateria inteira passou por lá
+   sem lhe tocar.
+
+   Isto instala-se em TODOS os documentos que a aba abrir, antes de o código
+   da página correr, e olha para o texto que aparece — o que já lá está e o
+   que for sendo acrescentado. Grita pela consola porque é o único canal que
+   sobrevive a uma navegação: o que apanhar num ecrã que a pessoa já deixou
+   para trás chega ao corredor na mesma.
+
+   As fronteiras de palavra não são enfeite: sem elas, «anulado» — que está
+   em todos os históricos — casava com «null».
+   ========================================================================= */
+const MARCA_LIXO = 'LIXO-VISIVEL:';
+
+/* `String.raw` e não uma barra invertida por acidente: dentro de um template
+   normal o `\b` da expressão regular vira o caractere de retrocesso, o `\s`
+   vira um `s` e o `\[` vira `[`. A guarda ficou instalada, calada e inútil —
+   passou uma bateria inteira a dizer que estava tudo bem. */
+const VIGIA_LIXO = String.raw`(() => {
+  const MARCA = ${JSON.stringify('LIXO-VISIVEL:')};
+  const PADRAO = /\b(null|undefined|NaN)\b|\[object [A-Z]\w*\]/;
+  /* O que não conta: o que ninguém lê. Um campo escondido, o conteúdo de um
+     <script>, ou texto dentro de um elemento com \`hidden\`. */
+  const invisivel = (no) => {
+    for (let e = no.parentElement; e; e = e.parentElement) {
+      const t = e.tagName;
+      if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE' || t === 'NOSCRIPT') return true;
+      if (e.hidden || e.getAttribute('aria-hidden') === 'true') return true;
+    }
+    return false;
+  };
+  const onde = (no) => {
+    const e = no.parentElement;
+    if (!e) return 'sem pai';
+    const classe = e.className && typeof e.className === 'string'
+      ? '.' + e.className.trim().split(/\s+/).join('.') : '';
+    return e.tagName.toLowerCase() + classe;
+  };
+  const visto = new Set();
+  const olhar = (no) => {
+    if (!no || no.nodeType !== 3) return;
+    const t = String(no.nodeValue || '');
+    if (!PADRAO.test(t)) return;
+    if (invisivel(no)) return;
+    const queixa = onde(no) + ' → ' + t.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (visto.has(queixa)) return;
+    visto.add(queixa);
+    console.error(MARCA + ' ' + queixa);
+  };
+  const varrer = (raiz) => {
+    if (!raiz) return;
+    if (raiz.nodeType === 3) return olhar(raiz);
+    if (raiz.nodeType !== 1 && raiz.nodeType !== 9 && raiz.nodeType !== 11) return;
+    const caminhante = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
+    for (let n = caminhante.nextNode(); n; n = caminhante.nextNode()) olhar(n);
+  };
+  const arrancar = () => {
+    varrer(document.body);
+    new MutationObserver((mudancas) => {
+      for (const m of mudancas) {
+        if (m.type === 'characterData') olhar(m.target);
+        else for (const n of m.addedNodes) varrer(n);
+      }
+    }).observe(document.documentElement, {
+      childList: true, subtree: true, characterData: true,
+    });
+  };
+  if (document.body) arrancar();
+  else document.addEventListener('DOMContentLoaded', arrancar, { once: true });
+})();`;
+
+/* =========================================================================
    O corredor
    ========================================================================= */
 
@@ -440,13 +519,19 @@ async function correrModulo(enviar, servidor, mod, ficheiro) {
       palco.excepcoes.push(d.exception?.description || d.text || 'sem descrição');
     }
     if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') {
-      palco.consola.push(m.params.args.map((a) =>
-        a.description || String(a.value)).join(' '));
+      const texto = m.params.args.map((a) => a.description || String(a.value)).join(' ');
+      /* O vigia do lixo visível grita pela consola, que é o único canal que
+         sobrevive a uma navegação: o que ele apanhar num ecrã que a pessoa já
+         deixou para trás chega cá na mesma. */
+      if (texto.startsWith(MARCA_LIXO)) palco.lixo.push(texto.slice(MARCA_LIXO.length).trim());
+      else palco.consola.push(texto);
     }
   };
   enviar.ouvintes.add(ouvir);
 
   try {
+    await enviar('Page.addScriptToEvaluateOnNewDocument',
+      { source: VIGIA_LIXO }, sessionId);
     await enviar('Emulation.setDeviceMetricsOverride', {
       width: mod.ecra?.largura || 390, height: mod.ecra?.altura || 844,
       deviceScaleFactor: 2, mobile: true,
@@ -487,6 +572,16 @@ async function correrModulo(enviar, servidor, mod, ficheiro) {
     certo(problemas.length === 0,
       'nada rebentou por baixo',
       problemas.slice(0, 3).join(' · '));
+
+    /* E nada de lixo de programador à vista. Um `null` chega ao ecrã sem
+       rebentar nada: um template literal transforma-o em texto e ninguém se
+       queixa. Aconteceu a sério — um negócio sem categoria mostrava «null ·
+       Ovar» a quem estava a descobrir sítios, e passou por toda a bateria
+       sem uma afirmação sequer lhe tocar. */
+    const lixo = [...new Set(palco.lixo)];
+    certo(lixo.length === 0,
+      'nenhum ecrã mostrou «null», «undefined», «NaN» ou «[object Object]» a quem lá estava',
+      lixo.slice(0, 3).join(' · '));
   } catch (erro) {
     falhou++;
     falhas.push(`${mod.nome} — o módulo rebentou: ${erro.message}`);
