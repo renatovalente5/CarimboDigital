@@ -149,6 +149,38 @@ function correrSQL(ficheiro) {
 }
 
 /**
+ * Tira os comentários `--` de um SQL, sem tocar no que está dentro de aspas.
+ *
+ * Filtrar só as linhas que COMEÇAM por `--` não chegava: os ficheiros têm
+ * comentários no fim de linhas de código, e um deles a levar um `;` partia a
+ * instrução a meio — silenciosamente, que é o pior modo de partir. Percorre-se
+ * caractere a caractere porque um `--` dentro de um literal não é comentário
+ * nenhum.
+ */
+function semComentarios(sql) {
+  let saida = '';
+  let emTexto = false;
+  for (let i = 0; i < sql.length; i += 1) {
+    const c = sql[i];
+    if (emTexto) {
+      saida += c;
+      /* Dois apóstrofos seguidos são um apóstrofo escapado, não o fim. */
+      if (c === "'" && sql[i + 1] === "'") { saida += sql[i + 1]; i += 1; }
+      else if (c === "'") emTexto = false;
+      continue;
+    }
+    if (c === "'") { emTexto = true; saida += c; continue; }
+    if (c === '-' && sql[i + 1] === '-') {
+      while (i < sql.length && sql[i] !== '\n') i += 1;
+      saida += '\n';
+      continue;
+    }
+    saida += c;
+  }
+  return saida;
+}
+
+/**
  * Corre uma MIGRAÇÃO, instrução a instrução.
  *
  * E é instrução a instrução por uma razão que custou um índice: o D1 corre um
@@ -168,13 +200,15 @@ function correrSQL(ficheiro) {
 function correrMigracao(ficheiro) {
   const caminho = join(WORKER, ficheiro);
   const bruto = readFileSync(caminho, 'utf8');
-  if (/'[^']*;[^']*'/.test(bruto)) {
+  const limpo = semComentarios(bruto);
+  /* Um `;` dentro de um literal partia a instrução a meio. Não há nenhum
+     hoje — isto é DDL — mas se um dia houver, é melhor rebentar aqui com uma
+     frase do que aplicar metade de uma migração. */
+  if (/'[^']*;[^']*'/.test(limpo)) {
     throw new Error(`A migração ${ficheiro} tem um ';' dentro de um literal — `
       + 'o corte por instrução deixou de servir e é preciso um analisador a sério.');
   }
-  const instrucoes = bruto
-    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
-    .split(';').map((x) => x.trim()).filter(Boolean);
+  const instrucoes = limpo.split(';').map((x) => x.trim()).filter(Boolean);
 
   for (const instrucao of instrucoes) {
     try {
@@ -207,7 +241,10 @@ function conferirBase() {
   const nomes = { tabelas: new Set(), indices: new Set() };
   const ficheiros = ['esquema.sql', ...listarMigracoes()];
   for (const f of ficheiros) {
-    const texto = readFileSync(join(WORKER, f), 'utf8');
+    /* SEM COMENTÁRIOS. Um comentário que mencione «CREATE TABLE» — a explicar
+       o que a migração faz, por exemplo — punha esta conferência a exigir uma
+       tabela que nunca ninguém quis criar, e a falhar por isso. */
+    const texto = semComentarios(readFileSync(join(WORKER, f), 'utf8'));
     for (const m of texto.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)/gi)) nomes.tabelas.add(m[1]);
     for (const m of texto.matchAll(/CREATE(?: UNIQUE)? INDEX(?: IF NOT EXISTS)?\s+(\w+)/gi)) nomes.indices.add(m[1]);
   }

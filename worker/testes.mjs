@@ -428,6 +428,47 @@ grupo('Muitos cartões não rebentam a resposta');
     sql(`DELETE FROM programas WHERE id = 'p-muitos-${i}'`);
     sql(`DELETE FROM negocios WHERE id = 'n-muitos-${i}'`);
   }
+
+  {
+    /* E ACIMA DOS CEM. O D1 aceita cem parâmetros por consulta e nem um a
+       mais: o `IN (?, ?, …)` que resolveu o N+1 punha o mesmo tecto cento e
+       um cartões à frente. É o género de limite que ninguém encontra a testar
+       e alguém encontra a usar.
+
+       Os cartões escrevem-se directamente na base, e não por cento e dez
+       chamadas à API — o que se prova aqui é a LEITURA. */
+    const c2 = await pedir('/v1/cliente/registar', { metodo: 'POST' });
+    const eu = c2.dados.cliente.id;
+    const QUANTOS = 110;
+    /* NUMA INSTRUÇÃO SÓ. Cada `sql()` levanta um processo do wrangler e leva
+       segundos; trezentas e trinta chamadas punham este bloco a demorar mais
+       do que a bateria inteira. */
+    const linhas = [];
+    for (let i = 0; i < QUANTOS; i += 1) {
+      linhas.push(`INSERT OR REPLACE INTO negocios (id, slug, nome, cor, estado, criado_em)`
+        + ` VALUES ('n-cem-${i}', 'cem-${i}', 'Cem ${i}', '#3B2417', 'ativo', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+      linhas.push(`INSERT OR REPLACE INTO programas (id, negocio_id, nome, tipo, objetivo, premio, selo, ativo, criado_em)`
+        + ` VALUES ('p-cem-${i}', 'n-cem-${i}', 'Cartão ${i}', 'carimbos', 10, 'Um brinde', 'chavena', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+      linhas.push(`INSERT OR REPLACE INTO cartoes (id, cliente_id, programa_id, negocio_id, carimbos, pontos, total_carimbos, premios_ganhos, aderiu_em)`
+        + ` VALUES ('c-cem-${i}', '${eu}', 'p-cem-${i}', 'n-cem-${i}', 1, 0, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+    }
+    sql(linhas.join('; '));
+
+    const muitos = await pedir('/v1/cliente/cartoes', { sessao: c2.dados.sessao });
+    certo(muitos.estado === 200 && muitos.dados.length === QUANTOS,
+      `a carteira com ${QUANTOS} cartões responde — acima dos cem parâmetros do D1`,
+      `${muitos.estado} · ${Array.isArray(muitos.dados) ? muitos.dados.length : JSON.stringify(muitos.dados).slice(0, 90)}`);
+    certo(muitos.estado === 200 && muitos.dados.every((x) => x.negocio && x.negocio.nome),
+      'e todos trazem o negócio — nenhum lote ficou por ler');
+
+    const exp = await pedir('/v1/cliente/dados', { sessao: c2.dados.sessao });
+    certo(exp.estado === 200 && exp.dados.cartoes.length === QUANTOS,
+      'e a exportação de dados também',
+      `${exp.estado} · ${exp.dados && exp.dados.cartoes ? exp.dados.cartoes.length : JSON.stringify(exp.dados).slice(0, 90)}`);
+
+    await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c2.dados.sessao });
+    sql(`DELETE FROM programas WHERE id LIKE 'p-cem-%'; DELETE FROM negocios WHERE id LIKE 'n-cem-%'`);
+  }
 }
 
 grupo('O código do passe carimba mesmo');

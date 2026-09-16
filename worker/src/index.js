@@ -359,27 +359,40 @@ function moldeDeCartao(env, cartao, p, premios) {
  */
 async function moldarCartoes(env, cartoes) {
   if (!cartoes.length) return [];
-  const marcas = (n) => Array.from({ length: n }, () => '?').join(',');
+
+  /* O D1 ACEITA CEM PARÂMETROS POR CONSULTA, e nem um a mais. Um `IN (?, ?,
+     …)` com a lista toda resolvia o N+1 e punha o mesmo problema cem cartões
+     mais à frente — que é o género de tecto que ninguém encontra a testar e
+     alguém encontra a usar. Parte-se em lotes de noventa, que deixa folga
+     para os parâmetros que a consulta já leva. */
+  const POR_LOTE = 90;
+  const emLotes = async (valores, consulta) => {
+    const saida = [];
+    for (let i = 0; i < valores.length; i += POR_LOTE) {
+      const lote = valores.slice(i, i + POR_LOTE);
+      const marcas = lote.map(() => '?').join(',');
+      saida.push(...(await env.DB.prepare(consulta(marcas)).bind(...lote).all()).results);
+    }
+    return saida;
+  };
 
   const idsProgramas = [...new Set(cartoes.map((c) => c.programa_id))];
-  const programas = (await env.DB.prepare(
+  const programas = await emLotes(idsProgramas, (marcas) =>
     `SELECT p.*, n.nome AS negocio_nome, n.slug AS negocio_slug, n.cor AS negocio_cor,
             n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
             n.morada AS negocio_morada, n.telefone AS negocio_telefone,
             (n.logotipo IS NOT NULL) AS negocio_tem_logotipo
        FROM programas p JOIN negocios n ON n.id = p.negocio_id
-      WHERE p.id IN (${marcas(idsProgramas.length)})`
-  ).bind(...idsProgramas).all()).results;
+      WHERE p.id IN (${marcas})`);
   const porPrograma = new Map(programas.map((p) => [p.id, p]));
 
   /* Os marcos só existem nos programas de pontos. Se não houver nenhum, não
      se gasta a consulta. */
   const dePontos = programas.filter((p) => p.tipo === 'pontos').map((p) => p.id);
   if (dePontos.length) {
-    const marcos = (await env.DB.prepare(
+    const marcos = await emLotes(dePontos, (marcas) =>
       `SELECT programa_id, pontos, premio FROM marcos
-        WHERE programa_id IN (${marcas(dePontos.length)}) ORDER BY pontos`
-    ).bind(...dePontos).all()).results;
+        WHERE programa_id IN (${marcas}) ORDER BY pontos`);
     for (const p of programas) if (p.tipo === 'pontos') p.marcos = [];
     for (const m of marcos) {
       const p = porPrograma.get(m.programa_id);
@@ -388,11 +401,10 @@ async function moldarCartoes(env, cartoes) {
   }
 
   const idsCartoes = cartoes.map((c) => c.id);
-  const premios = (await env.DB.prepare(
+  const premios = await emLotes(idsCartoes, (marcas) =>
     `SELECT id, cartao_id, descricao, ganho_em FROM premios
-      WHERE cartao_id IN (${marcas(idsCartoes.length)}) AND resgatado_em IS NULL
-      ORDER BY ganho_em`
-  ).bind(...idsCartoes).all()).results;
+      WHERE cartao_id IN (${marcas}) AND resgatado_em IS NULL
+      ORDER BY ganho_em`);
   const porCartao = new Map();
   for (const pr of premios) {
     const lista = porCartao.get(pr.cartao_id) || [];
