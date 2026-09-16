@@ -185,7 +185,13 @@ que já se paga no plano de email do domínio. Assim não há mais um
 subcontratante e nada sai da União Europeia. Ver o README, secção do email.
 
 SMS está fora: ~0,05 € por mensagem para Portugal, o que a mil entradas por
-mês dá 50 €/mês — infinito, quando o orçamento é zero.
+mês dá 50 €/mês — infinito, quando o orçamento é zero. (Reconfirmado em Set
+2026 na tabela da Twilio: 0,0501 USD por mensagem para móveis portugueses.)
+
+**O login com várias identidades por conta tem plano próprio:**
+[PLANO-LOGIN.md](PLANO-LOGIN.md). Email, Google e Apple na mesma conta, com a
+regra de ligação, a fusão de contas, e as três dívidas do modelo actual que
+têm de ser pagas antes.
 
 ## 6. Wallet do telemóvel
 
