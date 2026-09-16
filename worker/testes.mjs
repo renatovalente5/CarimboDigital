@@ -353,6 +353,83 @@ grupo('O que o cliente vê');
   certo(alheio.estado === 401, 'sem sessão não vê cartão nenhum');
 }
 
+grupo('Muitos cartões não rebentam a resposta');
+{
+  /* O TECTO SÃO CINQUENTA SUBPEDIDOS POR INVOCAÇÃO.
+
+     A carteira e a exportação de dados faziam duas a cinco consultas POR
+     CARTÃO, em ciclo. A partir de uns dez cartões, o «Descarregar os meus
+     dados» — que é o direito de portabilidade do artigo 20.º do RGPD —
+     rebentava com «Too many subrequests» e a pessoa via «Erro interno». O
+     direito de levar os dados consigo não pode depender de se ter poucos
+     cartões.
+
+     Doze programas em negócios diferentes, que é mais do que os dez onde isto
+     partia e o máximo que um negócio pode ter. */
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST' });
+  const sessaoM = c.dados.sessao;
+
+  const programas = [];
+  for (let i = 0; i < 12; i += 1) {
+    const nid = `n-muitos-${i}`;
+    const pid = `p-muitos-${i}`;
+    sql(`INSERT OR REPLACE INTO negocios (id, slug, nome, cor, estado, criado_em)
+         VALUES ('${nid}', 'muitos-${i}', 'Casa ${i}', '#3B2417', 'ativo',
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+    sql(`INSERT OR REPLACE INTO programas (id, negocio_id, nome, tipo, objetivo, premio,
+         selo, ativo, criado_em)
+         VALUES ('${pid}', '${nid}', 'Cartão ${i}', '${i % 3 === 0 ? 'pontos' : 'carimbos'}',
+                 10, 'Um brinde', 'chavena', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+    if (i % 3 === 0) {
+      sql(`INSERT OR REPLACE INTO marcos (programa_id, pontos, premio)
+           VALUES ('${pid}', 50, 'Meio caminho')`);
+    }
+    programas.push(pid);
+  }
+  for (const pid of programas) {
+    await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: sessaoM, corpo: { programaId: pid } });
+  }
+
+  const carteira = await pedir('/v1/cliente/cartoes', { sessao: sessaoM });
+  certo(carteira.estado === 200 && carteira.dados.length === 12,
+    'a carteira com doze cartões responde, e traz os doze',
+    `${carteira.estado} · ${Array.isArray(carteira.dados) ? carteira.dados.length : JSON.stringify(carteira.dados).slice(0, 80)}`);
+  certo(carteira.dados.every((x) => x.negocio && x.negocio.nome && x.programa && x.programa.objetivo),
+    'e cada um traz o negócio e o programa, como sempre trouxe');
+  const dePontos = carteira.dados.filter((x) => x.programa.tipo === 'pontos');
+  certo(dePontos.length === 4 && dePontos.every((x) => Array.isArray(x.programa.marcos)
+    && x.programa.marcos.length === 1),
+    'e os programas de pontos trazem os marcos certos — que é a consulta a mais do lote',
+    JSON.stringify(dePontos.map((x) => x.programa.marcos)));
+
+  const dados = await pedir('/v1/cliente/dados', { sessao: sessaoM });
+  certo(dados.estado === 200 && dados.dados.cartoes.length === 12,
+    'e a exportação de dados também — era aqui que dava «Erro interno»',
+    `${dados.estado} · ${dados.dados && dados.dados.cartoes ? dados.dados.cartoes.length : JSON.stringify(dados.dados).slice(0, 80)}`);
+  certo(dados.estado === 200 && dados.dados.movimentos.length === 12,
+    'com um movimento de adesão por cartão', String(dados.dados.movimentos?.length));
+
+  /* A FORMA TEM DE SER A MESMA. Há dois caminhos para moldar um cartão — um
+     a um, e em lote — e duas cópias de uma forma divergem ao primeiro campo
+     novo. Compara-se um contra o outro. */
+  const umPorUm = await pedir(`/v1/cliente/cartoes/${carteira.dados[0].id}`, { sessao: sessaoM });
+  const { movimentos: _m, ...soCartao } = umPorUm.dados;
+  const emLote = carteira.dados.find((x) => x.id === soCartao.id);
+  certo(JSON.stringify(Object.keys(soCartao).sort()) === JSON.stringify(Object.keys(emLote).sort()),
+    'um cartão pedido sozinho e o mesmo pedido em lote têm exactamente os mesmos campos',
+    `sozinho ${Object.keys(soCartao).sort().join(',')} | lote ${Object.keys(emLote).sort().join(',')}`);
+  certo(JSON.stringify(soCartao) === JSON.stringify(emLote),
+    'e exactamente os mesmos valores',
+    `${JSON.stringify(soCartao).slice(0, 100)} ≠ ${JSON.stringify(emLote).slice(0, 100)}`);
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoM });
+  for (let i = 0; i < 12; i += 1) {
+    sql(`DELETE FROM marcos WHERE programa_id = 'p-muitos-${i}'`);
+    sql(`DELETE FROM programas WHERE id = 'p-muitos-${i}'`);
+    sql(`DELETE FROM negocios WHERE id = 'n-muitos-${i}'`);
+  }
+}
+
 grupo('O código do passe carimba mesmo');
 {
   /* ESTE É O TESTE QUE FALTAVA, e a falta dele custou a funcionalidade toda.
@@ -1937,8 +2014,62 @@ grupo('O cartão na Apple Wallet');
       '-in', join(caminho('fora'), 'signature'), '-print'], { encoding: 'utf8' });
     certo(/eContent: <ABSENT>/.test(estrutura),
       'a assinatura é DESTACADA — o manifesto não vai lá dentro, que é o que a Apple quer');
-    certo(/certificates:/.test(estrutura),
-      'e leva o certificado de quem assinou, senão o telemóvel não sabe contra o que verificar');
+    /* CONTAR, e não procurar a palavra. O `openssl cms -cmsout -print` escreve
+       SEMPRE o rótulo `certificates:` — quando não há nenhum, escreve
+       `<ABSENT>` na linha a seguir, e um `/certificates:/` dá verdadeiro à
+       mesma. A afirmação nomeava uma coisa e media outra: passava com uma
+       assinatura construída sem certificado nenhum lá dentro. */
+    const quantosCertificados = (texto) => (texto.match(/certificate:\s*$/gmi) || []).length
+      || (texto.match(/\bcert_info:/g) || []).length;
+    certo(!/certificates:\s*<ABSENT>/i.test(estrutura) && quantosCertificados(estrutura) >= 1,
+      'e leva o certificado de quem assinou, senão o telemóvel não sabe contra o que verificar',
+      `${quantosCertificados(estrutura)} certificado(s)`);
+
+    {
+      /* A CADEIA INTEIRA, e não o primeiro bloco. O `doPEM` fazia `match` sem
+         `g`: quem colasse o WWDR e a raiz na mesma variável — que é como eles
+         vêm de uma exportação do Acesso a Chaves — mandava dois e o passe
+         levava um. O ficheiro saía bem formado, o `openssl -noverify`
+         verificava, os testes passavam, e o iPhone recusava-o por não
+         conseguir fechar a cadeia. */
+      openssl('req', '-x509', '-newkey', 'rsa:2048', '-keyout', caminho('k2.pem'),
+        '-out', caminho('c2.pem'), '-days', '2', '-nodes', '-subj', '/CN=Intermedio de mentira');
+      const intermedio = readFileSync(caminho('c2.pem'), 'utf8');
+
+      const comCadeia = await p.construirPasse({
+        passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+        certificado: cert, chave, cadeia: [intermedio], quando: '2026-09-16T00:00:00Z',
+      });
+      writeFileSync(caminho('cadeia.pkpass'), comCadeia);
+      execFileSync('unzip', ['-o', '-q', caminho('cadeia.pkpass'), '-d', caminho('c1')]);
+      const e1 = execFileSync('openssl', ['cms', '-cmsout', '-inform', 'DER',
+        '-in', join(caminho('c1'), 'signature'), '-print'], { encoding: 'utf8' });
+      certo(quantosCertificados(e1) === 2,
+        'a cadeia entra no passe: dois certificados, o signatário e o intermédio',
+        `${quantosCertificados(e1)}`);
+
+      /* E o caso que partia: os dois colados na MESMA variável. */
+      const colados = await p.construirPasse({
+        passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+        certificado: cert + intermedio, chave, quando: '2026-09-16T00:00:00Z',
+      });
+      writeFileSync(caminho('colados.pkpass'), colados);
+      execFileSync('unzip', ['-o', '-q', caminho('colados.pkpass'), '-d', caminho('c2')]);
+      const e2 = execFileSync('openssl', ['cms', '-cmsout', '-inform', 'DER',
+        '-in', join(caminho('c2'), 'signature'), '-print'], { encoding: 'utf8' });
+      certo(quantosCertificados(e2) === 2,
+        'e dois colados na mesma variável contam os dois — era aqui que se perdia um',
+        `${quantosCertificados(e2)}`);
+
+      /* Com os `\n` achatados, que é como um PEM cabe numa variável. */
+      const achatado = await p.construirPasse({
+        passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+        certificado: (cert + intermedio).replace(/\n/g, '\\n'), chave,
+        quando: '2026-09-16T00:00:00Z',
+      });
+      certo(Buffer.compare(Buffer.from(colados), Buffer.from(achatado)) === 0,
+        'e um PEM achatado em «\\n» dá exactamente o mesmo passe');
+    }
 
     /* --- o mesmo pedido duas vezes dá o mesmo ficheiro ------------------- */
     const outra = await p.construirPasse({
@@ -2018,9 +2149,29 @@ grupo('O passe da Apple, de ponta a ponta');
   const r = await pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`, { metodo: 'POST', sessao: sessaoA });
   certo(r.estado === 200 && typeof r.dados.ligacao === 'string',
     'o passe da Apple devolve um endereço', `${r.estado} ${JSON.stringify(r.dados).slice(0, 80)}`);
-  certo(!String(r.dados.ligacao || '').includes(cartaoId),
-    'e esse endereço NÃO leva o número do cartão — leva um bilhete assinado',
-    String(r.dados.ligacao || '').slice(-60));
+  /* ISTO DIZIA «o endereço NÃO leva o número do cartão» e comparava com
+     `includes`. Um texto em base64url nunca contém o original em claro, seja
+     o que for que lá esteja dentro — a afirmação dava certo por construção, e
+     daria certo se o bilhete deixasse de ser assinado ou se passasse a levar
+     a morada da pessoa. Não provava nada.
+
+     E o que ela dizia era falso: o identificador do cartão ESTÁ lá, só que
+     codificado. Isso é aceitável e é a razão de o bilhete existir — mas quem
+     lê o teste tem de saber a verdade, não o contrário dela. O que interessa
+     provar é que o bilhete só leva o cartão e o prazo, que não leva nada
+     sobre a PESSOA, e que sem o selo não abre nada. */
+  const bilheteDentro = (() => {
+    const b = String(r.dados.ligacao || '').split('/v1/passe/')[1] || '';
+    const corpo = Buffer.from(b.split('.')[0], 'base64url').toString('utf8');
+    return { corpo, partes: corpo.split('.') };
+  })();
+  certo(bilheteDentro.partes.length === 2 && bilheteDentro.partes[0] === cartaoId
+     && /^\d{10,}$/.test(bilheteDentro.partes[1]),
+    'o bilhete leva o cartão e o prazo, e mais nada — descodificado e conferido',
+    bilheteDentro.corpo);
+  certo(!bilheteDentro.corpo.includes(reg.dados.cliente.publico),
+    'e NADA sobre a pessoa: nem o número do cliente, nem a morada',
+    bilheteDentro.corpo);
 
   const bilhete = String(r.dados.ligacao || '').split('/v1/passe/')[1] || '';
 
@@ -2098,6 +2249,25 @@ grupo('O passe da Apple, de ponta a ponta');
       'sem logótipo o passe da Apple é recusado com uma razão',
       `${r4.estado} ${r4.dados.codigo}`);
     sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}', logotipo_em = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 'n1'`);
+  }
+
+  {
+    /* UM JPEG NÃO ENTRA NUM PASSE DA APPLE. A coluna aceita-o de propósito — o
+       balcão diz «PNG ou JPEG» e para a Google serve — mas a Apple só aceita
+       PNG nas imagens, e metê-lo no arquivo com o nome `icon.png` dava um
+       ficheiro que o iPhone recusa sem dizer porquê. A recusa sai daqui, com
+       uma frase e um caminho. */
+    const JPEG = '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsL'
+      + 'DBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+    sql(`UPDATE negocios SET logotipo = 'image/jpeg;${JPEG}' WHERE id = 'n1'`);
+    const r5 = await pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`,
+      { metodo: 'POST', sessao: sessaoA });
+    certo(r5.estado === 409 && r5.dados.codigo === 'logotipo-nao-png',
+      'um logótipo JPEG é recusado aqui, e não pelo iPhone de um cliente',
+      `${r5.estado} ${r5.dados.codigo}`);
+    certo(/PNG/.test(String(r5.dados.erro)) && /balcão/i.test(String(r5.dados.erro)),
+      'e diz o que fazer', String(r5.dados.erro));
+    sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}' WHERE id = 'n1'`);
   }
 
   {

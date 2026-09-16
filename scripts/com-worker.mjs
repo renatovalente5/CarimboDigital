@@ -123,12 +123,12 @@ function certificadoDeMentira() {
 }
 
 /**
- * Aplica o esquema à base local.
+ * Corre um ficheiro SQL contra a base local, de uma vez só.
  *
- * É tudo `CREATE TABLE IF NOT EXISTS`, por isso correr sempre não custa nada
- * e resolve o caso que já mordeu: uma tabela nova no esquema, a base local a
- * ficar para trás, e a bateria a rebentar com «no such table» — que parece
- * um defeito do código e é só uma migração por aplicar.
+ * Serve para o `esquema.sql` e para o `semear.sql`, que são todos
+ * `IF NOT EXISTS` / `INSERT OR IGNORE` e por isso não se importam de correr
+ * sempre — e que DEVEM ser atómicos: um esquema meio aplicado é pior do que
+ * nenhum.
  */
 function correrSQL(ficheiro) {
   try {
@@ -140,16 +140,8 @@ function correrSQL(ficheiro) {
        seguir dirá porquê com mais clareza». Não dizia: o que aparecia era «no
        such table: negocios», que parece um defeito do Worker e é a montagem
        da base a ter falhado em silêncio. Duas publicações seguidas morreram
-       assim, e do registo do CI não se tirava a razão de nenhuma.
-
-       O único erro que se PERDOA é o de uma migração já aplicada: o esquema é
-       todo `IF NOT EXISTS`, mas um `ALTER TABLE ADD COLUMN` numa base que já a
-       tem responde «duplicate column name», e isso aqui é sinal de bom. */
+       assim, e do registo do CI não se tirava a razão de nenhuma. */
     const dito = `${erro.stdout || ''}${erro.stderr || ''}`;
-    if (/duplicate column name/i.test(dito)) return;
-    /* Quase tudo o resto é a base local a ter ficado num estado que o esquema
-       já não aceita — tipicamente dados que uma corrida anterior deixou e que
-       violam uma regra nova. Quem lê isto quer saber a saída, não procurá-la. */
     throw new Error(`Não deu para aplicar ${ficheiro} à base local:\n${dito.slice(-1200)}\n`
       + 'Se for a base local a estar num estado impossível, deita-a fora:\n'
       + `  node scripts/com-worker.mjs ${process.argv[2] || 'worker/testes.mjs'} --limpo`);
@@ -157,15 +149,91 @@ function correrSQL(ficheiro) {
 }
 
 /**
- * Prepara a base local.
+ * Corre uma MIGRAÇÃO, instrução a instrução.
  *
- * O `esquema.sql` é todo `CREATE TABLE IF NOT EXISTS`, o que o torna seguro de
- * correr sempre — e cego a colunas novas. Numa base que já existia, uma coluna
- * acrescentada ao esquema nunca lá aparecia, e os testes falhavam com um 500
- * que não tinha nada que ver com o que estavam a provar. Por isso as migrações
- * correm a seguir, cada uma por sua conta: numa base nova o `ALTER TABLE` dá
- * «duplicate column name», que aqui é o sinal de que já está aplicada.
+ * E é instrução a instrução por uma razão que custou um índice: o D1 corre um
+ * `--file` numa TRANSACÇÃO só. Numa base acabada de nascer, o `esquema.sql` já
+ * criou a coluna `convite`, por isso o `ALTER TABLE` da migração 002 dá
+ * «duplicate column name» — e o que se perdia não era só essa linha, era o
+ * ficheiro inteiro. O `CREATE INDEX ix_negocios_convite` que vinha a seguir
+ * nunca chegou a existir na base local nem na do CI, enquanto existia na
+ * produção. A base contra a qual se testa deixou de ter o formato da base a
+ * sério, em silêncio, e o perdão do erro dizia que estava tudo bem.
+ *
+ * Cortar por `;` no fim da linha chega para estes ficheiros — são DDL, não
+ * têm literais com ponto e vírgula lá dentro. Se um dia tiverem, isto tem de
+ * passar a um analisador a sério, e é melhor que rebente aqui do que aplique
+ * metade.
  */
+function correrMigracao(ficheiro) {
+  const caminho = join(WORKER, ficheiro);
+  const bruto = readFileSync(caminho, 'utf8');
+  if (/'[^']*;[^']*'/.test(bruto)) {
+    throw new Error(`A migração ${ficheiro} tem um ';' dentro de um literal — `
+      + 'o corte por instrução deixou de servir e é preciso um analisador a sério.');
+  }
+  const instrucoes = bruto
+    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+    .split(';').map((x) => x.trim()).filter(Boolean);
+
+  for (const instrucao of instrucoes) {
+    try {
+      execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+        '--config', './wrangler.toml', '--local', '--command', instrucao],
+      { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+    } catch (erro) {
+      const dito = `${erro.stdout || ''}${erro.stderr || ''}`;
+      /* O ÚNICO erro que se perdoa, e agora só perdoa a instrução que o deu:
+         um `ALTER TABLE ADD COLUMN` numa base que já tem a coluna. Numa base
+         nova é o esquema que a criou; numa velha é a migração já aplicada.
+         Nos dois casos é sinal de bom. */
+      if (/duplicate column name/i.test(dito)) continue;
+      throw new Error(`A migração ${ficheiro} parou em:\n  ${instrucao.slice(0, 160)}\n${dito.slice(-800)}`);
+    }
+  }
+}
+
+/**
+ * Confere que a base local ficou com TUDO o que o esquema e as migrações
+ * mandam — tabelas e índices.
+ *
+ * Existe porque a montagem falhou duas vezes em silêncio, de maneiras
+ * diferentes: uma transacção desfeita por um `ALTER` repetido, e um ficheiro
+ * inteiro perdido por uma instrução fora de ordem. As duas deixaram a base a
+ * parecer boa. Aqui lê-se o que os ficheiros PROMETEM e pergunta-se à base se
+ * está lá — que é a única forma de a promessa não ser a única prova.
+ */
+function conferirBase() {
+  const nomes = { tabelas: new Set(), indices: new Set() };
+  const ficheiros = ['esquema.sql', ...listarMigracoes()];
+  for (const f of ficheiros) {
+    const texto = readFileSync(join(WORKER, f), 'utf8');
+    for (const m of texto.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)/gi)) nomes.tabelas.add(m[1]);
+    for (const m of texto.matchAll(/CREATE(?: UNIQUE)? INDEX(?: IF NOT EXISTS)?\s+(\w+)/gi)) nomes.indices.add(m[1]);
+  }
+  const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+    '--config', './wrangler.toml', '--local', '--json', '--command',
+    "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"],
+  { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const linhas = saida.split('\n');
+  const i = linhas.findIndex((l) => l.trimStart().startsWith('['));
+  const existe = new Set(JSON.parse(linhas.slice(i).join('\n'))[0].results.map((r) => r.name));
+
+  const faltam = [...nomes.tabelas, ...nomes.indices].filter((n) => !existe.has(n));
+  if (faltam.length) {
+    throw new Error('A base local ficou incompleta — falta o que os ficheiros prometem:\n  '
+      + faltam.join(', ')
+      + '\nIsto quer dizer que alguma instrução foi desfeita em silêncio.');
+  }
+}
+
+const listarMigracoes = () => {
+  const pasta = join(WORKER, 'migracoes');
+  if (!existsSync(pasta)) return [];
+  return readdirSync(pasta).filter((n) => n.endsWith('.sql')).sort()
+    .map((n) => `migracoes/${n}`);
+};
+
 function prepararBase({ limpo = false } = {}) {
   /* DEITAR A BASE FORA, para provar o que o CI prova e a máquina de quem
      desenvolve nunca provava.
@@ -187,11 +255,8 @@ function prepararBase({ limpo = false } = {}) {
      restos de corridas anteriores — numa máquina limpa, o programa `p1` que
      metade deles carimba não existia. */
   correrSQL('semear.sql');
-  const pasta = join(WORKER, 'migracoes');
-  if (!existsSync(pasta)) return;
-  for (const f of readdirSync(pasta).filter((n) => n.endsWith('.sql')).sort()) {
-    correrSQL(`migracoes/${f}`);
-  }
+  for (const f of listarMigracoes()) correrMigracao(f);
+  conferirBase();
 }
 
 export async function comWorker(tarefa, { porta = 8787, tecto = 90000, limpo = false } = {}) {

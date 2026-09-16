@@ -624,6 +624,52 @@ function painelEntrega(cliente) {
 const LOGOTIPO_LADO = 512;
 
 /** Lê o ficheiro, corta ao centro, reduz, e devolve um PNG em base64. */
+/**
+ * O fundo em que um logótipo transparente se lê.
+ *
+ * UM LOGÓTIPO ESCURO ASSENTA EM BRANCO, sempre. Branco contrasta com o que é
+ * escuro, e é o que a Google já desenha à volta — o círculo dela é branco, e
+ * assim o fundo não se vê.
+ *
+ * UM LOGÓTIPO CLARO precisa de fundo escuro, e é aí que estava o defeito: a
+ * cor da marca era usada sem se lhe perguntar nada. Não é suposição que se
+ * possa fazer — há um selector de cor livre no ecrã ao lado e o Worker aceita
+ * qualquer `#RRGGBB`. Uma pastelaria em creme com um logótipo branco ficava
+ * com branco sobre creme: 1,2:1, o mesmo que não estar lá. Agora a cor da
+ * marca só entra se PASSAR; se não passar, o fundo é quase-preto, que passa
+ * sempre.
+ *
+ * O mínimo é 3:1, que é o que a WCAG pede a um elemento gráfico — isto não é
+ * texto corrido, é uma marca dentro de um círculo de 38 pt.
+ */
+/* O fundo tanto pode sair em `#RRGGBB` como em `rgb(r,g,b)` — o ramo da
+   moldura própria devolve o segundo. Guarda-se sempre na primeira forma, que
+   é a que o resto do sistema usa para cores. */
+function hexDe(cor) {
+  const t = String(cor || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(t)) return t.toUpperCase();
+  const n = t.match(/\d+/g);
+  if (!n || n.length < 3) return null;
+  return `#${n.slice(0, 3).map((v) => Number(v).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+function fundoQueContrasta(mediaDoDesenho, claro, corDaMarca) {
+  if (!claro) return '#FFFFFF';
+  const m = /^#([0-9a-fA-F]{6})$/.exec(String(corDaMarca || ''));
+  if (!m) return '#17161C';
+
+  const canal = (v) => { const u = v / 255; return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; };
+  const n = parseInt(m[1], 16);
+  const luzDaMarca = 0.2126 * canal((n >> 16) & 255)
+    + 0.7152 * canal((n >> 8) & 255) + 0.0722 * canal(n & 255);
+  /* A média do desenho vem em 0..255 já ponderada; passa-se pela mesma curva
+     para as duas luminâncias serem comparáveis. */
+  const luzDoDesenho = canal(mediaDoDesenho);
+  const a = Math.max(luzDaMarca, luzDoDesenho) + 0.05;
+  const b = Math.min(luzDaMarca, luzDoDesenho) + 0.05;
+  return (a / b) >= 3 ? corDaMarca : '#17161C';
+}
+
 function reduzirLogotipo(ficheiro) {
   return new Promise((resolve, recusar) => {
     const leitor = new FileReader();
@@ -657,15 +703,34 @@ function reduzirLogotipo(ficheiro) {
         /* APARA-SE A MOLDURA antes de encolher. Quase todos os ficheiros de
            logótipo trazem margem a mais — e sem a tirar, o desenho fica ainda
            mais pequeno dentro do círculo do que precisava de ficar. */
+        /* A TOLERÂNCIA DA APARAGEM É MENOR DO QUE A DA MOLDURA, e não é um
+           pormenor. As medições fazem-se na cópia esmagada para 128×128, onde
+           cada célula é a MÉDIA de muitos píxeis do original. Num logótipo de
+           4000 px com traços de um píxel, um traço desloca a média uns
+           poucos valores — e com a tolerância de 12 a linha era declarada «só
+           moldura» e deitada fora. Medido: de doze traços, onze desapareciam,
+           e o que ficava guardado era uma nódoa.
+
+           Aqui a pergunta é outra: não «isto é igual à moldura?» mas «isto é
+           indistinguível dela?». Três valores em 255 é o limiar abaixo do qual
+           nem um ecrã bom mostra diferença. */
+        const indistinguivel = (a, b) => (a[3] < 8 && b[3] < 8)
+          || (Math.abs(a[0] - b[0]) < 3 && Math.abs(a[1] - b[1]) < 3
+            && Math.abs(a[2] - b[2]) < 3 && Math.abs(a[3] - b[3]) < 3);
         let x0 = 0; let y0 = 0; let x1 = M - 1; let y1 = M - 1;
         if (moldura) {
-          const daMoldura = (x, y) => iguais(pixel(x, y), moldura);
+          const daMoldura = (x, y) => indistinguivel(pixel(x, y), moldura);
           const linhaSo = (y) => { for (let x = 0; x < M; x += 1) if (!daMoldura(x, y)) return false; return true; };
           const colunaSo = (x) => { for (let y = 0; y < M; y += 1) if (!daMoldura(x, y)) return false; return true; };
           while (y0 < y1 && linhaSo(y0)) y0 += 1;
           while (y1 > y0 && linhaSo(y1)) y1 -= 1;
           while (x0 < x1 && colunaSo(x0)) x0 += 1;
           while (x1 > x0 && colunaSo(x1)) x1 -= 1;
+          /* Se TUDO era moldura, os ciclos param por `x0 < x1` e não por
+             terem acabado o que aparar — e o que sobra é uma célula. Isso não
+             é um logótipo aparado, é uma imagem vazia: repõe-se a tela toda,
+             e a recusa lá em baixo trata do resto. */
+          if (x1 - x0 < 2 || y1 - y0 < 2) { x0 = 0; y0 = 0; x1 = M - 1; y1 = M - 1; }
         }
 
         /* O FUNDO ESCOLHE-SE A OLHAR PARA O LOGÓTIPO, e isto levou voltas.
@@ -681,9 +746,16 @@ function reduzirLogotipo(ficheiro) {
            A resposta tem dois ramos. Se o ficheiro já traz fundo próprio e
            opaco, é esse que se usa: quem desenhou o logótipo já escolheu o
            fundo em que ele se lê, e não há que inventar melhor. Se o fundo é
-           transparente, mede-se a luminosidade do que está lá desenhado e
-           escolhe-se o que contrasta — claro assenta na cor da marca, escuro
-           assenta em branco. */
+           transparente, MEDE-SE.
+
+           E mede-se mesmo, que era o que faltava. O ramo escuro escolhia
+           branco, que contrasta sempre; o ramo claro escolhia a cor da marca
+           SEM lhe perguntar nada. Só que a cor da marca pode ser clara — há um
+           selector de cor livre no ecrã ao lado, e o Worker aceita qualquer
+           `#RRGGBB`. Uma pastelaria em creme com um logótipo branco ficava com
+           branco sobre creme: 1,2:1, invisível. Agora a cor da marca só é
+           usada se PASSAR; se não passar, cai-se no preto ou no branco, que
+           passam sempre. */
         let soma = 0; let visiveis = 0;
         for (let y = y0; y <= y1; y += 1) {
           for (let x = x0; x <= x1; x += 1) {
@@ -695,9 +767,10 @@ function reduzirLogotipo(ficheiro) {
           }
         }
         const claro = visiveis > 0 && (soma / visiveis) > 140;
+        const mediaDoDesenho = visiveis > 0 ? soma / visiveis : 0;
         const fundo = (moldura && moldura[3] >= 32)
           ? `rgb(${moldura[0]},${moldura[1]},${moldura[2]})`
-          : (claro ? (estado.negocio.cor || '#17161C') : '#FFFFFF');
+          : fundoQueContrasta(mediaDoDesenho, claro, estado.negocio.cor);
 
         const tela = document.createElement('canvas');
         tela.width = LOGOTIPO_LADO;
@@ -723,12 +796,30 @@ function reduzirLogotipo(ficheiro) {
         const escala = (LOGOTIPO_LADO * 0.92) / Math.hypot(fl, fa);
         const largura = Math.max(1, Math.round(fl * escala));
         const altura = Math.max(1, Math.round(fa * escala));
+        /* UMA IMAGEM SEM NADA VISÍVEL NÃO É UM LOGÓTIPO. Um PNG que ficou
+           todo transparente na exportação passava por aqui inteiro: o ciclo
+           da luminosidade nunca contava nada, o fundo ficava branco, e o que
+           se guardava era um quadrado branco. O dono lia «Logótipo guardado»,
+           o botão da Wallet passava a aparecer, e os clientes ficavam com um
+           círculo vazio no cartão. */
+        if (visiveis === 0) {
+          recusar(new Error('Essa imagem está vazia — não tem nada visível lá dentro.'));
+          return;
+        }
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, fx, fy, fl, fa,
           Math.round((LOGOTIPO_LADO - largura) / 2),
           Math.round((LOGOTIPO_LADO - altura) / 2),
           largura, altura);
-        resolve(tela.toDataURL('image/png'));
+        /* Devolve-se a cor cozida SÓ quando ela é a COR DA MARCA. A partir
+           daqui ela está dentro dos bytes, e refazer a imagem depois não dá —
+           o ficheiro original não fica em lado nenhum. Mas só fica obsoleta
+           se for a cor da marca: um fundo que veio do próprio ficheiro é
+           escolha de quem desenhou o logótipo e não envelhece, e o
+           quase-preto e o branco de recurso também não. Registar esses
+           punha um aviso a aparecer onde não há nada de errado. */
+        const daMarca = hexDe(fundo) === hexDe(estado.negocio.cor);
+        resolve({ imagem: tela.toDataURL('image/png'), fundo: daMarca ? hexDe(fundo) : null });
       };
       img.src = leitor.result;
     };
@@ -763,11 +854,12 @@ function campoLogotipo() {
     const ficheiro = entrada.files && entrada.files[0];
     if (!ficheiro) return;
     try {
-      const reduzido = await reduzirLogotipo(ficheiro);
+      const { imagem: reduzido, fundo } = await reduzirLogotipo(ficheiro);
       pintar(reduzido);
-      await api.guardarLogotipo(reduzido);
+      await api.guardarLogotipo(reduzido, fundo);
       estado.negocio.logotipo = reduzido;
       estado.negocio.logotipo_em = new Date().toISOString();
+      estado.negocio.logotipo_fundo = fundo;
       avisar('Logótipo guardado.', 'bom');
     } catch (e) {
       avisar(e.message || 'Não deu para guardar a imagem.', 'mau');
@@ -799,6 +891,20 @@ async function ecraPrograma(principal) {
   /* Um negócio de demonstração não aparece na lista pública. Sem esta linha,
      o dono via o cartão certo e o seu café em lado nenhum, e não tinha por
      onde perceber porquê. */
+  /* A COR COZIDA DEIXOU DE CONDIZER. O fundo do logótipo é pintado no momento
+     do envio e fica dentro dos bytes do PNG; mudar a cor do cartão depois não
+     o refaz, e não há como o refazer — o ficheiro original não fica guardado.
+     Sem esta linha, o cartão ficava com a cor nova à volta e um quadrado da
+     cor velha no meio, e não havia nada no ecrã que explicasse porquê. */
+  const cozida = estado.negocio.logotipo_fundo;
+  if (cozida && estado.negocio.cor
+      && cozida.toUpperCase() !== String(estado.negocio.cor).toUpperCase()) {
+    principal.append(el('div', { class: 'aviso-demo' },
+      el('b', { texto: 'O logótipo ainda tem a cor antiga por trás.' }),
+      el('span', { texto: `Foi gravado sobre ${cozida} e o cartão agora é `
+        + `${estado.negocio.cor}. Carrega a imagem outra vez para ela apanhar a cor nova.` })));
+  }
+
   if (estado.negocio.demonstracao) {
     principal.append(el('div', { class: 'aviso-demo' },
       el('b', { texto: 'Este negócio está marcado como demonstração.' }),

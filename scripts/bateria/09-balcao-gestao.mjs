@@ -674,6 +674,231 @@ export async function correr(palco, certo) {
       'e um logótipo ESCURO assenta em branco', JSON.stringify(escuro));
   }
 
+
+  {
+    /* --- o fundo MEDE-SE, não se assume -------------------------------
+       O ramo escuro escolhia branco, que contrasta sempre. O ramo claro
+       escolhia a cor da marca sem lhe perguntar nada — e há um selector de
+       cor livre no ecrã ao lado. Uma pastelaria em creme com um logótipo
+       branco ficava com branco sobre creme: invisível.
+       ---------------------------------------------------------------- */
+    const comMarca = async (cor, rgbaDoLogotipo) => palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = ${JSON.stringify(cor)};
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      /* O ecrã lê a cor do estado em memória; recarregar seria perder o
+         ficheiro. Escreve-se nos dois sítios. */
+      const tela = document.createElement('canvas');
+      tela.width = 16; tela.height = 16;
+      const c = tela.getContext('2d');
+      c.fillStyle = 'rgba(${rgbaDoLogotipo})';
+      c.fillRect(4, 4, 8, 8);
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'l.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1100));
+      const e2 = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n2 = e2.negocios.find((x) => x.id === 'n-torrado') || e2.negocios[0];
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.onerror = r; img.src = n2.logotipo; });
+      const t2 = document.createElement('canvas');
+      t2.width = img.width; t2.height = img.height;
+      t2.getContext('2d').drawImage(img, 0, 0);
+      const p = t2.getContext('2d').getImageData(2, 2, 1, 1).data;
+      return [p[0], p[1], p[2]];`);
+
+    /* Marca ESCURA + logótipo claro: a cor da marca serve, e usa-se. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#2B1810';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+    const escura = await comMarca('#2B1810', '255,255,255,1');
+    certo(escura && escura[0] < 80 && escura[1] < 80 && escura[2] < 80,
+      'logótipo claro + marca escura: usa-se a cor da marca, que contrasta',
+      JSON.stringify(escura));
+
+    /* Marca CLARA + logótipo claro: a cor da marca NÃO serve. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#F2E8DC';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+    const clara = await comMarca('#F2E8DC', '255,255,255,1');
+    const luz = (v) => { const u = v / 255; return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; };
+    const razao = clara
+      ? (1.05) / (0.2126 * luz(clara[0]) + 0.7152 * luz(clara[1]) + 0.0722 * luz(clara[2]) + 0.05)
+      : 0;
+    certo(clara && razao >= 3,
+      'logótipo claro + marca CLARA: a marca é recusada e o fundo passa a contrastar',
+      `${JSON.stringify(clara)} → ${razao.toFixed(2)}:1`);
+
+    /* Repõe-se a cor que o resto do módulo espera. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#EE9125';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+  }
+
+
+  {
+    /* --- a cor cozida deixa de condizer -------------------------------
+       O fundo do logótipo é pintado no momento do envio e fica dentro dos
+       bytes do PNG. Mudar a cor do cartão depois não o refaz — e não há como
+       o refazer, o ficheiro original não fica guardado. O cartão ficava com a
+       cor nova à volta e um quadrado da cor velha no meio, e não havia nada
+       no ecrã que explicasse porquê.
+       ---------------------------------------------------------------- */
+    /* Um logótipo com fundo PRÓPRIO não regista cor nenhuma: o fundo é de
+       quem o desenhou e não envelhece com a marca. É o que está guardado
+       neste ponto do módulo, do bloco de cima. */
+    const opaco = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      return { fundo: n.logotipo_fundo || null, cor: n.cor };`);
+    certo(opaco && opaco.fundo === null,
+      'um logótipo com fundo próprio não regista cor cozida — não há nada que envelheça',
+      JSON.stringify(opaco));
+    certo(!(await palco.ver('.aviso-demo')) || !(await palco.texto('.aviso-demo')).includes('cor antiga'),
+      'e por isso não há aviso nenhum');
+
+    /* Agora um TRANSPARENTE com uma marca que a cor do cartão aguenta.
+       O laranja #EE9125 contra branco dá 2,4:1 — abaixo dos 3:1 que a WCAG
+       pede a um elemento gráfico — e por isso é recusado; com o castanho
+       escuro do café passa, e é a cor da marca que fica cozida. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#2B1810';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+    await palco.js(`
+      const tela = document.createElement('canvas');
+      tela.width = 16; tela.height = 16;
+      const c = tela.getContext('2d');
+      c.fillStyle = 'rgba(255,255,255,1)';
+      c.fillRect(4, 4, 8, 8);
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'transparente.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1200));
+      return true;`);
+
+    const gravado = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      return { fundo: n.logotipo_fundo || null, cor: n.cor };`);
+    certo(gravado && gravado.fundo
+       && gravado.fundo.toUpperCase() === String(gravado.cor).toUpperCase(),
+      'um logótipo transparente com fundo da marca regista a cor que lhe ficou por trás',
+      JSON.stringify(gravado));
+
+    /* Muda-se a cor do cartão sem mexer na imagem. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#0B7285';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+
+    const aviso = await palco.js(`
+      const a = [...document.querySelectorAll('.aviso-demo')]
+        .find((x) => /cor antiga/i.test(x.textContent));
+      return a ? a.textContent.replace(/\\s+/g, ' ').trim() : null;`);
+    certo(aviso,
+      'mudar a cor do cartão avisa que o logótipo ficou com a cor antiga por trás',
+      String(aviso));
+    certo(aviso && /carrega a imagem outra vez/i.test(aviso),
+      'e diz o que fazer — refazer a imagem não dá, o original não fica guardado',
+      String(aviso));
+    certo(aviso && aviso.includes(gravado.fundo) && aviso.includes('#0B7285'),
+      'e nomeia as duas cores, para não ser um aviso vago',
+      String(aviso));
+
+    /* Repõe-se, e a nova gravação apaga o aviso. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      n.cor = '#EE9125';
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'programa');
+  }
+
+  {
+    /* --- uma imagem vazia não é um logótipo ---------------------------
+       Um PNG que ficou todo transparente na exportação passava inteiro: o
+       fundo ficava branco e guardava-se um quadrado branco. O dono lia
+       «Logótipo guardado», o botão da Wallet aparecia, e os clientes ficavam
+       com um círculo vazio no cartão.
+       ---------------------------------------------------------------- */
+    const antes = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      return n.logotipo ? n.logotipo.slice(0, 40) : null;`);
+
+    const resposta = await palco.js(`
+      const tela = document.createElement('canvas');
+      tela.width = 64; tela.height = 64;           /* tudo transparente */
+      const png = tela.toDataURL('image/png');
+      const bytes = Uint8Array.from(atob(png.split(',')[1]), (ch) => ch.charCodeAt(0));
+      const f = new File([bytes], 'vazio.png', { type: 'image/png' });
+      const dt = new DataTransfer(); dt.items.add(f);
+      const campo = document.querySelector('#f-logotipo');
+      campo.files = dt.files;
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 1200));
+      return document.body.innerText;`);
+
+    certo(/vazia/i.test(resposta),
+      'uma imagem sem nada visível é recusada, e diz-se porquê',
+      String(resposta).slice(0, 160));
+
+    const depois = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      return n.logotipo ? n.logotipo.slice(0, 40) : null;`);
+    certo(depois === antes,
+      'e o logótipo que lá estava não é substituído por um quadrado branco',
+      `${String(antes).slice(0, 24)} → ${String(depois).slice(0, 24)}`);
+  }
+
   {
     /* O LOGÓTIPO TEM DE CABER INTEIRO — e isto era um defeito a sério.
 

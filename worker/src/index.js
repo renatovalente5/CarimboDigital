@@ -288,6 +288,18 @@ async function moldarCartao(env, cartao) {
   const premios = (await env.DB.prepare(
     'SELECT id, descricao, ganho_em FROM premios WHERE cartao_id = ? AND resgatado_em IS NULL ORDER BY ganho_em'
   ).bind(cartao.id).all()).results;
+  return moldeDeCartao(env, cartao, p, premios);
+}
+
+/**
+ * A FORMA de um cartão, sem ir à base buscar nada.
+ *
+ * Existe para haver UM sítio que a define. O `moldarCartao` lê o que precisa e
+ * chama isto; o `moldarCartoes` lê tudo de uma vez, para muitos cartões, e
+ * chama isto também. Duas cópias desta forma divergiam ao primeiro campo novo
+ * — e a app que está nos telemóveis lê-a por nome.
+ */
+function moldeDeCartao(env, cartao, p, premios) {
   return {
     id: cartao.id,
     clienteId: cartao.cliente_id,
@@ -331,6 +343,69 @@ async function moldarCartao(env, cartao) {
        A regra, daqui em diante: esta API ACRESCENTA. Não renomeia nem tira. */
     wallet: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
   };
+}
+
+/**
+ * Vários cartões de uma vez, com um número FIXO de consultas.
+ *
+ * O `moldarCartao` custa duas a três consultas por cartão, e uma invocação de
+ * Worker tem tecto de cinquenta subpedidos. Chamado em ciclo — o que a
+ * carteira e a exportação de dados faziam — bastavam uns dez cartões para a
+ * resposta rebentar com «Too many subrequests» e sair um 500.
+ *
+ * Aqui são quatro consultas, quantos cartões forem: os programas, os marcos,
+ * os prémios por resgatar, e nada mais. A lista de `IN (...)` é montada com
+ * tantos `?` quantos os valores — nunca com os valores lá dentro.
+ */
+async function moldarCartoes(env, cartoes) {
+  if (!cartoes.length) return [];
+  const marcas = (n) => Array.from({ length: n }, () => '?').join(',');
+
+  const idsProgramas = [...new Set(cartoes.map((c) => c.programa_id))];
+  const programas = (await env.DB.prepare(
+    `SELECT p.*, n.nome AS negocio_nome, n.slug AS negocio_slug, n.cor AS negocio_cor,
+            n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
+            n.morada AS negocio_morada, n.telefone AS negocio_telefone,
+            (n.logotipo IS NOT NULL) AS negocio_tem_logotipo
+       FROM programas p JOIN negocios n ON n.id = p.negocio_id
+      WHERE p.id IN (${marcas(idsProgramas.length)})`
+  ).bind(...idsProgramas).all()).results;
+  const porPrograma = new Map(programas.map((p) => [p.id, p]));
+
+  /* Os marcos só existem nos programas de pontos. Se não houver nenhum, não
+     se gasta a consulta. */
+  const dePontos = programas.filter((p) => p.tipo === 'pontos').map((p) => p.id);
+  if (dePontos.length) {
+    const marcos = (await env.DB.prepare(
+      `SELECT programa_id, pontos, premio FROM marcos
+        WHERE programa_id IN (${marcas(dePontos.length)}) ORDER BY pontos`
+    ).bind(...dePontos).all()).results;
+    for (const p of programas) if (p.tipo === 'pontos') p.marcos = [];
+    for (const m of marcos) {
+      const p = porPrograma.get(m.programa_id);
+      if (p) p.marcos.push({ pontos: m.pontos, premio: m.premio });
+    }
+  }
+
+  const idsCartoes = cartoes.map((c) => c.id);
+  const premios = (await env.DB.prepare(
+    `SELECT id, cartao_id, descricao, ganho_em FROM premios
+      WHERE cartao_id IN (${marcas(idsCartoes.length)}) AND resgatado_em IS NULL
+      ORDER BY ganho_em`
+  ).bind(...idsCartoes).all()).results;
+  const porCartao = new Map();
+  for (const pr of premios) {
+    const lista = porCartao.get(pr.cartao_id) || [];
+    lista.push(pr);
+    porCartao.set(pr.cartao_id, lista);
+  }
+
+  return cartoes.map((cartao) => {
+    const p = porPrograma.get(cartao.programa_id);
+    if (!p) return null;
+    const meus = porCartao.get(cartao.id) || [];
+    return moldeDeCartao(env, cartao, p, meus);
+  });
 }
 
 /* =========================================================================
@@ -801,7 +876,7 @@ rota('GET', '/v1/cliente/cartoes', async (env, pedido) => {
   const linhas = (await env.DB.prepare(
     'SELECT * FROM cartoes WHERE cliente_id = ?'
   ).bind(clienteId).all()).results;
-  const cartoes = (await Promise.all(linhas.map((c) => moldarCartao(env, c)))).filter(Boolean);
+  const cartoes = (await moldarCartoes(env, linhas)).filter(Boolean);
   cartoes.sort((a, b) => (b.porResgatar - a.porResgatar)
     || (new Date(b.ultimoEm || b.aderiuEm) - new Date(a.ultimoEm || a.aderiuEm)));
   return cartoes;
@@ -992,17 +1067,31 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
 });
 
 rota('GET', '/v1/cliente/dados', async (env, pedido) => {
+  /* CINCO CONSULTAS, e não cinco POR CARTÃO.
+
+     Isto fazia um `moldarCartao` (duas a três consultas), um SELECT de
+     movimentos e um de prémios por cada cartão. Uma invocação de Worker tem
+     tecto de CINQUENTA subpedidos: a partir de uns dez cartões, o «Descarregar
+     os meus dados» — que é o direito de portabilidade do artigo 20.º do RGPD —
+     rebentava com «Too many subrequests» e a pessoa via «Erro interno». O
+     direito de levar os dados consigo não pode depender de se ter poucos
+     cartões. */
   const clienteId = await exigirCliente(env, pedido);
   const cliente = await env.DB.prepare('SELECT * FROM clientes WHERE id = ?').bind(clienteId).first();
   const cartoes = (await env.DB.prepare('SELECT * FROM cartoes WHERE cliente_id = ?').bind(clienteId).all()).results;
-  const detalhados = [];
-  const movimentos = [];
-  const premios = [];
-  for (const c of cartoes) {
-    detalhados.push(await moldarCartao(env, c));
-    movimentos.push(...(await env.DB.prepare('SELECT * FROM movimentos WHERE cartao_id = ?').bind(c.id).all()).results);
-    premios.push(...(await env.DB.prepare('SELECT * FROM premios WHERE cartao_id = ?').bind(c.id).all()).results);
-  }
+
+  const movimentos = cartoes.length ? (await env.DB.prepare(
+    `SELECT m.* FROM movimentos m
+       JOIN cartoes c ON c.id = m.cartao_id
+      WHERE c.cliente_id = ? ORDER BY m.em DESC`
+  ).bind(clienteId).all()).results : [];
+  const premios = cartoes.length ? (await env.DB.prepare(
+    `SELECT pr.* FROM premios pr
+       JOIN cartoes c ON c.id = pr.cartao_id
+      WHERE c.cliente_id = ? ORDER BY pr.ganho_em`
+  ).bind(clienteId).all()).results : [];
+
+  const detalhados = await moldarCartoes(env, cartoes);
   return { geradoEm: agora(), cliente, cartoes: detalhados, movimentos, premios };
 });
 
@@ -1529,9 +1618,22 @@ async function garantirClasse(env, programa, negocio, origemAPI) {
      classe congelada no que tinha no dia em que nasceu, e sem forma de a
      corrigir a não ser à mão. */
   if (r && r.jaExistia) {
-    await googlePedir(env, `/loyaltyClass/${env.GOOGLE_EMISSOR}.${programa.id}`, {
-      metodo: 'PATCH', corpo: actualizacaoDeClasse(programa, negocio, { logotipo }),
-    });
+    /* O PATCH é o melhor esforço, e não uma condição. A classe EXISTE — é isso
+       que o 409 diz — e é isso que faz falta para haver passe. Se a
+       actualização falhar (a Google a não conseguir ir buscar o logótipo, um
+       503 do lado dela), deixar a excepção subir cancelava o passe da pessoa
+       que está a tocar no botão E impedia o `wallet_classe` de ser gravado —
+       o que punha a tentativa seguinte a repetir tudo, para sempre. O que
+       ficar por actualizar é apanhado pelo `espelharClasse`, que corre a cada
+       mudança de nome, de cor ou de logótipo. */
+    try {
+      await googlePedir(env, `/loyaltyClass/${env.GOOGLE_EMISSOR}.${programa.id}`, {
+        metodo: 'PATCH', corpo: actualizacaoDeClasse(programa, negocio, { logotipo }),
+      });
+    } catch (erro) {
+      console.error('wallet: a classe existe mas não deu para actualizar',
+        programa.id, String(erro));
+    }
   }
   await env.DB.prepare('UPDATE programas SET wallet_classe = ? WHERE id = ?')
     .bind(agora(), programa.id).run();
@@ -1602,7 +1704,15 @@ async function espelharClassesDoNegocio(env, negocioId, pedido, ctx) {
     'SELECT id FROM programas WHERE negocio_id = ? AND wallet_classe IS NOT NULL'
   ).bind(negocioId).all()).results;
   const origem = origemDaAPI(pedido);
-  for (const p of ps) ctx.waitUntil(espelharClasse(env, p.id, origem));
+  /* UMA tarefa, em fila, e não N ao mesmo tempo. Cada `espelharClasse` pede um
+     testemunho de acesso à Google, e a cache dele só protege ENTRE invocações:
+     doze tarefas a arrancar juntas vêem-na fria as doze e fazem doze pedidos
+     de OAuth em paralelo — que a Google estrangula, e que gastam doze dos
+     cinquenta subpedidos que o plano gratuito dá por invocação. Em fila, a
+     primeira aquece a cache e as outras aproveitam-na. */
+  ctx.waitUntil((async () => {
+    for (const p of ps) await espelharClasse(env, p.id, origem);
+  })());
 }
 
 async function espelharClasse(env, programaId, origemAPI) {
@@ -1706,8 +1816,9 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido, _p, ctx) => {
         + 'e essas carteiras não o largam. Troca a imagem por outra em vez de a tirar.',
         { estado: 409, codigo: 'logotipo-publicado' });
     }
-    await env.DB.prepare('UPDATE negocios SET logotipo = NULL, logotipo_em = NULL WHERE id = ?')
-      .bind(op.negocio_id).run();
+    await env.DB.prepare(
+      'UPDATE negocios SET logotipo = NULL, logotipo_em = NULL, logotipo_fundo = NULL WHERE id = ?'
+    ).bind(op.negocio_id).run();
     await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
     return { logotipo: null };
   }
@@ -1726,10 +1837,14 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido, _p, ctx) => {
   const tipo = tipoDaImagem(base64);
   if (!tipo) throw new Falha('Só se aceita PNG ou JPEG.', { estado: 400, codigo: 'imagem' });
 
-  await env.DB.prepare('UPDATE negocios SET logotipo = ?, logotipo_em = ? WHERE id = ?')
-    .bind(`${tipo};${base64}`, agora(), op.negocio_id).run();
+  /* A cor cozida vem do balcão, que é quem a pintou. Sem ela não há como
+     saber, mais tarde, que a imagem deixou de condizer com o cartão. */
+  const fundo = /^#[0-9a-fA-F]{6}$/.test(String(d.fundo || '')) ? d.fundo : null;
+  await env.DB.prepare(
+    'UPDATE negocios SET logotipo = ?, logotipo_em = ?, logotipo_fundo = ? WHERE id = ?'
+  ).bind(`${tipo};${base64}`, agora(), fundo, op.negocio_id).run();
   await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
-  return { logotipo: true, tipo };
+  return { logotipo: true, tipo, fundo };
 });
 
 /* Aberta, de propósito: é este endereço que vai dentro do passe da Wallet, e
@@ -1814,8 +1929,17 @@ async function lerBilhete(env, bilhete) {
   return corpo.slice(0, corte);
 }
 
-/** O passe de um cartão, já assinado. Partilhado pelas duas rotas. */
-async function passeDoCartao(env, cartaoId) {
+/**
+ * As peças de um passe, e as razões por que ele pode não existir.
+ *
+ * Separado do `passeDoCartao` porque o POST só precisa de SABER se o passe é
+ * possível — construí-lo para o deitar fora custa o dobro. A assinatura é RSA
+ * de 2048 bits e o logótipo são dezenas de kilobytes a passar de base64 para
+ * bytes; o tecto de CPU de uma invocação no plano gratuito são dez
+ * milissegundos, e o «adicionar à carteira» fazia essa conta DUAS vezes: uma
+ * no POST, que deitava fora, e outra no GET, que serve.
+ */
+async function pecasDoPasse(env, cartaoId) {
   const cartao = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartaoId).first();
   if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404 });
   const programa = await env.DB.prepare('SELECT * FROM programas WHERE id = ?')
@@ -1826,6 +1950,22 @@ async function passeDoCartao(env, cartaoId) {
     throw new Falha('Este negócio ainda não tem logótipo, e a Wallet exige um.',
       { estado: 409, codigo: 'sem-logotipo' });
   }
+  /* A APPLE SÓ ACEITA PNG nas imagens de um passe. A coluna pode ter JPEG — o
+     `PUT /v1/balcao/logotipo` aceita-o de propósito, e para a Google serve —
+     mas metê-lo no arquivo com o nome `icon.png` dá um passe que o iPhone
+     recusa sem dizer porquê. Mais vale a recusa sair daqui, com uma frase. */
+  if (!String(negocio.logotipo).startsWith('image/png;')) {
+    throw new Falha(
+      'A Apple só aceita logótipos em PNG. Volta a carregar a imagem no balcão, '
+      + 'que a converte.',
+      { estado: 409, codigo: 'logotipo-nao-png' });
+  }
+  return { cartao, programa, negocio };
+}
+
+/** O passe de um cartão, já assinado. */
+async function passeDoCartao(env, cartaoId) {
+  const { cartao, programa, negocio } = await pecasDoPasse(env, cartaoId);
 
   /* O `wallet_em` NÃO se toca aqui, e a diferença não é de nomes.
 
@@ -1880,10 +2020,13 @@ rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/pkpass$/, async (env, pedido, [
     'SELECT id FROM cartoes WHERE id = ? AND cliente_id = ?'
   ).bind(cartaoId, clienteId).first();
   if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404 });
-  /* Constrói-se ANTES de dar o endereço. Assim um negócio sem logótipo — ou
-     um certificado mal posto — é um erro aqui, com uma frase que se percebe,
-     e não um ficheiro que o Safari recusa sem dizer nada. */
-  await passeDoCartao(env, cartaoId);
+  /* VERIFICA-SE antes de dar o endereço, mas não se CONSTRÓI. Assim um
+     negócio sem logótipo — ou um logótipo em JPEG — é um erro aqui, com uma
+     frase que se percebe, e não um ficheiro que o Safari recusa sem dizer
+     nada. Construir o passe inteiro só para o deitar fora era pagar a
+     assinatura RSA e a descodificação do logótipo duas vezes por cada
+     «adicionar à carteira», num Worker com dez milissegundos de tecto. */
+  await pecasDoPasse(env, cartaoId);
   return { ligacao: `${origemDaAPI(pedido)}/v1/passe/${await bilheteDoPasse(env, cartaoId)}` };
 });
 

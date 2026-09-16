@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS negocios (
   cor          TEXT NOT NULL DEFAULT '#17161C',
   logotipo     TEXT,                              -- PNG em base64; a Google exige um
   logotipo_em  TEXT,                              -- quando mudou, para a cache
+  -- A cor que ficou COZIDA por trás dele, quando o ficheiro tinha
+  -- transparência. Serve para o balcão saber avisar quando a cor do cartão
+  -- muda e a imagem fica a discordar — refazê-la não dá, o original não fica.
+  logotipo_fundo TEXT,
   morada       TEXT,
   localidade   TEXT,
   telefone     TEXT,

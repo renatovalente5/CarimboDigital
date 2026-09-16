@@ -391,12 +391,23 @@ function botaoWallet(cartao) {
     if (botao.getAttribute('aria-disabled') === 'sim') return;
     botao.setAttribute('aria-disabled', 'sim');
     botao.classList.add('a-carregar');
+    let aCaminhoDaGoogle = false;
     try {
       const r = await api.walletGoogle(cartao.id);
       if (r && r.ligacao) {
         /* Abre-se na mesma janela. Numa app instalada no ecrã inicial, um
            `_blank` sai para o browser e a pessoa perde a app; e o que vem a
-           seguir é a página da Google, que devolve o telemóvel à carteira. */
+           seguir é a página da Google, que devolve o telemóvel à carteira.
+
+           O BOTÃO FICA DESACTIVADO ATÉ A PÁGINA SAIR, e é por isso que este
+           caminho não passa pelo `finally`. Atribuir `location.href` só
+           AGENDA a navegação: a página continua viva e a pintar até o novo
+           documento chegar. Com o `finally` a correr — e ele corre sempre,
+           mesmo depois de um `return` — o botão voltava ao normal enquanto se
+           esperava, e numa rede de café isso é um segundo a olhar para um
+           botão que parece não ter feito nada. O gesto natural é tocar outra
+           vez, e a segunda vez cria outro objecto na Google. */
+        aCaminhoDaGoogle = true;
         location.href = r.ligacao;
         return;
       }
@@ -408,8 +419,12 @@ function botaoWallet(cartao) {
         ? 'Este sítio ainda não pôs o logótipo, e a Carteira do Google exige um.'
         : (erro && erro.message) || 'Não deu para preparar o passe.', 'mau');
     } finally {
-      botao.removeAttribute('aria-disabled');
-      botao.classList.remove('a-carregar');
+      /* Só se reactiva se a página NÃO estiver de saída — ver o comentário no
+         ramo de sucesso. */
+      if (!aCaminhoDaGoogle) {
+        botao.removeAttribute('aria-disabled');
+        botao.classList.remove('a-carregar');
+      }
     }
   });
 

@@ -1,0 +1,16 @@
+-- Que cor ficou COZIDA por trás do logótipo.
+--
+-- Quando o ficheiro que o dono carrega tem transparência, o balcão pinta-lhe
+-- um fundo antes de gravar — senão um logótipo branco desaparece no círculo
+-- branco em que a Google o desenha. Esse fundo pode ser a cor da marca, e a
+-- partir daí a cor está DENTRO dos bytes do PNG.
+--
+-- Mudar a cor do cartão depois disso não volta a gerar a imagem, e não há como
+-- o fazer do lado do servidor: o ficheiro original não fica guardado. O que
+-- acontecia era o cartão ficar com a cor nova à volta e um quadrado da cor
+-- velha no meio, sem nada no ecrã que explicasse porquê.
+--
+-- Guardar a cor cozida permite ao balcão PERGUNTAR: «isto já não condiz —
+-- queres carregar a imagem outra vez?». É menos do que corrigir sozinho, e é
+-- muito mais do que o silêncio.
+ALTER TABLE negocios ADD COLUMN logotipo_fundo TEXT;

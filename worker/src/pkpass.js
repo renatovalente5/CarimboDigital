@@ -72,16 +72,34 @@ export function paraBase64(bytes) {
  * cabe numa variável de ambiente sem mudanças de linha.
  */
 export function doPEM(entrada) {
-  /* O `\n` LITERAL tem de sair PRIMEIRO, e é a diferença entre isto funcionar
-     e não funcionar. Num ficheiro de variáveis de ambiente não há mudanças de
-     linha, por isso um PEM vai lá com os dois caracteres `\` e `n` no lugar
-     delas. O `deBase64` deita fora tudo o que não é base64 — e o `n` É
-     base64: só a barra saía, e ficavam «n» a mais no meio da chave. A mesma
-     armadilha já tinha mordido no `wallet.js`. */
+  const todos = todosOsPEM(entrada);
+  if (!todos.length) throw new Error('PEM vazio');
+  return todos[0];
+}
+
+/**
+ * TODOS os blocos de um PEM, e não só o primeiro.
+ *
+ * O `match` sem `g` devolve uma ocorrência. Enquanto isto servia só para a
+ * chave privada não fazia diferença — mas a cadeia da Apple são DOIS
+ * certificados (o WWDR e a raiz), e quem os tem cola-os um a seguir ao outro
+ * numa variável só, que é a forma normal de os guardar. O segundo era deitado
+ * fora em silêncio: o passe saía assinado, o `openssl` verificava, os testes
+ * passavam — e o iPhone recusava-o por não conseguir fechar a cadeia.
+ *
+ * O `\n` LITERAL tem de sair primeiro, e é a diferença entre isto funcionar e
+ * não funcionar. Num ficheiro de variáveis de ambiente não há mudanças de
+ * linha, por isso um PEM vai lá com os dois caracteres `\` e `n` no lugar
+ * delas. O `deBase64` deita fora tudo o que não é base64 — e o `n` É base64:
+ * só a barra saía, e ficavam «n» a mais no meio da chave.
+ */
+export function todosOsPEM(entrada) {
   const s = String(entrada || '').replace(/\\n/g, '\n').trim();
-  if (!s) throw new Error('PEM vazio');
-  const m = s.match(/-----BEGIN [^-]+-----([\s\S]*?)-----END [^-]+-----/);
-  return deBase64(m ? m[1] : s);
+  if (!s) return [];
+  const blocos = [...s.matchAll(/-----BEGIN [^-]+-----([\s\S]*?)-----END [^-]+-----/g)]
+    .map((m) => deBase64(m[1]));
+  /* Sem cabeçalhos nenhuns é base64 puro, que é como cabe numa variável. */
+  return blocos.length ? blocos : [deBase64(s)];
 }
 
 /* =========================================================================
@@ -307,8 +325,17 @@ export function emissorESerie(certificadoDER) {
  * porquê.
  */
 export async function assinar(conteudo, { certificado, chave, cadeia = [], quando }) {
-  const certDER = doPEM(certificado);
-  const cadeiaDER = cadeia.filter(Boolean).map(doPEM);
+  /* Junta-se TUDO o que vier, venha como vier. Quem exporta a identidade do
+     Keychain recebe a folha e o WWDR no mesmo ficheiro; quem segue as
+     instruções à letra põe um em cada variável. Os dois casos têm de dar o
+     mesmo passe. O PRIMEIRO é o signatário — é a folha, em qualquer exportação
+     que siga a convenção — e os outros vão como cadeia. */
+  const todos = [
+    ...todosOsPEM(certificado),
+    ...cadeia.filter(Boolean).flatMap(todosOsPEM),
+  ];
+  if (!todos.length) throw new Error('Não há certificado nenhum para assinar.');
+  const [certDER, ...cadeiaDER] = todos;
   const { serie, emissor } = emissorESerie(certDER);
 
   const resumo = new Uint8Array(await crypto.subtle.digest('SHA-256', conteudo));
