@@ -334,10 +334,10 @@ function criarDemo() {
       porResgatar: premios.length,
       premios,
       /* A mesma regra do servidor a sério: sem logótipo não há passe, porque
-         a classe de fidelização da Google exige um. Aqui não há Google
-         nenhuma — mas se a demonstração mostrasse o botão onde a aplicação a
-         sério não o mostra, deixava de servir para o provar. */
-      wallet: Boolean(negocio.logotipo),
+         as duas carteiras exigem um. Aqui não há Google nem Apple nenhuma —
+         mas se a demonstração mostrasse o botão onde a aplicação a sério não
+         o mostra, deixava de servir para o provar. */
+      carteiras: { google: Boolean(negocio.logotipo), apple: false },
     };
   }
 

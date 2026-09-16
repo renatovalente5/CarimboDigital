@@ -28,6 +28,7 @@ import {
   assinarRS256, classeDePrograma, objetoDeCartao, ligacaoDeGravacao, actualizacaoDeSaldo,
   actualizacaoDeClasse,
 } from './wallet.js';
+import { construirPasse, passeDeCartao } from './pkpass.js';
 
 const JANELA = 15;                 // segundos de vida de um código
 const TOLERANCIA = 2;              // janelas de folga para relógios desencontrados
@@ -301,14 +302,21 @@ async function moldarCartao(env, cartao) {
     programa: moldarPrograma(p),
     porResgatar: premios.length,
     premios: premios.map((x) => ({ id: x.id, descricao: x.descricao, ganhoEm: x.ganho_em })),
-    /* Se vale a pena mostrar o botão da Wallet neste cartão. São duas
-       condições e nenhuma delas é adivinhável do lado do telemóvel: o Worker
-       tem de ter conta na Google, e o negócio tem de ter logótipo — sem ele a
-       classe de fidelização é recusada. Vai aqui em vez de a app tentar e
-       apanhar o erro, porque um botão que só falha ao ser tocado é pior do
-       que um botão que não está lá. A coluna do logótipo NÃO viaja: o que
-       viaja é a resposta a «existe?». */
-    wallet: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
+    /* Que botões de carteira vale a pena mostrar neste cartão. Nenhuma das
+       condições é adivinhável do lado do telemóvel: é preciso o Worker ter
+       conta na Google ou certificado da Apple, e o negócio ter logótipo — sem
+       ele as duas recusam o passe. Vai aqui em vez de a app tentar e apanhar
+       o erro, porque um botão que só falha ao ser tocado é pior do que um
+       botão que não está lá. A coluna do logótipo NÃO viaja: o que viaja é a
+       resposta a «existe?».
+
+       São duas e não uma: a Google já está no ar e a Apple espera pelo
+       certificado, e o telemóvel de quem usa a app não tem de saber disso —
+       vê os botões que servem. */
+    carteiras: {
+      google: Boolean(walletLigada(env) && p.negocio_tem_logotipo),
+      apple: Boolean(applePronta(env) && p.negocio_tem_logotipo),
+    },
   };
 }
 
@@ -1658,6 +1666,135 @@ rota('GET', /^\/v1\/negocio\/([a-z0-9-]{1,40})\/logotipo$/, async (env, pedido, 
          endereço estável e conteúdo a mudar — e custou um logótipo velho
          preso na cache da Google, que honra o `immutable` à letra. */
       'cache-control': 'public, max-age=31536000, immutable',
+    },
+  });
+});
+
+/* =========================================================================
+   O cartão na Apple Wallet
+
+   O MESMO PORTÃO DA GOOGLE: enquanto os segredos não existirem, estas rotas
+   respondem 404 e o botão não aparece na app. É o que permite ter isto
+   publicado e provado antes de haver certificado.
+
+   O CAMINHO É EM DOIS TEMPOS, e não por gosto. Um `.pkpass` só chega à
+   carteira se o telemóvel NAVEGAR para ele — é o Safari que reconhece o tipo
+   do ficheiro e abre o «Adicionar à Wallet». Uma navegação não leva cabeçalho
+   `authorization` nenhum, por isso a rota que serve os bytes tem de ser
+   aberta. Se fosse aberta e o endereço fosse o do cartão, qualquer pessoa
+   descarregava o passe de qualquer pessoa.
+
+   Daí o bilhete: o primeiro pedido é autenticado e devolve um endereço com um
+   bilhete assinado lá dentro; o segundo abre-o. O bilhete vale minutos, diz
+   de que cartão é, e é assinado com a CHAVE_MESTRA — não se guarda em lado
+   nenhum, o que também evita mais uma tabela a limpar de madrugada.
+   ========================================================================= */
+
+const applePronta = (env) => Boolean(
+  env.APPLE_CERTIFICADO && env.APPLE_CHAVE && env.APPLE_PASS_TIPO && env.APPLE_EQUIPA);
+
+/* Minutos. Chega para tocar no botão e o telemóvel ir buscar o ficheiro; e é
+   pouco para um endereço que apareça num registo ou numa captura de ecrã. */
+const BILHETE_MINUTOS = 10;
+
+async function bilheteDoPasse(env, cartaoId) {
+  const expira = Date.now() + BILHETE_MINUTOS * 60000;
+  const corpo = `${cartaoId}.${expira}`;
+  const mestra = deBase64url(env.CHAVE_MESTRA);
+  return `${base64url(new TextEncoder().encode(corpo))}.${base64url(await hmac(mestra, corpo))}`;
+}
+
+async function lerBilhete(env, bilhete) {
+  const [parte, selo] = String(bilhete || '').split('.');
+  if (!parte || !selo) return null;
+  const corpo = new TextDecoder().decode(deBase64url(parte));
+  const esperado = base64url(await hmac(deBase64url(env.CHAVE_MESTRA), corpo));
+  /* Comparação de tempo constante. Um `!==` sobre textos devolve mais depressa
+     quanto mais cedo diferirem, e isso chega para adivinhar um selo byte a
+     byte se houver paciência. */
+  if (selo.length !== esperado.length) return null;
+  let diferenca = 0;
+  for (let i = 0; i < selo.length; i += 1) diferenca |= selo.charCodeAt(i) ^ esperado.charCodeAt(i);
+  if (diferenca !== 0) return null;
+  const corte = corpo.lastIndexOf('.');
+  const expira = Number(corpo.slice(corte + 1));
+  if (!Number.isFinite(expira) || expira < Date.now()) return null;
+  return corpo.slice(0, corte);
+}
+
+/** O passe de um cartão, já assinado. Partilhado pelas duas rotas. */
+async function passeDoCartao(env, cartaoId) {
+  const cartao = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartaoId).first();
+  if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404 });
+  const programa = await env.DB.prepare('SELECT * FROM programas WHERE id = ?')
+    .bind(cartao.programa_id).first();
+  const negocio = await env.DB.prepare('SELECT * FROM negocios WHERE id = ?')
+    .bind(cartao.negocio_id).first();
+  if (!negocio || !negocio.logotipo) {
+    throw new Falha('Este negócio ainda não tem logótipo, e a Wallet exige um.',
+      { estado: 409, codigo: 'sem-logotipo' });
+  }
+
+  const codigo = cartao.wallet_codigo || publicoNovo(16);
+  if (!cartao.wallet_codigo) {
+    await env.DB.prepare(
+      'UPDATE cartoes SET wallet_codigo = ?, wallet_em = ? WHERE id = ?'
+    ).bind(codigo, cartao.wallet_em || agora(), cartao.id).run();
+  }
+
+  const passe = passeDeCartao(cartao, moldarPrograma(programa), negocio, {
+    passTipo: env.APPLE_PASS_TIPO, equipa: env.APPLE_EQUIPA,
+    codigo, dominio: env.DOMINIO,
+  });
+
+  /* A MESMA IMAGEM nos dois sítios, e de propósito. O que está guardado é um
+     quadrado de 512, que é o que a Google quer; a Apple quer 38 pt de ícone e
+     50 de altura de logótipo, e reduz o que lhe derem. Guardar mais tamanhos
+     obrigava a mais colunas e a mais um gesto no balcão, para poupar umas
+     dezenas de kilobytes num ficheiro que se descarrega uma vez. */
+  const imagem = imagemDoNegocio(negocio);
+  return construirPasse({
+    passe,
+    imagens: { 'icon.png': imagem, 'logo.png': imagem },
+    certificado: env.APPLE_CERTIFICADO,
+    chave: env.APPLE_CHAVE,
+    cadeia: env.APPLE_CADEIA ? [env.APPLE_CADEIA] : [],
+  });
+}
+
+/** Os bytes do logótipo guardado, sem o prefixo do tipo. */
+function imagemDoNegocio(negocio) {
+  const guardado = String(negocio.logotipo || '');
+  const base64 = guardado.slice(guardado.indexOf(';') + 1);
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
+rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/pkpass$/, async (env, pedido, [cartaoId]) => {
+  if (!applePronta(env)) throw new Falha('Não existe', { estado: 404 });
+  const clienteId = await exigirCliente(env, pedido);
+  const cartao = await env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND cliente_id = ?'
+  ).bind(cartaoId, clienteId).first();
+  if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404 });
+  /* Constrói-se ANTES de dar o endereço. Assim um negócio sem logótipo — ou
+     um certificado mal posto — é um erro aqui, com uma frase que se percebe,
+     e não um ficheiro que o Safari recusa sem dizer nada. */
+  await passeDoCartao(env, cartaoId);
+  return { ligacao: `${origemDaAPI(pedido)}/v1/passe/${await bilheteDoPasse(env, cartaoId)}` };
+});
+
+rota('GET', /^\/v1\/passe\/([\w.-]+)$/, async (env, pedido, [bilhete]) => {
+  if (!applePronta(env)) throw new Falha('Não existe', { estado: 404 });
+  const cartaoId = await lerBilhete(env, bilhete);
+  if (!cartaoId) throw new Falha('Esta ligação já não serve. Pede outra na app.', { estado: 403 });
+  const bytes = await passeDoCartao(env, cartaoId);
+  return new Response(bytes, {
+    headers: {
+      'content-type': 'application/vnd.apple.pkpass',
+      'content-disposition': 'attachment; filename="cartao.pkpass"',
+      /* Nada de cache: o passe leva o saldo lá dentro, e um passe guardado é
+         um passe com o número de carimbos errado. */
+      'cache-control': 'no-store',
     },
   });
 });

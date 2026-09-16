@@ -16,7 +16,8 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, writeFileSync, readFileSync, readdirSync, rmSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { randomBytes, generateKeyPairSync } from 'node:crypto';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -72,6 +73,7 @@ export function garantirSegredos() {
 function paresDeDesenvolvimento() {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).trim();
+  const apple = certificadoDeMentira();
   return [
     ['CHAVE_MESTRA', randomBytes(32).toString('base64url')],
     ['ORIGENS', ''],
@@ -81,7 +83,43 @@ function paresDeDesenvolvimento() {
     ['GOOGLE_CHAVE', pem.replace(/\n/g, '\\n')],
     ['GOOGLE_API_BASE', `http://localhost:${PORTA_GOOGLE}`],
     ['GOOGLE_OAUTH_BASE', `http://localhost:${PORTA_GOOGLE}`],
+    ['APPLE_PASS_TIPO', 'pass.pt.carimbodigital.dementira'],
+    ['APPLE_EQUIPA', 'DEMENTIRA1'],
+    ['APPLE_CERTIFICADO', apple.certificado],
+    ['APPLE_CHAVE', apple.chave],
   ];
+}
+
+/**
+ * Um certificado auto-assinado para as rotas do passe da Apple.
+ *
+ * A Apple não empresta certificados de teste: o dela custa a inscrição de
+ * programador e sai com o Pass Type ID lá dentro. Mas para provar o WORKER —
+ * que o bilhete é assinado, que expira, que só serve para o cartão certo, e
+ * que sai de lá um ZIP com uma assinatura que verifica — qualquer certificado
+ * serve. O que ESTE não prova é o que só um iPhone prova: que a Apple aceita
+ * a cadeia dela. Isso fica dito, e não fingido.
+ *
+ * As mudanças de linha vão como `\n` literais porque um ficheiro de variáveis
+ * de ambiente não as aguarda — o `doPEM` desfaz isso do outro lado.
+ */
+function certificadoDeMentira() {
+  const pasta = mkdtempSync(join(tmpdir(), 'carimbo-apple-'));
+  try {
+    const k = join(pasta, 'k.pem');
+    const c = join(pasta, 'c.pem');
+    const k8 = join(pasta, 'k8.pem');
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', k,
+      '-out', c, '-days', '2', '-nodes',
+      '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: de mentira'],
+    { stdio: 'ignore' });
+    execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', k, '-out', k8],
+      { stdio: 'ignore' });
+    const achatar = (f) => readFileSync(f, 'utf8').trim().replace(/\n/g, '\\n');
+    return { certificado: achatar(c), chave: achatar(k8) };
+  } finally {
+    rmSync(pasta, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -109,7 +147,12 @@ function correrSQL(ficheiro) {
        tem responde «duplicate column name», e isso aqui é sinal de bom. */
     const dito = `${erro.stdout || ''}${erro.stderr || ''}`;
     if (/duplicate column name/i.test(dito)) return;
-    throw new Error(`Não deu para aplicar ${ficheiro} à base local:\n${dito.slice(-1200)}`);
+    /* Quase tudo o resto é a base local a ter ficado num estado que o esquema
+       já não aceita — tipicamente dados que uma corrida anterior deixou e que
+       violam uma regra nova. Quem lê isto quer saber a saída, não procurá-la. */
+    throw new Error(`Não deu para aplicar ${ficheiro} à base local:\n${dito.slice(-1200)}\n`
+      + 'Se for a base local a estar num estado impossível, deita-a fora:\n'
+      + `  node scripts/com-worker.mjs ${process.argv[2] || 'worker/testes.mjs'} --limpo`);
   }
 }
 

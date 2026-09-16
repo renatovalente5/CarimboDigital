@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const BASE = process.argv[2] || 'http://localhost:8787';
+/* Um PNG de 1×1, que chega para o que aqui se prova. */
+const PNG_FIXO = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
 
 let passou = 0, falhou = 0;
 const falhas = [];
@@ -1158,6 +1160,14 @@ grupo('Contas paradas');
     certo(existe(id) && campo(id, 'avisada_em') == null,
       'sem email não há aviso, e a conta fica à espera do prazo');
   }
+
+  /* LEVANTA-SE A MESA. Este bloco deixa de propósito contas vivas — é isso
+     que ele prova. Mas uma delas tem `parado@exemplo.pt` VERIFICADO, e a
+     regra «uma morada, uma conta» é um índice único: na corrida seguinte, a
+     linha velha fazia o `UPDATE` da nova rebentar, e o que se lia era um erro
+     de SQL no meio da montagem, sem relação visível com o teste que o causou.
+     Numa base que nasce vazia — o CI — nunca aparecia. */
+  sql(`DELETE FROM clientes WHERE email = 'parado@exemplo.pt'`);
 }
 
 /* --------------------------------------------------------------------- */
@@ -1569,6 +1579,299 @@ grupo('A Wallet, de ponta a ponta');
   sql(`UPDATE programas SET arrefecimento = 3600, nome = 'Cartão do café',
        premio = 'Um café por conta da casa' WHERE id = 'p1'`);
   sql(`UPDATE negocios SET nome = 'O Meu Café', cor = '#3B2417' WHERE id = 'n1'`);
+}
+
+
+/* =========================================================================
+   O cartão na Apple Wallet
+
+   Isto prova o ficheiro, não a Apple. Constrói-se um `.pkpass` com um
+   certificado feito aqui na hora, e verifica-se com o `openssl` — que é o
+   mesmo verificador que o telemóvel usa por baixo. O que fica por provar é o
+   que só um iPhone prova: que a Apple aceita a CADEIA dela. Isso não se
+   finge, e não se diz que está provado.
+
+   O certificado é gerado a cada corrida em vez de ficar no repositório: uma
+   chave privada num repositório público é um mau hábito mesmo quando não
+   serve para nada, e faz disparar os leitores de segredos de meio mundo.
+   ========================================================================= */
+grupo('O cartão na Apple Wallet');
+{
+  const p = await import('./src/pkpass.js');
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+
+  const pasta = mkdtempSync(join(tmpdir(), 'carimbo-apple-'));
+  const caminho = (n) => join(pasta, n);
+  const openssl = (...args) => execFileSync('openssl', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+  try {
+    openssl('req', '-x509', '-newkey', 'rsa:2048', '-keyout', caminho('k.pem'),
+      '-out', caminho('c.pem'), '-days', '2', '-nodes',
+      '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: pass.pt.carimbodigital.cartao');
+    openssl('pkcs8', '-topk8', '-nocrypt', '-in', caminho('k.pem'), '-out', caminho('k8.pem'));
+    const cert = readFileSync(caminho('c.pem'), 'utf8');
+    const chave = readFileSync(caminho('k8.pem'), 'utf8');
+
+    const PNG1 = Uint8Array.from(atob(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC',
+    ), (c) => c.charCodeAt(0));
+    const CARTAO = { id: 'cartao-de-prova', carimbos: 3 };
+    const PROGRAMA = { tipo: 'carimbos', objetivo: 10, nome: 'Cartão do café',
+      premio: 'Um café por conta da casa', regras: 'Um por dia.' };
+    const NEGOCIO = { nome: 'O Meu Café', cor: '#EE9125', morada: 'Rua A', localidade: 'Ovar' };
+
+    const passe = p.passeDeCartao(CARTAO, PROGRAMA, NEGOCIO, {
+      passTipo: 'pass.pt.carimbodigital.cartao', equipa: 'ABCDE12345',
+      codigo: 'GEPCL23XZLL29LME', dominio: 'carimbodigital.pt',
+    });
+
+    /* --- o pass.json ---------------------------------------------------- */
+    certo(passe.formatVersion === 1 && passe.passTypeIdentifier && passe.teamIdentifier
+       && passe.serialNumber && passe.organizationName && passe.description,
+      'o pass.json leva as seis chaves que a Apple exige',
+      JSON.stringify(Object.keys(passe)).slice(0, 120));
+    certo(passe.serialNumber === 'cartao-de-prova',
+      'o número de série é o do cartão — é ele que faz o passe novo SUBSTITUIR o velho',
+      String(passe.serialNumber));
+    certo(passe.backgroundColor === 'rgb(238,145,37)',
+      'a cor vai em rgb() e não em #hex, que é o único formato que a Apple aceita',
+      String(passe.backgroundColor));
+    certo(passe.foregroundColor === 'rgb(0,0,0)',
+      'e a tinta por cima da cor é medida: preto sobre o laranja da barbearia',
+      String(passe.foregroundColor));
+    certo(passe.storeCard.headerFields[0].value === '3/10',
+      'o contador mostra o saldo do cartão', String(passe.storeCard.headerFields[0].value));
+    certo(passe.barcodes[0].message === 'W1.GEPCL23XZLL29LME',
+      'o código de barras leva o prefixo W1., por onde o balcão reconhece um passe',
+      String(passe.barcodes[0].message));
+    certo(passe.storeCard.backFields.some((f) => f.value.includes('Um café por conta da casa')),
+      'e o prémio está escrito nas costas, como num cartão de papel');
+
+    /* --- o ficheiro ----------------------------------------------------- */
+    const bytes = await p.construirPasse({
+      passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+      certificado: cert, chave, quando: '2026-09-16T00:00:00Z',
+    });
+    writeFileSync(caminho('cartao.pkpass'), bytes);
+
+    certo(bytes[0] === 0x50 && bytes[1] === 0x4B,
+      'o passe é um ZIP a sério — começa por PK',
+      `${bytes[0]} ${bytes[1]}`);
+
+    execFileSync('unzip', ['-o', '-q', caminho('cartao.pkpass'), '-d', caminho('fora')]);
+    const manifesto = JSON.parse(readFileSync(join(caminho('fora'), 'manifest.json'), 'utf8'));
+    certo(['pass.json', 'icon.png', 'logo.png'].every((n) => manifesto[n]),
+      'o manifesto tem o SHA-1 de cada ficheiro', JSON.stringify(Object.keys(manifesto)));
+    certo(!manifesto['manifest.json'] && !manifesto.signature,
+      'e não se inclui a si próprio nem à assinatura — não daria');
+
+    const sha1 = (b) => createHash('sha1').update(b).digest('hex');
+    certo(manifesto['pass.json'] === sha1(readFileSync(join(caminho('fora'), 'pass.json'))),
+      'e o SHA-1 do pass.json bate com o ficheiro que lá está');
+
+    /* --- a assinatura --------------------------------------------------- */
+    const verificar = (ficheiroConteudo) => {
+      try {
+        execFileSync('openssl', ['cms', '-verify', '-inform', 'DER',
+          '-in', join(caminho('fora'), 'signature'), '-content', ficheiroConteudo,
+          '-noverify', '-purpose', 'any', '-out', '/dev/null'],
+        { stdio: ['ignore', 'ignore', 'pipe'] });
+        return true;
+      } catch { return false; }
+    };
+
+    certo(verificar(join(caminho('fora'), 'manifest.json')),
+      'o openssl verifica a assinatura PKCS#7 — a mesma conta que o telemóvel faz');
+
+    /* E a afirmação de cima só vale se esta falhar. Uma verificação que dá
+       certo seja qual for o conteúdo não está a verificar nada. */
+    writeFileSync(caminho('mexido.json'),
+      readFileSync(join(caminho('fora'), 'manifest.json'), 'utf8').replace('icon.png', 'icon.pnh'));
+    certo(!verificar(caminho('mexido.json')),
+      'e RECUSA um manifesto mexido — senão não estava a verificar nada');
+
+    const estrutura = execFileSync('openssl', ['cms', '-cmsout', '-inform', 'DER',
+      '-in', join(caminho('fora'), 'signature'), '-print'], { encoding: 'utf8' });
+    certo(/eContent: <ABSENT>/.test(estrutura),
+      'a assinatura é DESTACADA — o manifesto não vai lá dentro, que é o que a Apple quer');
+    certo(/certificates:/.test(estrutura),
+      'e leva o certificado de quem assinou, senão o telemóvel não sabe contra o que verificar');
+
+    /* --- o mesmo pedido duas vezes dá o mesmo ficheiro ------------------- */
+    const outra = await p.construirPasse({
+      passe, imagens: { 'icon.png': PNG1, 'logo.png': PNG1 },
+      certificado: cert, chave, quando: '2026-09-16T00:00:00Z',
+    });
+    certo(Buffer.compare(Buffer.from(bytes), Buffer.from(outra)) === 0,
+      'dois passes iguais dão o mesmo ficheiro byte a byte — a data do ZIP vai a zeros de propósito',
+      `${bytes.length} vs ${outra.length}`);
+
+    /* --- o que tem de falhar -------------------------------------------- */
+    let semIcone = null;
+    try {
+      await p.construirPasse({ passe, imagens: { 'logo.png': PNG1 }, certificado: cert, chave });
+    } catch (erro) { semIcone = erro.message; }
+    certo(semIcone && /icon/.test(semIcone),
+      'um passe sem ícone é recusado aqui, e não pelo telemóvel de um cliente',
+      String(semIcone));
+
+    let semEquipa = null;
+    try { p.passeDeCartao(CARTAO, PROGRAMA, NEGOCIO, { passTipo: 'x' }); }
+    catch (erro) { semEquipa = erro.message; }
+    certo(semEquipa && /equipa/.test(semEquipa),
+      'e sem identificador de equipa também — é uma das seis chaves obrigatórias');
+
+    /* --- as peças à parte ----------------------------------------------- */
+    certo(p.crc32(new TextEncoder().encode('123456789')) === 0xCBF43926,
+      'o CRC-32 dá o valor de referência para «123456789»',
+      p.crc32(new TextEncoder().encode('123456789')).toString(16));
+
+    const certDER = p.doPEM(cert);
+    const { serie, emissor } = p.emissorESerie(certDER);
+    certo(serie[0] === 0x02 && emissor[0] === 0x30,
+      'do certificado tira-se o número de série e o emissor, que é como o CMS diz quem assinou',
+      `${serie[0]} ${emissor[0]}`);
+  } finally {
+    rmSync(pasta, { recursive: true, force: true });
+  }
+}
+
+
+grupo('O passe da Apple, de ponta a ponta');
+{
+  /* Aqui prova-se o WORKER, não a Apple: que o bilhete é assinado, que expira,
+     que só serve para o cartão de quem o pediu, e que do outro lado sai um
+     ficheiro com a assinatura certa. O certificado é auto-assinado, feito pelo
+     `com-worker.mjs` — o que fica por provar é o que só um iPhone prova: que
+     a Apple aceita a cadeia dela. */
+  const { execFileSync: correr } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+
+  const reg = await pedir('/v1/cliente/registar', { metodo: 'POST' });
+  const sessaoA = reg.dados.sessao;
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: sessaoA, corpo: { programaId: 'p1' } });
+  const meus = await pedir('/v1/cliente/cartoes', { sessao: sessaoA });
+  const cartaoId = meus.dados[0].id;
+
+  /* Uma segunda pessoa, para o cartão dela não poder ser pedido pela primeira. */
+  const outro = await pedir('/v1/cliente/registar', { metodo: 'POST' });
+  const sessaoB = outro.dados.sessao;
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: sessaoB, corpo: { programaId: 'p1' } });
+  const seus = await pedir('/v1/cliente/cartoes', { sessao: sessaoB });
+  const cartaoDoOutro = seus.dados[0].id;
+
+  {
+    const r = await pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`, { metodo: 'POST' });
+    certo(r.estado === 401, 'sem sessão não há passe', String(r.estado));
+  }
+  {
+    const r = await pedir(`/v1/cliente/cartoes/${cartaoDoOutro}/pkpass`,
+      { metodo: 'POST', sessao: sessaoA });
+    certo(r.estado === 404,
+      'e o cartão de outra pessoa não se pede — nem se diz que existe', String(r.estado));
+  }
+
+  const r = await pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`, { metodo: 'POST', sessao: sessaoA });
+  certo(r.estado === 200 && typeof r.dados.ligacao === 'string',
+    'o passe da Apple devolve um endereço', `${r.estado} ${JSON.stringify(r.dados).slice(0, 80)}`);
+  certo(!String(r.dados.ligacao || '').includes(cartaoId),
+    'e esse endereço NÃO leva o número do cartão — leva um bilhete assinado',
+    String(r.dados.ligacao || '').slice(-60));
+
+  const bilhete = String(r.dados.ligacao || '').split('/v1/passe/')[1] || '';
+
+  {
+    /* O ficheiro vai-se buscar SEM sessão: é o Safari que navega para lá, e
+       uma navegação não leva cabeçalho nenhum. É por isso que o bilhete tem
+       de ser a fechadura. */
+    const resposta = await fetch(`${BASE}/v1/passe/${bilhete}`);
+    const tipo = resposta.headers.get('content-type');
+    certo(resposta.status === 200 && tipo === 'application/vnd.apple.pkpass',
+      'e abre-se sem sessão, porque quem o abre é o Safari e não a app',
+      `${resposta.status} ${tipo}`);
+    certo((resposta.headers.get('cache-control') || '').includes('no-store'),
+      'sem cache: um passe guardado é um passe com o número de carimbos errado',
+      String(resposta.headers.get('cache-control')));
+
+    const bytes = new Uint8Array(await resposta.arrayBuffer());
+    certo(bytes[0] === 0x50 && bytes[1] === 0x4B && bytes.length > 500,
+      'o que vem é um ZIP a sério', `${bytes[0]} ${bytes[1]} ${bytes.length}`);
+
+    /* E verifica-se com o openssl, como o telemóvel faria. */
+    const pasta = mkdtempSync(join(tmpdir(), 'carimbo-passe-'));
+    try {
+      writeFileSync(join(pasta, 'p.pkpass'), Buffer.from(bytes));
+      correr('unzip', ['-o', '-q', join(pasta, 'p.pkpass'), '-d', join(pasta, 'fora')]);
+      const passe = JSON.parse(readFileSync(join(pasta, 'fora', 'pass.json'), 'utf8'));
+      certo(passe.serialNumber === cartaoId,
+        'o passe é do cartão certo', String(passe.serialNumber));
+      certo(passe.passTypeIdentifier === 'pass.pt.carimbodigital.dementira'
+         && passe.teamIdentifier === 'DEMENTIRA1',
+        'com o Pass Type ID e a equipa que o Worker tem configurados',
+        `${passe.passTypeIdentifier} ${passe.teamIdentifier}`);
+      certo(/^W1\./.test(passe.barcodes[0].message),
+        'e o código de barras é o do passe, com o prefixo que o balcão conhece',
+        String(passe.barcodes[0].message));
+
+      let verificou = true;
+      try {
+        correr('openssl', ['cms', '-verify', '-inform', 'DER',
+          '-in', join(pasta, 'fora', 'signature'),
+          '-content', join(pasta, 'fora', 'manifest.json'),
+          '-noverify', '-purpose', 'any', '-out', '/dev/null'], { stdio: 'ignore' });
+      } catch { verificou = false; }
+      certo(verificou,
+        'e a assinatura que o Worker fez verifica — a mesma conta que o telemóvel faz');
+    } finally {
+      rmSync(pasta, { recursive: true, force: true });
+    }
+  }
+
+  {
+    /* O BILHETE TEM DE SER UMA FECHADURA, e não um enfeite. */
+    const mexido = bilhete.slice(0, -2) + (bilhete.endsWith('AA') ? 'BB' : 'AA');
+    const r1 = await fetch(`${BASE}/v1/passe/${mexido}`);
+    certo(r1.status === 403, 'um bilhete mexido é recusado', String(r1.status));
+
+    const [corpo] = bilhete.split('.');
+    const r2 = await fetch(`${BASE}/v1/passe/${corpo}.`);
+    certo(r2.status === 403, 'e um sem selo também', String(r2.status));
+
+    /* Forjar um que aponte para o cartão de outra pessoa, sem selo válido. */
+    const forjado = `${Buffer.from(`${cartaoDoOutro}.${Date.now() + 600000}`).toString('base64url')}.${bilhete.split('.')[1]}`;
+    const r3 = await fetch(`${BASE}/v1/passe/${forjado}`);
+    certo(r3.status === 403,
+      'e trocar o cartão dentro do bilhete não passa — o selo é sobre o conteúdo todo',
+      String(r3.status));
+  }
+
+  {
+    /* SEM LOGÓTIPO NÃO HÁ PASSE, e diz-se porquê aqui e não no telemóvel. */
+    sql(`UPDATE negocios SET logotipo = NULL WHERE id = 'n1'`);
+    const r4 = await pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`,
+      { metodo: 'POST', sessao: sessaoA });
+    certo(r4.estado === 409 && r4.dados.codigo === 'sem-logotipo',
+      'sem logótipo o passe da Apple é recusado com uma razão',
+      `${r4.estado} ${r4.dados.codigo}`);
+    sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}', logotipo_em = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 'n1'`);
+  }
+
+  {
+    /* E a app tem de SABER que pode mostrar o botão. */
+    const c = await pedir(`/v1/cliente/cartoes/${cartaoId}`, { sessao: sessaoA });
+    certo(c.dados.carteiras && c.dados.carteiras.apple === true,
+      'o cartão diz à app que a Apple está pronta neste Worker',
+      JSON.stringify(c.dados.carteiras));
+    certo(c.dados.carteiras && c.dados.carteiras.google === true,
+      'e a Google também', JSON.stringify(c.dados.carteiras));
+  }
+
+  /* Limpa-se o que este bloco criou: dois clientes com cartões no p1 ficavam
+     na base local e a corrida seguinte contava-os. */
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoA });
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoB });
 }
 
 /* --------------------------------------------------------------------- */

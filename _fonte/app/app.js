@@ -299,7 +299,7 @@ async function ecraCartao(principal) {
   /* Um botão por cartão, e no ecrã do cartão: cada cartão é um passe seu, com
      o seu saldo e o seu código de barras. No perfil não cabia — teria de
      perguntar primeiro qual deles. */
-  if (cheio.wallet) principal.append(botaoWallet(cheio));
+  if (cheio.carteiras && cheio.carteiras.google) principal.append(botaoWallet(cheio));
 
   if (cheio.porResgatar) {
     const caixa = el('section', { class: 'seccao' },
