@@ -2883,6 +2883,148 @@ grupo('A migração das identidades corre sobre dados que já existem');
   sql(`DELETE FROM clientes WHERE email IN ('${antigo}', '${porProvar}')`);
 }
 
+grupo('Contas-sombra: o número antigo não morre');
+{
+  /* A conta que sai de uma fusão NÃO se apaga. O número de cartão foi dito em
+     voz alta ao balcão, escrito num guardanapo e fotografado — seis caracteres
+     que alguém tem apontados não deixam de existir porque a pessoa entrou pela
+     Google no telemóvel novo.
+
+     Nada cria sombras ainda: quem as cria é a fusão, na fase 3. Aqui prova-se
+     o código que as ATRAVESSA, que é o que tem de estar de pé ANTES de haver
+     uma única — senão a fase 3 constrói por cima de caminhos nunca percorridos. */
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+
+  const sombra = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const viva = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const numeroAntigo = sombra.dados.cliente.publico;
+  const segredoAntigo = sombra.dados.segredo;
+
+  /* A fusão, à mão: é tudo o que a fase 3 vai escrever, reduzido ao que este
+     grupo precisa. */
+  sql(`UPDATE clientes SET fundida_em = '${viva.dados.cliente.id}',
+        fundida_quando = datetime('now') WHERE id = '${sombra.dados.cliente.id}'`);
+
+  /* 1. O NÚMERO ESCRITO À MÃO. É a promessa inteira. */
+  const mao = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${numeroAntigo}`, programaId: 'p1' } });
+  certo(mao.estado === 200,
+    'o número antigo escrito à mão continua a carimbar',
+    `${mao.estado} ${JSON.stringify(mao.dados).slice(0, 100)}`);
+
+  const ondeFoi = linhas(`SELECT cliente_id FROM cartoes WHERE id = '${mao.dados?.cartao?.id}'`);
+  certo(ondeFoi[0]?.cliente_id === viva.dados.cliente.id,
+    'E O CARIMBO VAI PARAR À CONTA QUE FICOU, não à sombra',
+    `${ondeFoi[0]?.cliente_id} vs ${viva.dados.cliente.id}`);
+
+  /* 2. O CÓDIGO DO ECRÃ NÃO SOBREVIVE, e é isso que fecha o telemóvel que
+        ficou de fora da fusão. Não foi preciso escrever nada para isto: o
+        segredo que se deriva passa a ser o da conta que ficou, e a assinatura
+        antiga foi feita com o da sombra sobre o número antigo. */
+  const ecra = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(numeroAntigo, segredoAntigo), programaId: 'p1' } });
+  certo(ecra.estado === 403,
+    'mas o código do ECRÃ da sombra já não carimba — o telemóvel que ficou de fora fecha-se',
+    `${ecra.estado} ${JSON.stringify(ecra.dados)}`);
+
+  /* 3. UMA SESSÃO NUMA SOMBRA NÃO ABRE NADA, e não se segue o ponteiro. Numa
+        absorção de conta anónima as sessões dela morrem; uma que sobreviva só
+        pode ser uma que devia ter morrido, e dar-lhe a conta de destino era
+        dar-lhe a conta inteira de outra pessoa. */
+  const comSessao = await pedir('/v1/cliente/cartoes', { sessao: sombra.dados.sessao });
+  certo(comSessao.estado === 401,
+    'a sessão da sombra deixa de abrir — seguir o ponteiro aqui era entregar a conta de outra pessoa',
+    String(comSessao.estado));
+  certo(linhas(`SELECT 1 FROM sessoes WHERE sujeito = 'cliente:${sombra.dados.cliente.id}'`).length === 0,
+    'e a sessão é apagada em vez de ficar a bater à porta todos os dias');
+
+  /* 4. UM CICLO NÃO PENDURA O WORKER. Isto é aberto a qualquer pessoa: são
+        seis caracteres escritos ao balcão. Sem tecto de saltos, duas linhas a
+        apontar uma para a outra punham a invocação a rodar até ser morta. */
+  const a = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const b = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`UPDATE clientes SET fundida_em = '${b.dados.cliente.id}' WHERE id = '${a.dados.cliente.id}'`);
+  sql(`UPDATE clientes SET fundida_em = '${a.dados.cliente.id}' WHERE id = '${b.dados.cliente.id}'`);
+  const emCiclo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${a.dados.cliente.publico}`, programaId: 'p1' } });
+  certo(emCiclo.estado === 404,
+    'um ciclo de fusões responde «desconhecido» em vez de pendurar o Worker',
+    `${emCiclo.estado} ${JSON.stringify(emCiclo.dados)}`);
+
+  /* 5. UMA CADEIA CURTA ATRAVESSA-SE. A fusão achata, mas o resolvedor não
+        pode depender disso para dar a resposta certa. */
+  const x = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const y = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const z = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`UPDATE clientes SET fundida_em = '${y.dados.cliente.id}' WHERE id = '${x.dados.cliente.id}'`);
+  sql(`UPDATE clientes SET fundida_em = '${z.dados.cliente.id}' WHERE id = '${y.dados.cliente.id}'`);
+  const emCadeia = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${x.dados.cliente.publico}`, programaId: 'p1' } });
+  certo(emCadeia.estado === 200, 'uma cadeia de duas fusões chega ao fim',
+    `${emCadeia.estado} ${JSON.stringify(emCadeia.dados).slice(0, 90)}`);
+  certo(linhas(`SELECT cliente_id FROM cartoes WHERE id = '${emCadeia.dados?.cartao?.id}'`)[0]?.cliente_id
+        === z.dados.cliente.id,
+    'e o carimbo vai para o fim da cadeia', String(z.dados.cliente.id));
+
+  /* 6. UMA SOMBRA A APONTAR PARA O VAZIO diz «desconhecido», e não carimba no
+        ar. Acontece se o destino for apagado. */
+  const orfa = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`UPDATE clientes SET fundida_em = 'nao-existe-esta-conta' WHERE id = '${orfa.dados.cliente.id}'`);
+  const perdida = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${orfa.dados.cliente.publico}`, programaId: 'p1' } });
+  certo(perdida.estado === 404, 'uma sombra a apontar para o vazio é «desconhecido»',
+    `${perdida.estado} ${JSON.stringify(perdida.dados)}`);
+
+  /* 7. APAGAR A CONTA LEVA AS SOMBRAS. Senão ficavam a ocupar números de
+        cartão que nunca mais podiam voltar a sair. */
+  const destino = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const dela = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`UPDATE clientes SET fundida_em = '${destino.dados.cliente.id}' WHERE id = '${dela.dados.cliente.id}'`);
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: destino.dados.sessao });
+  certo(linhas(`SELECT 1 FROM clientes WHERE id = '${dela.dados.cliente.id}'`).length === 0,
+    'apagar a conta apaga as sombras que apontavam para ela');
+
+  sql(`DELETE FROM clientes WHERE id IN ('${[sombra, viva, a, b, x, y, z, orfa]
+    .map((r) => r.dados.cliente.id).join("','")}')`);
+}
+
+grupo('Contas-sombra: a limpeza da madrugada não lhes toca');
+{
+  /* Uma sombra está parada POR DEFINIÇÃO: não tem cartões e o `visto_em` nunca
+     mais mexe. A limpeza apagava-a ao fim de dois anos, e isso não parece
+     grave até se perceber o que apaga — a única coisa para que ela existe. O
+     número antigo deixava de carimbar em silêncio, dois anos depois de uma
+     fusão de que ninguém se lembra. */
+  const limpeza = () => pedir('/__scheduled?cron=17+4+*+*+*');
+  const haMuito = (() => { const d = new Date(); d.setMonth(d.getMonth() - 40); return d.toISOString(); })();
+
+  const destino = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const velha = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const parada = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+
+  sql(`UPDATE clientes SET criado_em = '${haMuito}', visto_em = '${haMuito}',
+        fundida_em = '${destino.dados.cliente.id}', fundida_quando = '${haMuito}'
+        WHERE id = '${velha.dados.cliente.id}'`);
+  /* A testemunha: igual em tudo, menos em ser sombra. Sem ela, esta secção
+     passava na mesma se a limpeza tivesse deixado de apagar seja o que for. */
+  sql(`UPDATE clientes SET criado_em = '${haMuito}', visto_em = '${haMuito}'
+        WHERE id = '${parada.dados.cliente.id}'`);
+
+  await limpeza();
+
+  certo(linhas(`SELECT 1 FROM clientes WHERE id = '${parada.dados.cliente.id}'`).length === 0,
+    'a limpeza apaga mesmo uma conta parada de há 40 meses (a testemunha, senão isto não prova nada)');
+  certo(linhas(`SELECT 1 FROM clientes WHERE id = '${velha.dados.cliente.id}'`).length === 1,
+    'MAS NÃO APAGA A SOMBRA, por muito parada que esteja — é o número antigo que ela guarda');
+
+  sql(`DELETE FROM clientes WHERE id IN ('${destino.dados.cliente.id}','${velha.dados.cliente.id}')`);
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

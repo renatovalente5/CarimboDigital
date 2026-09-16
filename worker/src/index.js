@@ -229,6 +229,20 @@ async function lerSessao(env, pedido) {
 async function exigirCliente(env, pedido) {
   const s = await lerSessao(env, pedido);
   if (!s || s.tipo !== 'cliente') throw new Falha('Sessão inválida', { estado: 401 });
+  /* UMA SESSÃO NUMA SOMBRA NÃO ABRE NADA, e NÃO se segue o ponteiro — seguir
+     era o erro fácil. Há dois modos de fusão e confundi-los é um ataque: numa
+     fusão PROVADA as duas contas autenticaram-se no acto e as sessões são
+     reapontadas ali mesmo; numa ABSORÇÃO de conta anónima as sessões dela
+     morrem. Logo, uma sessão que ainda aponte para uma sombra só pode ser uma
+     que devia ter morrido — e seguir o ponteiro dava a essa sessão a conta
+     inteira de outra pessoa. Fecha-se. */
+  const sombra = await env.DB.prepare(
+    'SELECT 1 AS e FROM clientes WHERE id = ? AND fundida_em IS NOT NULL'
+  ).bind(s.id).first();
+  if (sombra) {
+    await env.DB.prepare('DELETE FROM sessoes WHERE resumo = ?').bind(s.resumo).run();
+    throw new Falha('Sessão inválida', { estado: 401 });
+  }
   await marcarVisto(env, s.id);
   return s.id;
 }
@@ -511,15 +525,28 @@ async function carimbar(env, pedido, operador) {
 
   /* A `chave_versao` vem junto: é ela que decide qual é o segredo que vale
      agora, e sem ela um QR revogado continuava a carimbar. */
-  const cliente = porPasse
+  const encontrado = porPasse
     ? await env.DB.prepare(
-        `SELECT cl.id, cl.publico, cl.chave_versao FROM cartoes c
+        `SELECT cl.id, cl.publico, cl.chave_versao, cl.fundida_em FROM cartoes c
            JOIN clientes cl ON cl.id = c.cliente_id
           WHERE c.wallet_codigo = ?`
       ).bind(porPasse).first()
     : await env.DB.prepare(
-        'SELECT id, publico, chave_versao FROM clientes WHERE publico = ?'
+        'SELECT id, publico, chave_versao, fundida_em FROM clientes WHERE publico = ?'
       ).bind(publico).first();
+
+  /* ATRAVESSA-SE A SOMBRA, e é aqui que a promessa se cumpre: o número que
+     alguém tem apontado num guardanapo continua a carimbar depois de as contas
+     se juntarem.
+
+     E o código do ECRÃ não sobrevive à mesma travessia, o que também está
+     certo. A partir daqui o segredo que se deriva é o da conta que ficou, e a
+     assinatura de um `C1.` antigo foi feita com o da sombra sobre o número
+     antigo: nunca bate. Ou seja, um telemóvel que tenha ficado de fora da
+     fusão deixa de poder carimbar, sem que se tenha escrito uma linha para
+     isso — cai do próprio desenho. Quem entra à mão (`M1.`) passa, porque esse
+     nunca teve assinatura nenhuma: é o número dito em voz alta. */
+  const cliente = await resolverSombra(env, encontrado);
   if (!cliente) {
     throw new Falha(porPasse
       ? 'Este passe já não vale. O cliente pode mostrar o código na app.'
@@ -963,6 +990,53 @@ rota('POST', '/v1/cliente/registar', async (env, pedido) => {
 });
 
 /* =========================================================================
+   Contas-sombra
+
+   Uma conta que sai de uma fusão não se apaga: fica com o `publico` de sempre
+   e um ponteiro para quem a absorveu. Ver `migracoes/010`.
+   ========================================================================= */
+
+/* Quantos saltos se seguem antes de desistir. Em condições normais é UM: a
+   fusão achata as cadeias, reapontando para o destino final tudo o que
+   apontava para a conta absorvida. Este tecto existe para o caso de alguma vez
+   não achatar — e sobretudo para um CICLO, que sem tecto nenhum era uma
+   invocação a rodar até o Worker a matar, disparada por um número de cartão
+   que qualquer pessoa pode escrever ao balcão. */
+const SALTOS_MAX = 8;
+
+/**
+ * Segue o ponteiro da fusão até à conta que está mesmo viva.
+ *
+ * Recebe a linha já lida e devolve a linha final — a mesma, se não for sombra.
+ * Devolve `null` se a cadeia se perder (o destino foi apagado) ou se der
+ * voltas: nos dois casos a resposta certa é «cartão desconhecido» e não um
+ * carimbo em sítio nenhum.
+ */
+async function resolverSombra(env, linha) {
+  if (!linha || !linha.fundida_em) return linha;
+  const vistos = new Set([linha.id]);
+  let actual = linha;
+  for (let i = 0; i < SALTOS_MAX && actual.fundida_em; i++) {
+    if (vistos.has(actual.fundida_em)) {
+      console.error('sombra: ciclo na cadeia de fusão', actual.id);
+      return null;
+    }
+    vistos.add(actual.fundida_em);
+    actual = await env.DB.prepare(
+      'SELECT id, publico, chave_versao, fundida_em FROM clientes WHERE id = ?'
+    ).bind(actual.fundida_em).first();
+    if (!actual) return null;
+  }
+  /* Ainda com ponteiro ao fim dos saltos é cadeia longa de mais para ser
+     verdade. Fica escrito, porque quer dizer que a fusão deixou de achatar. */
+  if (actual.fundida_em) {
+    console.error('sombra: cadeia longa de mais', linha.id);
+    return null;
+  }
+  return actual;
+}
+
+/* =========================================================================
    Identidades — as formas de entrar numa conta
 
    A chave é `(provedor, sujeito)` e NÃO a morada. Ver `migracoes/009`.
@@ -981,7 +1055,17 @@ async function donoDaIdentidade(env, provedor, sujeito) {
   const l = await env.DB.prepare(
     'SELECT cliente_id FROM identidades WHERE provedor = ? AND sujeito = ?'
   ).bind(provedor, sujeito).first();
-  return l ? l.cliente_id : null;
+  if (!l) return null;
+  /* ATRAVESSA A SOMBRA. A fusão muda as identidades de dono, por isso em bom
+     estado isto nunca dá um salto. Mas se alguma vez ficar uma para trás, o
+     que acontece sem esta linha é a pessoa provar a caixa de correio e ser
+     mandada para uma conta vazia que já não é destino de nada — e como a
+     conta existe, nem sequer daria erro. */
+  const linha = await env.DB.prepare(
+    'SELECT id, publico, chave_versao, fundida_em FROM clientes WHERE id = ?'
+  ).bind(l.cliente_id).first();
+  const viva = await resolverSombra(env, linha);
+  return viva ? viva.id : null;
 }
 
 /**
@@ -1436,6 +1520,11 @@ async function apagarCliente(env, clienteId) {
        sempre, pelo índice único, e ninguém perceberia porquê. Uma instrução
        num `batch` que já leva sete é barata de mais para se poupar nela. */
     env.DB.prepare('DELETE FROM identidades WHERE cliente_id = ?').bind(clienteId),
+    /* E as sombras que apontavam para esta conta. Sem isto ficavam a apontar
+       para nada: o `resolverSombra` devolve `null` e o balcão diz «cartão
+       desconhecido», que é a resposta certa — mas ficava lixo a ocupar
+       números de cartão que nunca mais podiam voltar a sair. */
+    env.DB.prepare('DELETE FROM clientes WHERE fundida_em = ?').bind(clienteId),
     env.DB.prepare('DELETE FROM clientes WHERE id = ?').bind(clienteId),
   );
   await env.DB.batch(instrucoes);
@@ -2821,6 +2910,13 @@ async function contasParadas(env, limite, extra = '') {
     `SELECT c.id, c.email, c.email_verificado, c.avisada_em
        FROM clientes c
       WHERE COALESCE(c.visto_em, c.criado_em) < ?1
+        -- AS SOMBRAS NÃO CONTAM. Uma sombra não tem cartões nem sinal de vida
+        -- que mexa: está parada por definição, e a limpeza apagava-a ao fim de
+        -- dois anos. Isso não parecia grave, e parte a única coisa para que
+        -- ela existe -- o número antigo deixava de carimbar, em silêncio, dois
+        -- anos depois de uma fusão de que ninguém se lembra. Caducar sombras é
+        -- decisão à parte, e a coluna fundida_quando está lá para isso.
+        AND c.fundida_em IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM cartoes k
            WHERE k.cliente_id = c.id

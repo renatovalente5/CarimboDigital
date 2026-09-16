@@ -301,6 +301,31 @@ Quando alguém prova ser dono de duas contas:
   a sombra **não pode** manter o segredo antigo a valer: é aí que entra o
   `chave_versao` da dívida 3.1.
 
+> **A TRAVESSIA ESTÁ FEITA — 16 set 2026** (migração 010), e está provada antes
+> de existir uma única sombra, que é a ordem que permite prová-la. O que a fase
+> 3 tem de fazer é só CRIÁ-LAS; os caminhos que passam por elas já estão
+> percorridos:
+>
+> - o `M1.` — o número escrito à mão — atravessa e carimba na conta que ficou;
+> - o `C1.` da sombra **morre sozinho**, sem uma linha escrita para isso: a
+>   verificação passa a correr contra o segredo da conta que ficou, e a
+>   assinatura antiga foi feita com o da sombra sobre o número antigo. É isto
+>   que fecha um telemóvel que tenha ficado de fora da fusão;
+> - uma **sessão** numa sombra é recusada e apagada, e **não se segue o
+>   ponteiro** — seguir era o erro fácil: numa absorção as sessões da conta
+>   absorvida morrem, logo uma que sobreviva só pode ser uma que devia ter
+>   morrido, e dar-lhe o destino era dar-lhe a conta inteira de outra pessoa;
+> - **um ciclo não pendura o Worker.** Isto é aberto a qualquer pessoa — são
+>   seis caracteres escritos ao balcão — por isso há tecto de saltos;
+> - a **limpeza da madrugada** não lhes toca. Uma sombra está parada por
+>   definição, e apagá-la ao fim de dois anos matava a única coisa para que
+>   existe, em silêncio;
+> - **apagar a conta leva as sombras** que apontavam para ela.
+>
+> **O que a fase 3 fica a dever:** achatar as cadeias (reapontar para o destino
+> final tudo o que apontava para a conta absorvida), para que a travessia seja
+> sempre de um salto só, e subir a `chave_versao` da sombra.
+
 ---
 
 ## 5. As portas
@@ -333,7 +358,7 @@ nosso *client secret*.
 |---|---|---|---|
 | ~~0~~ | ~~Dívidas 3.1 e 3.3, mais o `/v1/cliente/eu`~~ — **feita, 16 set 2026** (e metade da 3.2 veio atrás) | — | nada |
 | ~~1~~ | ~~Migração `identidades` + email a passar por lá~~ — **feita, 16 set 2026** | — | nada |
-| 2 | As contas-sombra (`fundida_em`) — o `/v1/cliente/eu` já saiu na fase 0 | meio dia | nada |
+| ~~2~~ | ~~As contas-sombra (`fundida_em`)~~ — **feita, 16 set 2026** | — | nada |
 | 3 | A fusão, com a bateria a prová-la | 2–3 dias | decidir a regra dos prémios |
 | 4 | Ecrã de entrada e os seis textos, **mais o botão «sair nos outros aparelhos»** que a fase 0 deixou sem quem o chame | 2–3 dias | **aprovar os textos** |
 | 5 | Continuar com Google | 3–4 dias | 3 passos de consola |

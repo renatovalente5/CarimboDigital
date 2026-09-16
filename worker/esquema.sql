@@ -82,9 +82,16 @@ CREATE TABLE IF NOT EXISTS clientes (
   -- Quando saiu o aviso de que a conta ia ser apagada por estar parada.
   -- Volta a NULL assim que a pessoa aparece: quem voltou tem direito a um
   -- aviso novo da próxima vez, e não a ser apagado por causa de um antigo.
-  avisada_em        TEXT
+  avisada_em        TEXT,
+  -- A conta que absorveu esta numa fusão. NULL = conta viva. Ver migracoes/010:
+  -- uma conta que sai de uma fusão não se apaga, porque o número de cartão foi
+  -- dito em voz alta ao balcão e escrito num guardanapo.
+  fundida_em        TEXT,
+  fundida_quando    TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_clientes_email ON clientes(email);
+CREATE INDEX IF NOT EXISTS ix_clientes_fundida
+  ON clientes(fundida_em) WHERE fundida_em IS NOT NULL;
 -- Uma morada verificada pertence a UMA conta. Parcial de propósito: uma morada
 -- por verificar pode repetir-se à vontade, que são tentativas e não contas.
 CREATE UNIQUE INDEX IF NOT EXISTS ix_clientes_email_unico
