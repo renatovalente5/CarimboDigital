@@ -1,0 +1,12 @@
+-- Negócios de demonstração.
+--
+-- O Café Maravilha não existe: é o banco de provas em produção, e nasceu
+-- porque provar um cartão de fidelidade a sério exige uma loja a sério, com
+-- clientes, carimbos e prémios. Só que ele estava na lista pública do
+-- «Descobrir», ao lado de uma barbearia que existe — e alguém em Ovar podia
+-- juntar o cartão de um café que não abre a porta a ninguém.
+--
+-- A marca não o esconde: o endereço próprio (`/v1/p/<slug>`) continua a
+-- responder, que é o que o cartaz e o código QR usam. O que ela tira é a
+-- publicidade a quem não foi convidado.
+ALTER TABLE negocios ADD COLUMN demonstracao INTEGER NOT NULL DEFAULT 0;

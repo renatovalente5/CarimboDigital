@@ -290,3 +290,17 @@
   border: 1px solid var(--linha); border-radius: 10px;
   background: var(--papel-2); cursor: pointer;
 }
+
+/* --- a placa de negócio de demonstração ---------------------------------
+   Discreta de propósito: é informação para o dono, não um erro. Fica logo
+   por baixo do subtítulo do ecrã do cartão. */
+.aviso-demo {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: var(--e-3) 0 var(--e-5);
+  padding: var(--e-3) var(--e-4);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-2);
+  background: var(--papel-3);
+}
+.aviso-demo b { font-size: .875rem; }
+.aviso-demo span { font-size: .8125rem; color: var(--tinta-2); }

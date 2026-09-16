@@ -650,12 +650,17 @@ function criarDemo() {
         .map((c) => {
           const cliente = e.clientes.find((x) => x.id === c.clienteId);
           const p = programa(e, c.programaId).programa;
+          /* Os prémios INTEIROS, como o servidor a sério. Com uma contagem
+             não se entrega nada: o balcão precisa do id para resgatar. */
+          const premios = e.premios
+            .filter((x) => x.cartaoId === c.id && !x.resgatadoEm)
+            .map((x) => ({ id: x.id, descricao: x.descricao, ganhoEm: x.ganhoEm }));
           return {
             publico: cliente ? cliente.publico : '??????',
             nome: cliente && cliente.nome,
             carimbos: c.carimbos, pontos: c.pontos, objetivo: p.objetivo, tipo: p.tipo,
             ultimoEm: c.ultimoEm, aderiuEm: c.aderiuEm,
-            porResgatar: e.premios.filter((x) => x.cartaoId === c.id && !x.resgatadoEm).length,
+            porResgatar: premios.length, premios,
           };
         })
         .sort((a, b) => new Date(b.ultimoEm || b.aderiuEm) - new Date(a.ultimoEm || a.aderiuEm));

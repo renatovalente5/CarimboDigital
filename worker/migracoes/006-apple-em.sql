@@ -1,0 +1,17 @@
+-- Quando um cartão ganhou passe da APPLE.
+--
+-- Estava a usar-se o `wallet_em` para as duas carteiras, e esse não quer dizer
+-- «tem passe»: quer dizer «tem um loyaltyObject na Google». É por ele que o
+-- espelho do saldo decide se manda o PATCH, é por ele que o reconciliador da
+-- madrugada escolhe os atrasados, e é por ele que apagar uma conta decide a
+-- quem manda `state: EXPIRED`.
+--
+-- Um cartão só-Apple marcado assim fazia o Worker bater num objecto que nunca
+-- existiu: o PATCH dava 404, o `wallet_sincronizado` nunca era gravado, e a
+-- linha voltava a ser escolhida todas as noites. Como a consulta leva
+-- `LIMIT 40` e nenhuma ordenação, quarenta cartões destes bastavam para
+-- nenhum cartão da Google voltar a ser reconciliado — em silêncio.
+--
+-- O `wallet_codigo` continua a ser um só, de propósito: é o mesmo código de
+-- barras nas duas carteiras, e é por ele que o balcão reconhece o passe.
+ALTER TABLE cartoes ADD COLUMN apple_em TEXT;

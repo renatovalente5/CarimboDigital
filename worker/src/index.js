@@ -362,20 +362,50 @@ async function carimbar(env, pedido, operador) {
   /* --- quem é o cliente --- */
   const partes = String(codigo || '').split('.');
   let publico, janela = null;
+  let porPasse = null;
   if (partes[0] === 'M1' && partes.length === 2) {
     publico = partes[1].toUpperCase();
     manual = true;
   } else if (partes[0] === 'C1' && partes.length === 4) {
     publico = partes[1];
     janela = Number(partes[2]);
+  } else if (partes[0] === 'W1' && partes.length === 2) {
+    /* O CÓDIGO DO PASSE NA CARTEIRA DO TELEMÓVEL, e isto faltava por inteiro.
+       O `wallet.js` e o `pkpass.js` escrevem `W1.<codigo>` no código de
+       barras do passe desde sempre, com um comentário a dizer que «é por ele
+       que o balcão sabe que está a ler um passe» — e ninguém do lado de cá o
+       sabia. O prefixo caía neste `else` e o que saía era «Este código não é
+       de um cartão Carimbo Digital». Provado contra a produção: um passe
+       criado pela app, lido pelo balcão, recusado.
+
+       O `wallet_codigo` era escrito e nunca lido: as únicas ocorrências dele
+       em todo o Worker eram dois UPDATE. O índice único que o acompanha
+       existia para uma pesquisa que nunca foi escrita. É esta.
+
+       Não é `manual`: quem lê isto é a câmara, não um dedo a escrever seis
+       letras. E é um token PRÓPRIO do passe, e não o número do cliente — é
+       isso que permite revogar um passe fotografado sem mexer no cartão da
+       pessoa. */
+    porPasse = partes[1].toUpperCase();
   } else {
     throw new Falha('Este código não é de um cartão Carimbo Digital.', { codigo: 'formato' });
   }
 
-  const cliente = await env.DB.prepare(
-    'SELECT id, publico FROM clientes WHERE publico = ?'
-  ).bind(publico).first();
-  if (!cliente) throw new Falha('Cartão desconhecido.', { estado: 404, codigo: 'sem-cliente' });
+  const cliente = porPasse
+    ? await env.DB.prepare(
+        `SELECT cl.id, cl.publico FROM cartoes c
+           JOIN clientes cl ON cl.id = c.cliente_id
+          WHERE c.wallet_codigo = ?`
+      ).bind(porPasse).first()
+    : await env.DB.prepare(
+        'SELECT id, publico FROM clientes WHERE publico = ?'
+      ).bind(publico).first();
+  if (!cliente) {
+    throw new Falha(porPasse
+      ? 'Este passe já não vale. O cliente pode mostrar o código na app.'
+      : 'Cartão desconhecido.',
+    { estado: 404, codigo: porPasse ? 'sem-passe' : 'sem-cliente' });
+  }
 
   /* --- o código é válido? --- */
   let chaveUso = null;
@@ -821,8 +851,22 @@ rota('GET', '/v1/descobrir', async (env) => {
      cinco milhões por dia. Quando houver mais de duzentos negócios, isto passa
      a ser procura e mapa, não uma lista; o tecto é o aviso de que chegou essa
      hora. */
+  /* Os de DEMONSTRAÇÃO ficam de fora. Existe um café em produção que não
+     existe na rua — é o banco de provas, e provar um cartão de fidelidade a
+     sério exige uma loja com clientes, carimbos e prémios. Só que ele estava
+     aqui, ao lado de uma barbearia que existe, e alguém podia juntar o cartão
+     de uma porta que não abre. O endereço próprio (`/v1/p/<slug>`) continua a
+     responder: o que se tira é a publicidade a quem não foi convidado. */
+  /* As colunas UMA A UMA, e não `SELECT *`. O `logotipo` é um PNG em base64 —
+     dezenas de kilobytes por negócio — e esta consulta só precisa de saber se
+     ele EXISTE. Com `*`, cada abertura da app puxava os logótipos todos da
+     base para os deitar fora à linha seguinte. */
   const negocios = (await env.DB.prepare(
-    "SELECT * FROM negocios WHERE estado = 'ativo' ORDER BY nome LIMIT ?"
+    `SELECT id, slug, nome, cor, categoria, localidade, morada, telefone,
+            logotipo_em, (logotipo IS NOT NULL) AS tem_logotipo
+       FROM negocios
+      WHERE estado = 'ativo' AND demonstracao = 0
+      ORDER BY nome LIMIT ?`
   ).bind(DESCOBRIR_MAX).all()).results;
   const saida = [];
   for (const n of negocios) {
@@ -845,7 +889,7 @@ rota('GET', '/v1/descobrir', async (env) => {
       /* Só se HÁ, e a data — nunca a imagem. Esta lista é pedida a cada
          abertura da app por toda a gente, e mandar os logótipos todos lá
          dentro seria mandar megabytes para desenhar uns quadrados. */
-      logotipo: Boolean(n.logotipo), logotipoEm: n.logotipo_em || null,
+      logotipo: Boolean(n.tem_logotipo), logotipoEm: n.logotipo_em || null,
       programas: comMarcos,
     });
   }
@@ -1254,7 +1298,13 @@ rota('GET', '/v1/balcao/negocio', async (env, pedido) => {
   const { logotipo, ...semImagem } = negocio;
   return {
     operador: { id: op.id, nome: op.nome, papel: op.papel },
-    negocio: { ...semImagem, logotipo: Boolean(logotipo), programas: comMarcos },
+    /* O `demonstracao` vai a booleano para o balcão poder dizer ao dono porque
+       é que ele não aparece na lista pública. Um negócio fora da lista sem
+       explicação nenhuma é um bilhete de suporte à espera de acontecer. */
+    negocio: {
+      ...semImagem, logotipo: Boolean(logotipo),
+      demonstracao: Boolean(negocio.demonstracao), programas: comMarcos,
+    },
   };
 });
 
@@ -1633,6 +1683,29 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido, _p, ctx) => {
   /* Apagar é pôr a null, e não uma rota à parte: é o mesmo gesto do lado de
      quem usa — «tirar a imagem». */
   if (d.logotipo === null || d.logotipo === '') {
+    /* NÃO SE APAGA UM LOGÓTIPO QUE JÁ ESTÁ EM CARTEIRAS ALHEIAS.
+
+       Apagar punha a coluna a NULL e mandava o espelho para a Google — só
+       que o corpo do PATCH só inclui o `programLogo` se houver um, e um
+       PATCH que OMITE um campo deixa lá o valor antigo. O resultado era o
+       pior dos dois: o endereço público passava a dar 404, a app deixava de
+       mostrar o botão, e o logótipo apagado continuava no cartão de toda a
+       gente que já o tinha guardado — sem gesto nenhum na interface que o
+       tirasse de lá. E a Google nem sequer o releria: guarda a imagem numa
+       cache própria.
+
+       Também não se pode simplesmente mandar vazio: a classe de fidelização
+       EXIGE um logótipo, e uma classe sem ele é recusada. O que resta é a
+       verdade — trocar, não apagar. */
+    const publicada = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM programas WHERE negocio_id = ? AND wallet_classe IS NOT NULL'
+    ).bind(op.negocio_id).first();
+    if (publicada && publicada.n > 0) {
+      throw new Falha(
+        'Este logótipo já está em cartões guardados na carteira de clientes, '
+        + 'e essas carteiras não o largam. Troca a imagem por outra em vez de a tirar.',
+        { estado: 409, codigo: 'logotipo-publicado' });
+    }
     await env.DB.prepare('UPDATE negocios SET logotipo = NULL, logotipo_em = NULL WHERE id = ?')
       .bind(op.negocio_id).run();
     await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
@@ -1720,7 +1793,13 @@ async function bilheteDoPasse(env, cartaoId) {
 async function lerBilhete(env, bilhete) {
   const [parte, selo] = String(bilhete || '').split('.');
   if (!parte || !selo) return null;
-  const corpo = new TextDecoder().decode(deBase64url(parte));
+  /* O `deBase64url` ATIRA com entrada que não seja base64 — e um bilhete
+     truncado (um endereço partido a meio por um cliente de email, por
+     exemplo) é exactamente isso. Sem este try, o que saía era um 500 «Erro
+     interno» em vez do 403 com a frase que foi escrita para este caso. */
+  let corpo;
+  try { corpo = new TextDecoder().decode(deBase64url(parte)); }
+  catch { return null; }
   const esperado = base64url(await hmac(deBase64url(env.CHAVE_MESTRA), corpo));
   /* Comparação de tempo constante. Um `!==` sobre textos devolve mais depressa
      quanto mais cedo diferirem, e isso chega para adivinhar um selo byte a
@@ -1748,11 +1827,23 @@ async function passeDoCartao(env, cartaoId) {
       { estado: 409, codigo: 'sem-logotipo' });
   }
 
+  /* O `wallet_em` NÃO se toca aqui, e a diferença não é de nomes.
+
+     Ele quer dizer «tem um loyaltyObject na Google» — é por ele que o espelho
+     do saldo decide se manda o PATCH, e é por ele que o reconciliador da
+     madrugada escolhe os atrasados. Um cartão só-Apple marcado assim fazia o
+     Worker bater todas as noites num objecto que nunca existiu: o PATCH dava
+     404, o `wallet_sincronizado` nunca era gravado, e a linha voltava a ser
+     escolhida. Com `LIMIT 40` e sem ordenação, quarenta cartões destes
+     bastavam para nenhum cartão da Google voltar a ser reconciliado.
+
+     O `wallet_codigo` é que é partilhado, e de propósito: é o mesmo código de
+     barras nas duas carteiras. */
   const codigo = cartao.wallet_codigo || publicoNovo(16);
-  if (!cartao.wallet_codigo) {
+  if (!cartao.wallet_codigo || !cartao.apple_em) {
     await env.DB.prepare(
-      'UPDATE cartoes SET wallet_codigo = ?, wallet_em = ? WHERE id = ?'
-    ).bind(codigo, cartao.wallet_em || agora(), cartao.id).run();
+      'UPDATE cartoes SET wallet_codigo = ?, apple_em = ? WHERE id = ?'
+    ).bind(codigo, cartao.apple_em || agora(), cartao.id).run();
   }
 
   const passe = passeDeCartao(cartao, moldarPrograma(programa), negocio, {
@@ -1867,7 +1958,13 @@ rota('POST', '/v1/balcao/carimbar', async (env, pedido, _p, ctx) => {
      por passe em 24 horas: gastá-lo nos carimbos do meio deixava em silêncio
      o único que a pessoa quer sentir no bolso. */
   if (r && r.cartao && ctx) {
-    ctx.waitUntil(espelharNaWallet(env, r.cartao.id, { notificar: Boolean(r.premio) }));
+    /* `r.premio` NUNCA EXISTIU. O `carimbar()` devolve `ganhos`, que é uma
+       lista — `Boolean(r.premio)` era `false` sempre, e o único toque no
+       bolso que esta aplicação dá nunca saiu de casa. O tecto da Google são
+       três notificações por dia; gasta-se no carimbo que fecha o cartão, que
+       é o único que a pessoa quer sentir. */
+    ctx.waitUntil(espelharNaWallet(env, r.cartao.id,
+      { notificar: Boolean(r.ganhos && r.ganhos.length) }));
   }
   return r;
 });
@@ -1999,8 +2096,7 @@ rota('POST', '/v1/balcao/anular', async (env, pedido, _p, ctx) => {
 rota('GET', '/v1/balcao/clientes', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
   const linhas = (await env.DB.prepare(
-    `SELECT c.*, cl.publico, p.objetivo, p.tipo,
-            (SELECT COUNT(*) FROM premios pr WHERE pr.cartao_id = c.id AND pr.resgatado_em IS NULL) AS por_resgatar
+    `SELECT c.*, cl.publico, p.objetivo, p.tipo
        FROM cartoes c
        JOIN clientes cl ON cl.id = c.cliente_id
        JOIN programas p ON p.id = c.programa_id
@@ -2008,11 +2104,44 @@ rota('GET', '/v1/balcao/clientes', async (env, pedido) => {
       ORDER BY COALESCE(c.ultimo_em, c.aderiu_em) DESC
       LIMIT 300`
   ).bind(op.negocio_id).all()).results;
-  return linhas.map((c) => ({
-    publico: c.publico, carimbos: c.carimbos, pontos: c.pontos,
-    objetivo: c.objetivo, tipo: c.tipo,
-    ultimoEm: c.ultimo_em, aderiuEm: c.aderiu_em, porResgatar: c.por_resgatar,
-  }));
+
+  /* OS PRÉMIOS POR ENTREGAR VÃO INTEIROS, e não só contados.
+
+     Era uma contagem, e com uma contagem não se entrega nada: a lista dizia
+     «prémio» ao lado do número do cartão e não havia como o dar. O único
+     caminho para o painel de entrega era CARIMBAR — e quem já tinha carimbado
+     há menos de uma hora esbarrava no arrefecimento. Um cliente que fechasse
+     o cartão e dissesse «levo noutro dia» ficava sem café até voltar noutro
+     dia E ganhar um carimbo que não pediu.
+
+     Uma consulta para a lista toda, e não uma por cartão: a subconsulta
+     correlacionada que aqui estava corria trezentas vezes. */
+  const pendentes = (await env.DB.prepare(
+    `SELECT pr.id, pr.cartao_id, pr.descricao, pr.ganho_em
+       FROM premios pr
+       JOIN cartoes c ON c.id = pr.cartao_id
+      WHERE c.negocio_id = ? AND pr.resgatado_em IS NULL
+      ORDER BY pr.ganho_em`
+  ).bind(op.negocio_id).all()).results;
+  const porCartao = new Map();
+  for (const pr of pendentes) {
+    const lista = porCartao.get(pr.cartao_id) || [];
+    lista.push({ id: pr.id, descricao: pr.descricao, ganhoEm: pr.ganho_em });
+    porCartao.set(pr.cartao_id, lista);
+  }
+
+  return linhas.map((c) => {
+    const premios = porCartao.get(c.id) || [];
+    return {
+      publico: c.publico, carimbos: c.carimbos, pontos: c.pontos,
+      objetivo: c.objetivo, tipo: c.tipo,
+      ultimoEm: c.ultimo_em, aderiuEm: c.aderiu_em,
+      /* A contagem FICA: é o que a versão da app que está nos telemóveis lê,
+         e esta API acrescenta em vez de renomear. */
+      porResgatar: premios.length,
+      premios,
+    };
+  });
 });
 
 rota('GET', '/v1/balcao/resumo', async (env, pedido) => {

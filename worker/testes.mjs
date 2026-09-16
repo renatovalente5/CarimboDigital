@@ -353,6 +353,76 @@ grupo('O que o cliente vê');
   certo(alheio.estado === 401, 'sem sessão não vê cartão nenhum');
 }
 
+grupo('O código do passe carimba mesmo');
+{
+  /* ESTE É O TESTE QUE FALTAVA, e a falta dele custou a funcionalidade toda.
+
+     Havia duas afirmações a dizer que o código de barras «leva o prefixo W1.,
+     por onde o balcão reconhece um passe» — e as duas olhavam para o texto
+     que o `wallet.js` escreve, nenhuma o mandava ao balcão. O `carimbar()`
+     não tinha ramo nenhum para `W1.`: caía no `else` e respondia «Este código
+     não é de um cartão Carimbo Digital». Um cliente com o cartão na carteira
+     do telemóvel mostrava-o ao café e não levava carimbo.
+
+     Uma afirmação sobre o que uma função ESCREVE não prova que alguém saiba
+     LER — é preciso fechar o círculo, mandando ao balcão o mesmo texto que
+     vai dentro do passe. */
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST' });
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: c.dados.sessao,
+    corpo: { programaId: 'p1' } });
+  const meus = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  const cartaoId = meus.dados[0].id;
+
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+  /* Sem logótipo não há passe — a Google recusa a classe. Põe-se aqui porque
+     este grupo corre antes daquele que grava um. */
+  sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}',
+       logotipo_em = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 'n1'`);
+  const passe = await pedir(`/v1/cliente/cartoes/${cartaoId}/wallet`,
+    { metodo: 'POST', sessao: c.dados.sessao });
+  certo(passe.estado === 200, 'o cartão ganha passe na carteira', String(passe.estado));
+
+  /* O código que ficou GRAVADO, que é o que vai no QR do passe. */
+  const guardado = (() => {
+    const o = sql(`SELECT wallet_codigo FROM cartoes WHERE id = '${cartaoId}'`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results[0].wallet_codigo;
+  })();
+  certo(typeof guardado === 'string' && guardado.length === 16,
+    'e esse passe tem um código próprio, que não é o número do cliente',
+    String(guardado));
+  certo(typeof guardado === 'string' && guardado !== c.dados.cliente.publico,
+    'mesmo — é um token à parte, para se poder revogar um passe fotografado',
+    `${guardado} vs ${c.dados.cliente.publico}`);
+
+  const lido = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `W1.${guardado}`, programaId: 'p1' } });
+  certo(lido.estado === 200,
+    'O BALCÃO CARIMBA O CÓDIGO DO PASSE — era isto que não acontecia',
+    `${lido.estado} ${JSON.stringify(lido.dados).slice(0, 90)}`);
+  certo(lido.dados.cartao && lido.dados.cartao.carimbos === 1,
+    'e o carimbo cai no cartão certo', JSON.stringify(lido.dados.cartao?.carimbos));
+  certo(lido.dados.cliente && lido.dados.cliente.publico === c.dados.cliente.publico,
+    'e é mesmo o cliente do passe', JSON.stringify(lido.dados.cliente));
+
+  const movimento = (() => {
+    const o = sql(`SELECT manual FROM movimentos WHERE cartao_id = '${cartaoId}'
+                    AND tipo = 'carimbo' ORDER BY em DESC LIMIT 1`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results[0];
+  })();
+  certo(movimento && movimento.manual === 0,
+    'e não fica marcado como escrito à mão — quem leu isto foi a câmara',
+    JSON.stringify(movimento));
+
+  const inventado = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: 'W1.NAOEXISTENADA0', programaId: 'p1' } });
+  certo(inventado.estado === 404 && inventado.dados.codigo === 'sem-passe',
+    'um passe que já não vale diz-se com uma frase, e não com um 500',
+    `${inventado.estado} ${inventado.dados.codigo}`);
+
+  sql(`UPDATE programas SET arrefecimento = 3600, maximo_diario = 4 WHERE id = 'p1'`);
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
+}
+
 grupo('Descobrir');
 {
   const r = await pedir('/v1/descobrir');
@@ -360,6 +430,37 @@ grupo('Descobrir');
   certo(!!r.dados[0].programas?.length, 'com os programas de cada um');
   const p = await pedir('/v1/p/o-meu-cafe');
   certo(p.estado === 200 && p.dados.nome === 'O Meu Café', 'a página pública do negócio existe');
+
+  /* UM NEGÓCIO DE DEMONSTRAÇÃO NÃO SE ANUNCIA.
+     Há um café em produção que não existe na rua: é o banco de provas, e
+     provar um cartão de fidelidade a sério exige uma loja com clientes,
+     carimbos e prémios. Só que ele estava nesta lista, ao lado de uma
+     barbearia que existe, e alguém em Ovar podia juntar o cartão de uma porta
+     que não abre. O endereço PRÓPRIO continua a responder — é o que o cartaz
+     e o código QR usam, e sem isso a marca deixava de haver forma de provar
+     seja o que for. */
+  const antes = (await pedir('/v1/descobrir')).dados.length;
+  sql(`UPDATE negocios SET demonstracao = 1 WHERE id = 'n1'`);
+  const lista = await pedir('/v1/descobrir');
+  certo(lista.dados.length === antes - 1,
+    'um negócio marcado como demonstração sai da lista pública',
+    `${antes} → ${lista.dados.length}`);
+  certo(!lista.dados.some((n) => n.slug === 'o-meu-cafe'),
+    'e é mesmo ele que sai', JSON.stringify(lista.dados.map((n) => n.slug)));
+
+  const directo = await pedir('/v1/p/o-meu-cafe');
+  certo(directo.estado === 200 && directo.dados.nome === 'O Meu Café',
+    'mas o endereço próprio continua a responder — é o que o cartaz e o QR usam',
+    String(directo.estado));
+
+  const noBalcao = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
+  certo(noBalcao.dados.negocio.demonstracao === true,
+    'e o balcão sabe-o, para poder dizer ao dono porque é que não aparece na lista',
+    JSON.stringify(noBalcao.dados.negocio.demonstracao));
+
+  sql(`UPDATE negocios SET demonstracao = 0 WHERE id = 'n1'`);
+  certo((await pedir('/v1/descobrir')).dados.length === antes,
+    'e tirar a marca devolve-o à lista', String(antes));
 }
 
 grupo('RGPD');
@@ -396,6 +497,27 @@ grupo('Entregar e anular: o que o café não pode perder duas vezes');
   const premio = r.dados.ganhos[0].id;
   const movimento = r.dados.movimentoId;
 
+  /* --- ENTREGAR SEM CARIMBAR -------------------------------------------
+     A lista de clientes dizia «prémio» ao lado do número do cartão e mandava
+     só uma CONTAGEM. Com uma contagem não se entrega nada: o balcão precisa
+     do id. E o único caminho para o painel de entrega era carimbar outra
+     vez — que o arrefecimento fecha durante uma hora. Quem fechasse o cartão
+     e dissesse «levo noutro dia» ficava sem café até voltar noutro dia e
+     ganhar um carimbo que não pediu. */
+  {
+    const lista = await pedir('/v1/balcao/clientes', { sessao: sessaoBalcao });
+    const dele = lista.dados.find((x) => x.publico === c.dados.cliente.publico);
+    certo(dele && Array.isArray(dele.premios) && dele.premios.length === 1,
+      'a lista de clientes traz os prémios por entregar, e não só a conta deles',
+      JSON.stringify(dele && { porResgatar: dele.porResgatar, premios: dele.premios }));
+    certo(dele && dele.premios[0].id === premio && dele.premios[0].descricao,
+      'com o id, que é o que permite entregá-lo daqui',
+      JSON.stringify(dele && dele.premios[0]));
+    certo(dele && dele.porResgatar === 1,
+      'e a contagem antiga fica — esta API acrescenta, não renomeia',
+      String(dele && dele.porResgatar));
+  }
+
   /* --- entregar duas vezes ---------------------------------------------- */
   const uma = await pedir('/v1/balcao/resgatar', { metodo: 'POST', sessao: sessaoBalcao,
     corpo: { premioId: premio, operador: 'Balcão' } });
@@ -407,6 +529,16 @@ grupo('Entregar e anular: o que o café não pode perder duas vezes');
   const historico = sql(`SELECT COUNT(*) AS n FROM movimentos
                           WHERE tipo = 'resgate' AND cartao_id = '${r.dados.cartao.id}'`);
   certo(/"n":\s*1/.test(historico), 'e fica um resgate no histórico, não dois', historico.slice(0, 90));
+
+  {
+    /* E depois de entregue some da lista: um prémio entregue que continuasse
+       a aparecer punha o balcão a dá-lo outra vez. */
+    const lista = await pedir('/v1/balcao/clientes', { sessao: sessaoBalcao });
+    const dele = lista.dados.find((x) => x.publico === c.dados.cliente.publico);
+    certo(dele && dele.premios.length === 0 && dele.porResgatar === 0,
+      'e depois de entregue sai da lista de por-entregar',
+      JSON.stringify(dele && { porResgatar: dele.porResgatar, premios: dele.premios }));
+  }
 
   /* --- anular por cima de um prémio já entregue -------------------------- */
   const tarde = await pedir('/v1/balcao/anular', { metodo: 'POST', sessao: sessaoBalcao,
@@ -852,6 +984,26 @@ grupo('O logótipo do negócio');
   {
     const r = await guardar(null);
     certo(r.estado === 200 && r.dados.logotipo === null, 'tirar a imagem é pôr a null', String(r.estado));
+
+    {
+      /* MAS NÃO SE TIRA O QUE JÁ ESTÁ EM CARTEIRAS ALHEIAS. O PATCH que ia
+         para a Google OMITIA o `programLogo` quando não havia logótipo — e um
+         PATCH que omite deixa lá o valor antigo. O endereço público passava a
+         dar 404, o botão desaparecia da app, e o logótipo apagado ficava no
+         cartão de toda a gente que já o tinha guardado, para sempre. */
+      await guardar(`data:image/png;base64,${PNG}`);
+      sql(`UPDATE programas SET wallet_classe = '2026-09-16T00:00:00.000Z' WHERE id = 'p1'`);
+      const recusa = await guardar(null);
+      certo(recusa.estado === 409 && recusa.dados.codigo === 'logotipo-publicado',
+        'um logótipo que já está em carteiras de clientes não se apaga — troca-se',
+        `${recusa.estado} ${recusa.dados.codigo}`);
+      certo(/troca/i.test(String(recusa.dados.erro)),
+        'e diz-se o que fazer em vez disso', String(recusa.dados.erro));
+      const trocar = await guardar(`data:image/png;base64,${PNG}`);
+      certo(trocar.estado === 200, 'trocar continua a poder-se', String(trocar.estado));
+      sql(`UPDATE programas SET wallet_classe = NULL WHERE id = 'p1'`);
+      await guardar(null);
+    }
     const n = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
     certo(n.dados.negocio.logotipo === false, 'e o balcão passa a dizer que não há');
   }
@@ -1477,6 +1629,59 @@ grupo('A Wallet, de ponta a ponta');
   }
 
   {
+    /* O CARIMBO QUE FECHA O CARTÃO NOTIFICA, e não notificava.
+
+       A chamada dizia `notificar: Boolean(r.premio)` — e o `carimbar()`
+       devolve `ganhos`, que é uma lista. Nunca houve um `r.premio`: a
+       expressão era `false` sempre, e o único toque no bolso que esta
+       aplicação dá nunca saiu de casa. A Google dá três notificações por dia
+       e gasta-se no carimbo que a pessoa quer sentir — este. */
+    /* CLIENTE PRÓPRIO. Encher um cartão gasta o arrefecimento e o tecto
+       diário dele, e os blocos a seguir contam com o cartão partilhado como
+       ele estava — um teste que estraga o estado de outro só se nota à
+       segunda vez, que é quando já ninguém liga o resultado à causa. */
+    const dele = await pedir('/v1/cliente/registar', { metodo: 'POST' });
+    await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: dele.dados.sessao,
+      corpo: { programaId: 'p1' } });
+    const oCartao = (await pedir('/v1/cliente/cartoes', { sessao: dele.dados.sessao })).dados[0].id;
+    /* Só um cartão COM passe é espelhado — é o `wallet_em` que abre essa porta. */
+    await pedir(`/v1/cliente/cartoes/${oCartao}/wallet`,
+      { metodo: 'POST', sessao: dele.dados.sessao });
+
+    await limpar();
+    /* GUARDA-SE O QUE ESTAVA, em vez de se repor um valor a adivinhar. Pôr
+       3600 de volta «porque é o normal» partiu o bloco seguinte, que contava
+       com o zero que o bloco anterior tinha deixado. Quem mexe repõe o que
+       encontrou, não o que julga ser o certo. */
+    const antesDoPrograma = (() => {
+      const o = sql(`SELECT arrefecimento, maximo_diario FROM programas WHERE id = 'p1'`);
+      return JSON.parse(o.slice(o.indexOf('[')))[0].results[0];
+    })();
+    sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+    let fechou = null;
+    for (let i = 0; i < 12 && !fechou; i += 1) {
+      const c = await pedir('/v1/balcao/carimbar', {
+        metodo: 'POST', sessao: sessaoBalcao,
+        corpo: { codigo: `M1.${dele.dados.cliente.publico}`, programaId: 'p1', manual: true } });
+      if (c.dados && c.dados.ganhos && c.dados.ganhos.length) fechou = c.dados;
+    }
+    certo(fechou, 'enche-se o cartão até sair o prémio', JSON.stringify(fechou && fechou.ganhos));
+    await assentar();
+    const comAviso = (await visto()).filter((x) => x.metodo === 'PATCH'
+      && x.corpo && x.corpo.notifyPreference);
+    certo(comAviso.length >= 1,
+      'o carimbo que FECHA o cartão pede à Google para tocar no bolso da pessoa',
+      JSON.stringify((await visto()).filter((x) => x.metodo === 'PATCH')
+        .map((x) => x.corpo && x.corpo.notifyPreference)));
+    certo(comAviso[0] && comAviso[0].corpo.notifyPreference === 'NOTIFY_ON_UPDATE',
+      'e pede-o com o nome que ela conhece',
+      String(comAviso[0] && comAviso[0].corpo.notifyPreference));
+    sql(`UPDATE programas SET arrefecimento = ${antesDoPrograma.arrefecimento},
+         maximo_diario = ${antesDoPrograma.maximo_diario} WHERE id = 'p1'`);
+    await pedir('/v1/cliente', { metodo: 'DELETE', sessao: dele.dados.sessao });
+  }
+
+  {
     /* A GOOGLE EM BAIXO NÃO PODE FAZER FALHAR UM CARIMBO. É a promessa
        inteira do `waitUntil`: o carimbo grava-se no D1 aconteça o que
        acontecer, e o que falhar fica para o reconciliador. */
@@ -1897,6 +2102,28 @@ grupo('O passe da Apple, de ponta a ponta');
 
   {
     /* E a app tem de SABER que pode mostrar o botão. */
+    /* O PASSE DA APPLE NÃO MARCA O CARTÃO COMO SENDO DA GOOGLE.
+
+       O `wallet_em` quer dizer «tem um loyaltyObject na Google»: é por ele
+       que o espelho do saldo decide se manda o PATCH, e é por ele que o
+       reconciliador da madrugada escolhe os atrasados. Um cartão só-Apple
+       marcado assim punha o Worker a bater todas as noites num objecto que
+       nunca existiu — e como a consulta leva `LIMIT 40` sem ordenação,
+       quarenta destes bastavam para nenhum cartão da Google voltar a ser
+       reconciliado, em silêncio. */
+    const colunas = (() => {
+      const o = sql(`SELECT wallet_codigo, wallet_em, apple_em FROM cartoes WHERE id = '${cartaoId}'`);
+      return JSON.parse(o.slice(o.indexOf('[')))[0].results[0];
+    })();
+    certo(colunas.apple_em, 'o passe da Apple marca a coluna da Apple',
+      JSON.stringify(colunas));
+    certo(colunas.wallet_em === null,
+      'e NÃO marca a da Google — senão o reconciliador persegue para sempre um objecto que não existe',
+      JSON.stringify(colunas));
+    certo(colunas.wallet_codigo && colunas.wallet_codigo.length === 16,
+      'o código do passe é um só para as duas carteiras — é o mesmo código de barras',
+      JSON.stringify(colunas.wallet_codigo));
+
     const c = await pedir(`/v1/cliente/cartoes/${cartaoId}`, { sessao: sessaoA });
     certo(c.dados.carteiras && c.dados.carteiras.apple === true,
       'o cartão diz à app que a Apple está pronta neste Worker',

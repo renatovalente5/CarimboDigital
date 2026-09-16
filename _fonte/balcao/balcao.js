@@ -529,8 +529,15 @@ async function ecraClientes(principal) {
 
   const lista = el('div', { class: 'lista' });
   for (const c of clientes) {
-    lista.append(el('div', { class: 'linha' },
-      el('span', { class: 'linha-icone', html: icone('cartoes', { tamanho: 20 }) }),
+    /* QUEM TEM PRÉMIO É UM BOTÃO, e quem não tem é uma linha parada.
+
+       A lista dizia «prémio» e não fazia nada. O único caminho para o painel
+       de entrega era carimbar outra vez — e quem tinha acabado de fechar o
+       cartão esbarrava no arrefecimento de uma hora. O cliente que dissesse
+       «levo noutro dia» ficava sem café, e o balcão sem forma de lho dar. */
+    const premios = c.premios || [];
+    const dentro = [
+      el('span', { class: 'linha-icone', html: icone(premios.length ? 'presente' : 'cartoes', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { class: 'mono', texto: c.publico }),
         el('span', { texto: c.tipo === 'pontos'
@@ -538,9 +545,59 @@ async function ecraClientes(principal) {
           : `${c.carimbos}/${c.objetivo} · última visita ${c.ultimoEm ? haQuanto(c.ultimoEm) : '—'}` })),
       c.porResgatar
         ? el('span', { class: 'etiqueta etiqueta-bom', texto: 'prémio' })
-        : el('span', { class: 'linha-fim', texto: '' })));
+        : el('span', { class: 'linha-fim', texto: '' }),
+    ];
+    lista.append(premios.length
+      ? el('button', {
+          class: 'linha', type: 'button',
+          'aria-label': `Entregar o prémio de ${c.publico}`,
+          aoClick: () => painelEntrega(c),
+        }, ...dentro)
+      : el('div', { class: 'linha' }, ...dentro));
   }
   principal.append(lista);
+}
+
+/**
+ * Entregar um prémio sem carimbar.
+ *
+ * O painel do carimbo já sabia mostrar os prémios por entregar — mas só se
+ * chegava lá carimbando, e o arrefecimento fecha essa porta durante uma hora.
+ * Este abre-se a partir da lista de clientes, a qualquer hora, e não mexe no
+ * cartão: entrega o que já estava ganho.
+ */
+function painelEntrega(cliente) {
+  const folha = abrirPainel(`Cartão ${cliente.publico}`);
+  const premios = cliente.premios || [];
+  folha.append(el('p', { class: 'subtexto', texto: premios.length === 1
+    ? 'Tem um prémio por levantar.'
+    : `Tem ${premios.length} prémios por levantar.` }));
+
+  for (const g of premios) {
+    folha.append(el('button', {
+      class: 'btn btn-cheio btn-grande btn-bloco',
+      style: 'margin-top:10px',
+      html: icone('presente', { tamanho: 18 }) + `<span>Entreguei: ${seguro(g.descricao)}</span>`,
+      /* O `ev.currentTarget` vale null depois do primeiro await — guarda-se
+         antes, senão o catch rebenta a si próprio e o botão fica morto. */
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.disabled = true;
+        try {
+          await api.resgatar({ premioId: g.id, operador: estado.operador?.nome || 'Balcão' });
+          avisar('Prémio entregue.', 'bom');
+          fecharPainel();
+          irPara('clientes');
+        } catch (e) {
+          botao.disabled = false;
+          avisar(e.message || 'Não deu para registar a entrega.', 'mau');
+        }
+      },
+    }));
+  }
+
+  folha.append(el('p', { class: 'miudo', style: 'margin-top:14px', texto:
+    'Isto não carimba o cartão — entrega o que já estava ganho.' }));
 }
 
 /* =========================================================================
@@ -738,6 +795,16 @@ async function ecraPrograma(principal) {
   const p = estado.programa;
   principal.append(el('h1', { class: 'titulo-grande', texto: 'O meu cartão' }));
   principal.append(el('p', { class: 'subtexto', texto: 'É assim que os clientes o vêem.' }));
+
+  /* Um negócio de demonstração não aparece na lista pública. Sem esta linha,
+     o dono via o cartão certo e o seu café em lado nenhum, e não tinha por
+     onde perceber porquê. */
+  if (estado.negocio.demonstracao) {
+    principal.append(el('div', { class: 'aviso-demo' },
+      el('b', { texto: 'Este negócio está marcado como demonstração.' }),
+      el('span', { texto: 'Não aparece no «Descobrir» da app. O cartaz e o '
+        + 'endereço próprio continuam a funcionar.' })));
+  }
 
   const previa = el('div', { class: 'cartao', id: 'previa' });
   principal.append(previa);

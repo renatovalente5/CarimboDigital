@@ -400,6 +400,143 @@ export async function correr(palco, certo) {
     'Clientes sem ninguém: não sobra nenhuma linha de lista',
     String(await palco.contar('#principal .lista .linha')));
 
+
+  /* --- Clientes: entregar um prémio SEM carimbar -------------------------
+     A lista dizia «prémio» ao lado do número do cartão e não fazia nada — era
+     uma etiqueta e não um botão, e a API mandava só uma CONTAGEM, sem o id
+     que permite entregar. O único caminho para o painel de entrega era
+     carimbar outra vez, e o arrefecimento fecha essa porta durante uma hora.
+     Quem fechasse o cartão e dissesse «levo noutro dia» ficava sem café até
+     voltar noutro dia E ganhar um carimbo que não pediu.
+
+     Isto conduz-se a sério: põe-se um cliente com um prémio por levantar,
+     abre-se a lista, toca-se na linha e entrega-se.
+     -------------------------------------------------------------------- */
+  {
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const n = e.negocios.find((x) => x.id === 'n-torrado') || e.negocios[0];
+      const p = n.programas[0];
+      const agora = new Date().toISOString();
+      e.clientes.push({ id: 'cli-premio', publico: 'PREMI0', criadoEm: agora });
+      e.cartoes.push({ id: 'car-premio', clienteId: 'cli-premio', programaId: p.id,
+        negocioId: n.id, carimbos: 0, pontos: 0, totalCarimbos: p.objetivo,
+        premiosGanhos: 1, aderiuEm: agora, ultimoEm: agora });
+      e.premios.push({ id: 'pr-1', cartaoId: 'car-premio', descricao: p.premio,
+        ganhoEm: agora, resgatadoEm: null });
+      /* E um sem prémio nenhum, para a linha parada ter com que ser comparada. */
+      e.clientes.push({ id: 'cli-sem', publico: 'SEMPR3', criadoEm: agora });
+      e.cartoes.push({ id: 'car-sem', clienteId: 'cli-sem', programaId: p.id,
+        negocioId: n.id, carimbos: 2, pontos: 0, totalCarimbos: 2,
+        premiosGanhos: 0, aderiuEm: agora, ultimoEm: agora });
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+
+    await palco.recarregar();
+    await palco.esperar('#barra .barra-item', 12000);
+    await esperarCamara(palco);
+    await irAo(palco, 'clientes');
+    await palco.esperar('#principal .lista .linha', 8000);
+
+    const linhas = await palco.js(`
+      return [...document.querySelectorAll('#principal .lista > .linha')].map((l) => ({
+        publico: l.querySelector('.linha-texto b')?.textContent.trim() ?? null,
+        etiqueta: l.querySelector('.etiqueta')?.textContent.trim() ?? null,
+        botao: l.tagName === 'BUTTON',
+        nome: l.getAttribute('aria-label'),
+      }));`);
+
+    const comPremio = linhas.find((l) => l.publico === 'PREMI0');
+    const semPremio = linhas.find((l) => l.publico === 'SEMPR3');
+
+    certo(comPremio && comPremio.etiqueta === 'prémio',
+      'Clientes: quem tem prémio por levantar aparece marcado',
+      JSON.stringify(comPremio));
+    certo(comPremio && comPremio.botao === true,
+      'Clientes: e essa linha é um BOTÃO — era só uma etiqueta, e não havia como entregar',
+      JSON.stringify(comPremio));
+    certo(comPremio && /entregar o pr[ée]mio/i.test(String(comPremio.nome)),
+      'Clientes: quem ouve o ecrã ouve o que a linha faz',
+      String(comPremio && comPremio.nome));
+    certo(semPremio && semPremio.botao === false,
+      'Clientes: e quem não tem prémio continua a ser uma linha parada, não um botão morto',
+      JSON.stringify(semPremio));
+
+    /* Toca-se e entrega-se. O `esperar` NÃO pode atirar: um `esperar` que
+       rebenta mata o módulo, e com ele as dezenas de afirmações que vêm a
+       seguir — uma coisa partida tem de dar UMA falha, não um apagão. */
+    await palco.js(`
+      const l = [...document.querySelectorAll('#principal .lista > .linha')]
+        .find((x) => x.querySelector('.linha-texto b')?.textContent.trim() === 'PREMI0');
+      if (l) l.click();
+      return true;`);
+    const abriu = await palco.esperar('#painel', 8000).then(() => true, () => false);
+    certo(abriu, 'Clientes: tocar na linha abre um painel');
+
+    const painel = !abriu ? null : await palco.js(`
+      const f = document.querySelector('#painel .painel-folha');
+      if (!f) return null;
+      return {
+        titulo: f.querySelector('h2')?.textContent.trim() ?? null,
+        texto: f.innerText.replace(/\\s+/g, ' ').trim(),
+        botoes: [...f.querySelectorAll('button')].map((b) => b.textContent.trim()),
+      };`);
+    certo(painel && /PREMI0/.test(String(painel.titulo)),
+      'Clientes: tocar na linha abre o painel do cartão certo',
+      JSON.stringify(painel && painel.titulo));
+    certo(painel && painel.botoes.some((b) => /^Entreguei:/.test(b)),
+      'Clientes: com o botão de entregar lá dentro',
+      JSON.stringify(painel && painel.botoes));
+    certo(painel && /não carimba/i.test(painel.texto),
+      'Clientes: e a dizer que isto NÃO carimba — senão o dono pensa que está a dar um carimbo',
+      String(painel && painel.texto).slice(0, 120));
+
+    await palco.js(`
+      const b = [...document.querySelectorAll('#painel button')]
+        .find((x) => /^Entreguei:/.test(x.textContent.trim()));
+      if (b) b.click();
+      return true;`);
+    await palco.esperar('#principal .lista .linha', 8000).then(() => {}, () => {});
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const guardado = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const pr = e.premios.find((x) => x.id === 'pr-1');
+      return { resgatado: Boolean(pr && pr.resgatadoEm), por: pr && pr.resgatadoPor };`);
+    certo(guardado && guardado.resgatado === true,
+      'Clientes: entregar pelo painel marca mesmo o prémio como levantado',
+      JSON.stringify(guardado));
+
+    const depois = await palco.js(`
+      return [...document.querySelectorAll('#principal .lista > .linha')].map((l) => ({
+        publico: l.querySelector('.linha-texto b')?.textContent.trim() ?? null,
+        etiqueta: l.querySelector('.etiqueta')?.textContent.trim() ?? null,
+        botao: l.tagName === 'BUTTON',
+      }));`);
+    const agora = depois.find((l) => l.publico === 'PREMI0');
+    certo(agora && !agora.etiqueta && agora.botao === false,
+      'Clientes: e a linha volta a ser uma linha — o prémio já saiu pela porta',
+      JSON.stringify(agora));
+
+    /* O cartão NÃO foi carimbado: entregar um prémio não é uma visita. */
+    const cartao = await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      const c = e.cartoes.find((x) => x.id === 'car-premio');
+      return { carimbos: c.carimbos, total: c.totalCarimbos };`);
+    certo(cartao && cartao.carimbos === 0 && cartao.total === 10,
+      'Clientes: e entregar não carimbou nada — o cartão ficou como estava',
+      JSON.stringify(cartao));
+
+    /* Levanta-se a mesa: a demonstração sobrevive entre módulos. */
+    await palco.js(`
+      const e = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+      e.clientes = e.clientes.filter((x) => !['cli-premio','cli-sem'].includes(x.id));
+      e.cartoes = e.cartoes.filter((x) => !['car-premio','car-sem'].includes(x.id));
+      e.premios = e.premios.filter((x) => x.id !== 'pr-1');
+      localStorage.setItem('carimbo-demo:demo', JSON.stringify(e));
+      return true;`);
+  }
+
   /* --- O cartão ---------------------------------------------------------- */
 
   await irAo(palco, 'programa');

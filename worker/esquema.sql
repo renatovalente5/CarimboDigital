@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS negocios (
   sitio        TEXT,
   estado       TEXT NOT NULL DEFAULT 'ativo',   -- ativo | suspenso
   criado_em    TEXT NOT NULL,
-  convite      TEXT                                -- de que convite nasceu
+  convite      TEXT,                               -- de que convite nasceu
+  -- Um negócio que não existe, e que serve para provar a aplicação contra a
+  -- produção a sério. Fica FORA da lista pública do «Descobrir», mas o
+  -- endereço próprio continua a responder — é o que o cartaz e o QR usam.
+  demonstracao INTEGER NOT NULL DEFAULT 0
 );
 
 -- --- programas ----------------------------------------------------------
@@ -99,9 +103,15 @@ CREATE TABLE IF NOT EXISTS cartoes (
   aderiu_em        TEXT NOT NULL,
   -- O passe na Wallet. O `wallet_codigo` é um token PRÓPRIO e não o `publico`
   -- do cliente: um passe fotografado revoga-se sem mexer no cartão da pessoa.
+  -- O `wallet_codigo` é de AMBAS as carteiras: é o mesmo código de barras, e é
+  -- por ele que o balcão reconhece um passe (ver o ramo `W1.` do `carimbar`).
   wallet_codigo    TEXT,
+  -- Estes dois são só da GOOGLE: «tem loyaltyObject lá fora» e «quando foi
+  -- espelhado». Marcar um cartão só-Apple aqui punha o reconciliador da
+  -- madrugada a bater num objecto que nunca existiu, todas as noites.
   wallet_em        TEXT,
   wallet_sincronizado TEXT,
+  apple_em         TEXT,                          -- e este é o da Apple
   ultimo_em        TEXT,
   UNIQUE (cliente_id, programa_id)
 );
