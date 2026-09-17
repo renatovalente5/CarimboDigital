@@ -344,17 +344,21 @@ export function emailCodigoCliente({ codigo, minutos = 15, entidade } = {}) {
   ].join('\n');
 
   return {
-    assunto: `${codigoLimpo} — o teu código Carimbo Digital`,
+    /* Ver o comentário no `emailCodigoBalcao`: a palavra «código» vai colada
+       aos algarismos, nos dois sítios que aparecem na notificação, porque é
+       isso que o telemóvel lê para oferecer o código por cima do teclado. */
+    assunto: `Código ${codigoLimpo} — Carimbo Digital`,
     html: molde({
       titulo: 'O teu código Carimbo Digital',
-      preheader: `Escreve ${codigoLimpo} na app. Vale ${minutos} minutos.`,
+      preheader: `O teu código é ${codigoLimpo}. Escreve-o na app. `
+        + `Vale ${minutos} minutos.`,
       corpo,
       entidade,
     }),
     texto: [
       'O teu código Carimbo Digital',
       '',
-      `    ${codigoLimpo}`,
+      `O teu código é ${codigoLimpo}`,
       '',
       'Escreve-o na app para guardares os teus cartões. Assim, se mudares de',
       'telemóvel, eles vão contigo.',
@@ -464,17 +468,32 @@ export function emailCodigoBalcao({ codigo, minutos = 15, negocio, entidade } = 
   ].join('\n');
 
   return {
-    assunto: `${codigoLimpo} — entrar no Carimbo Digital Balcão`,
+    /* A PALAVRA «CÓDIGO» TEM DE ESTAR COLADA AOS ALGARISMOS, e isto não é
+       estilo: é o que decide se o telemóvel oferece o código por cima do
+       teclado ou se a pessoa o escreve à mão.
+
+       Até ao iOS 18 isto só funcionava com o Mail da Apple. No iOS 26 passou a
+       funcionar com o Gmail e o resto — mas lendo o TEXTO DA NOTIFICAÇÃO, à
+       procura de um padrão do género «o teu código de verificação é 123456».
+
+       O que estava aqui era `123840 — entrar no Carimbo Digital Balcão` e
+       `Escreve 123840 no telemóvel do balcão`. Em nenhum dos dois a palavra
+       «código» aparece ao pé do número: um traz o número solto seguido de um
+       travessão, o outro traz um verbo. Foi visto numa captura de um iPhone a
+       sério, com a notificação do Gmail em cima do ecrã e a barra do teclado
+       vazia por baixo. */
+    assunto: `Código ${codigoLimpo} — entrar no Carimbo Digital Balcão`,
     html: molde({
       titulo: 'Entrar no Carimbo Digital Balcão',
-      preheader: `Escreve ${codigoLimpo} no telemóvel do balcão. Vale ${minutos} minutos.`,
+      preheader: `O teu código é ${codigoLimpo}. Escreve-o no telemóvel do balcão. `
+        + `Vale ${minutos} minutos.`,
       corpo,
       entidade,
     }),
     texto: [
       'Entrar no Carimbo Digital Balcão',
       '',
-      `    ${codigoLimpo}`,
+      `O teu código é ${codigoLimpo}`,
       '',
       `Escreve este código no telemóvel do balcão${negocio ? ` de ${negocio}` : ''}.`,
       `Vale ${minutos} minutos e só serve uma vez.`,

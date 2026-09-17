@@ -239,16 +239,43 @@ async function lerSessao(env, pedido) {
   const cabecalho = pedido.headers.get('authorization') || '';
   const testemunho = cabecalho.startsWith('Bearer ') ? cabecalho.slice(7) : null;
   if (!testemunho) return null;
+  /* Calcula-se UMA vez: é um SHA-256 e usa-se em três sítios desta função. */
+  const digerido = await resumo(testemunho);
   const linha = await env.DB.prepare(
     'SELECT sujeito, expira_em FROM sessoes WHERE resumo = ?'
-  ).bind(await resumo(testemunho)).first();
+  ).bind(digerido).first();
   if (!linha) return null;
   if (expirado(linha.expira_em)) return null;
+
+  /* A SESSÃO DESLIZA. Contava 180 dias a partir do dia em que nasceu, e usá-la
+     não a esticava — um balcão aberto todos os dias sem falhar um era posto
+     fora ao fim de seis meses, sem aviso, a meio de um turno. Não é o que
+     alguém espera de um aparelho que vive em cima de um balcão: espera entrar
+     uma vez e nunca mais pensar nisso.
+
+     ESCREVE-SE NO MÁXIMO UMA VEZ POR DIA, e isso é o que a torna barata. A
+     condição está dentro do próprio UPDATE — só mexe se faltar menos de
+     `SESSAO_DIAS - 1`, ou seja, só uma vez em cada 24 horas por sessão. Sem
+     ela, cada pedido do balcão era uma escrita no D1, que tem tecto diário e é
+     partilhado com tudo o resto. É a mesma manha do `marcarVisto`.
+
+     Falhar aqui não pode derrubar o pedido: quem está a carimbar um café não
+     tem nada que ver com o prazo da sessão dele. */
+  try {
+    const novoPrazo = new Date(Date.now() + SESSAO_DIAS * 86400000).toISOString();
+    const limite = new Date(Date.now() + (SESSAO_DIAS - 1) * 86400000).toISOString();
+    await env.DB.prepare(
+      'UPDATE sessoes SET expira_em = ? WHERE resumo = ? AND expira_em < ?'
+    ).bind(novoPrazo, digerido, limite).run();
+  } catch (erro) {
+    console.error('sessao: não deu para renovar o prazo', String(erro));
+  }
+
   const [tipo, valor] = linha.sujeito.split(':');
   /* O `resumo` vai junto para quem precise de distinguir ESTA sessão das
      outras da mesma conta — é o que permite expulsar os outros aparelhos sem
      se expulsar a si próprio. Acrescenta-se um campo; não se muda nenhum. */
-  return { tipo, id: valor, resumo: await resumo(testemunho) };
+  return { tipo, id: valor, resumo: digerido };
 }
 
 async function exigirCliente(env, pedido) {
@@ -1106,27 +1133,28 @@ async function fundirContas(env, { origem, destino, modo }) {
     throw new Falha('Essa conta já foi fundida.', { estado: 409, codigo: 'fusao-sombra' });
   }
 
-  /* --- O PRÉMIO POR LEVANTAR TRAVA A FUSÃO -------------------------------
-     Esta é a regra conservadora, e está isolada aqui de propósito porque é uma
-     DECISÃO DE PRODUTO por confirmar (ver PLANO-LOGIN.md §4). Um prémio por
-     levantar vale dinheiro do café: os carimbos ficam pelo maior, mas os
-     prémios já ganhos passariam todos, e quem andasse com dois números no
-     mesmo café juntava dois cafés grátis num só cartão.
+  /* --- OS PRÉMIOS PASSAM TODOS ---------------------------------------
+     Esteve aqui uma trava: a fusão era recusada se houvesse um prémio por
+     levantar de qualquer dos lados. Era a regra conservadora, e estava escrita
+     como decisão por confirmar. Foi confirmada ao contrário, pelo dono: os
+     prémios juntam-se.
 
-     Recusar não perde nada e é reversível — a pessoa levanta o que tem e funde
-     a seguir. A alternativa (deixar passar, com confirmação do balcão) é mais
-     trabalho e mais superfície, e não se escolhe sozinha. Enquanto não houver
-     decisão, fica a que não dá nada a ninguém por engano. */
-  const pendentes = (await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM premios pr
-       JOIN cartoes c ON c.id = pr.cartao_id
-      WHERE c.cliente_id IN (?, ?) AND pr.resgatado_em IS NULL`
-  ).bind(origem, destino).first()).n;
-  if (pendentes > 0) {
-    throw new Falha(
-      'Levanta primeiro os prémios que tens à espera e depois junta as contas.',
-      { estado: 409, codigo: 'fusao-premios', premios: pendentes });
-  }
+     E é defensável. Um prémio por levantar é uma dívida do café a alguém que
+     JÁ fez as visitas — os carimbos que o geraram foram dados ao balcão, um a
+     um. Recusar a fusão não apagava a dívida: só obrigava a pessoa a ir ao
+     café levantar o prémio antes de poder juntar as contas, e ficava com o
+     mesmo número de cafés grátis no fim. A trava incomodava quem tinha razão e
+     não impedia nada a quem não tivesse.
+
+     Não é preciso código para os mover: um prémio pende de um CARTÃO, e os
+     cartões reparenteiam-se logo abaixo. Os do cartão que morre numa colisão
+     mudam de cartão antes de a linha desaparecer — sem isso, o ON DELETE
+     CASCADE levava-os à frente e a pessoa perdia um prémio ganho sem que nada
+     o dissesse. É a mesma instrução que já salva o histórico.
+
+     O que fica por resolver não é da fusão: o arrefecimento e o tecto diário
+     são por CARTÃO, portanto quem ande com dois números no mesmo café leva o
+     dobro dos carimbos por visita, com ou sem fusão. Resolve-se ao carimbar. */
 
   const cartoesOrigem = (await env.DB.prepare(
     'SELECT * FROM cartoes WHERE cliente_id = ?').bind(origem).all()).results;

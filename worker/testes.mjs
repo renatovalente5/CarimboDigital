@@ -1067,7 +1067,25 @@ grupo('Emails');
      procuram o código à volta de «código», «code», «verification». */
   certo(/código[^0-9]{0,60}318204/s.test(a.texto),
     'na versão em texto, o código está ao pé da palavra «código»');
-  certo(a.assunto.startsWith('318204'), 'e o assunto começa pelo código');
+  /* O ASSUNTO COMEÇAVA PELO NÚMERO SOLTO — `318204 — o teu código…` — e isso
+     parecia bem: o código aparece primeiro, mesmo que a notificação corte o
+     resto. Mas era o detector do telemóvel que ficava a olhar para um número
+     sem contexto, seguido de um travessão.
+
+     Foi visto numa captura de um iPhone a sério: notificação do Gmail em cima
+     do ecrã, código bem visível, e a barra do teclado vazia por baixo — nenhuma
+     sugestão. Agora a palavra vai à frente, o número continua nos primeiros
+     caracteres, e as duas coisas cabem. */
+  certo(/^Código 318204\b/.test(a.assunto),
+    'o assunto começa por «Código» e o número logo a seguir — é o que o telemóvel lê',
+    a.assunto);
+  certo(a.assunto.indexOf('318204') < 12,
+    'e o número continua nos primeiros caracteres, para sobreviver ao corte da notificação',
+    `posição ${a.assunto.indexOf('318204')}`);
+  /* O PREHEADER É O QUE APARECE NA NOTIFICAÇÃO por baixo do assunto, e era
+     onde a palavra faltava por completo: dizia «Escreve 318204 na app». */
+  certo(/código[^0-9]{0,20}318204/i.test(a.html),
+    'e o preheader diz «o teu código é» antes do número, que é o padrão que os detectores procuram');
   certo(a.texto.includes('318204'), 'e na versão em texto');
   certo(a.html.includes('aria-label="3 1 8 2 0 4"'),
     'soletrado para quem ouve o email em vez de o ler');
@@ -3249,22 +3267,58 @@ grupo('Fundir: o que NÃO pode acontecer');
         ?.cliente_id === b.id,
     'as formas de entrar mudam de dono — senão entrar pelo email antigo dava uma conta vazia');
 
-  /* 2. UM PRÉMIO POR LEVANTAR TRAVA A FUSÃO. É a regra conservadora, e está
-        por confirmar (PLANO-LOGIN.md §4): os carimbos ficam pelo maior, mas os
-        prémios já ganhos passariam todos, e valem dinheiro do café. */
+  /* 2. OS PRÉMIOS POR LEVANTAR PASSAM, E NÃO SE PERDEM PELO CAMINHO.
+        Esteve aqui uma trava — a fusão era recusada se houvesse prémios — e o
+        dono decidiu ao contrário: um prémio por levantar é uma dívida do café a
+        quem JÁ fez as visitas, e recusar a fusão não a apagava, só obrigava a
+        pessoa a ir levantá-lo antes.
+
+        O caminho perigoso é o do cartão que MORRE numa colisão: os prémios
+        pendem do cartão, e sem os mudar de cartão antes de a linha
+        desaparecer, o ON DELETE CASCADE levava-os à frente — a pessoa perdia
+        um café grátis que tinha ganho, sem que nada o dissesse. É isso que
+        estas afirmações provam, e por isso os dois lados têm prémio. */
   const c1 = await criar(); const c2 = await criar();
-  await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
-    corpo: { codigo: `M1.${c1.publico}`, programaId: 'p1' } });
-  const cartao = linhas(`SELECT id FROM cartoes WHERE cliente_id = '${c1.id}'`)[0].id;
-  sql(`INSERT INTO premios (id, cartao_id, descricao, ganho_em)
-       VALUES ('${randomBytes(16).toString('hex')}', '${cartao}', 'Café grátis', datetime('now'))`);
-  const travada = await pedir('/v1/cliente/fundir', { metodo: 'POST',
+  for (const c of [c1, c2]) {
+    await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { codigo: `M1.${c.publico}`, programaId: 'p1' } });
+    const cartao = linhas(`SELECT id FROM cartoes WHERE cliente_id = '${c.id}'`)[0].id;
+    sql(`INSERT INTO premios (id, cartao_id, descricao, ganho_em)
+         VALUES ('${randomBytes(16).toString('hex')}', '${cartao}',
+                 'Café grátis de ${c.publico}', datetime('now'))`);
+  }
+  const comPremios = await pedir('/v1/cliente/fundir', { metodo: 'POST',
     sessao: c2.sessao, corpo: { sessaoOrigem: c1.sessao } });
-  certo(travada.estado === 409 && travada.dados?.codigo === 'fusao-premios',
-    'um prémio por levantar trava a fusão, em vez de o oferecer duas vezes',
-    `${travada.estado} ${JSON.stringify(travada.dados)}`);
-  certo(linhas(`SELECT 1 FROM cartoes WHERE cliente_id = '${c1.id}'`).length === 1,
-    'e NADA se mexeu — a recusa é antes de tocar em seja o que for');
+  certo(comPremios.estado === 200,
+    'a fusão já não é travada por haver prémios à espera',
+    `${comPremios.estado} ${JSON.stringify(comPremios.dados)}`);
+
+  const premios = linhas(`SELECT pr.descricao FROM premios pr
+                            JOIN cartoes k ON k.id = pr.cartao_id
+                           WHERE k.cliente_id = '${c2.id}' AND pr.resgatado_em IS NULL`);
+  certo(premios.length === 2,
+    'OS DOIS PRÉMIOS SOBREVIVEM — o do cartão que morreu mudou de cartão antes de a linha cair',
+    JSON.stringify(premios));
+  certo(premios.some((p) => p.descricao.includes(c1.publico))
+        && premios.some((p) => p.descricao.includes(c2.publico)),
+    'e são os dois certos, um de cada lado', JSON.stringify(premios));
+
+  const cartaoFinal = linhas(`SELECT id, premios_ganhos FROM cartoes
+                                WHERE cliente_id = '${c2.id}' AND programa_id = 'p1'`);
+  certo(cartaoFinal.length === 1,
+    'os dois cartões do mesmo programa ficaram um só', JSON.stringify(cartaoFinal));
+
+  /* E o prémio continua a poder ser levantado ao balcão: passar não serve de
+     nada se o que passa não funcionar do outro lado. */
+  const premioId = linhas(`SELECT pr.id FROM premios pr
+                             JOIN cartoes k ON k.id = pr.cartao_id
+                            WHERE k.cliente_id = '${c2.id}' AND pr.resgatado_em IS NULL
+                            LIMIT 1`)[0].id;
+  const resgate = await pedir('/v1/balcao/resgatar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${c2.publico}`, programaId: 'p1', premioId } });
+  certo(resgate.estado === 200,
+    'e um prémio herdado levanta-se ao balcão como qualquer outro',
+    `${resgate.estado} ${JSON.stringify(resgate.dados).slice(0, 110)}`);
 
   /* 3. Sem a sessão da outra conta não há fusão nenhuma. */
   const d = await criar();
@@ -3345,6 +3399,40 @@ grupo('Um prazo ilegível não é um prazo eterno');
       `${usou.estado}`);
     sql(`DELETE FROM sessoes WHERE resumo = '${r}'`);
   }
+
+  /* --- A SESSÃO DESLIZA ------------------------------------------------
+     Contava 180 dias a partir do dia em que nasceu, e usá-la não a esticava:
+     um balcão aberto todos os dias sem falhar um era posto fora ao fim de seis
+     meses, a meio de um turno, sem aviso. Não é o que alguém espera de um
+     aparelho que vive em cima de um balcão.
+
+     Mede-se com uma sessão a dez dias do fim: um pedido qualquer tem de a
+     empurrar outra vez para os 180. */
+  const aCaducar = `quase-${randomBytes(6).toString('hex')}`;
+  const rc = createHash('sha256').update(aCaducar).digest('hex');
+  const dezDias = new Date(Date.now() + 10 * 86400000).toISOString();
+  sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+       VALUES ('${rc}', 'cliente:${cid}', datetime('now'), '${dezDias}')`);
+
+  const usou = await pedir('/v1/cliente/eu', { sessao: aCaducar });
+  certo(usou.estado === 200, 'a sessão quase a caducar ainda abre', String(usou.estado));
+
+  const depois = linhas(`SELECT expira_em FROM sessoes WHERE resumo = '${rc}'`)[0]?.expira_em;
+  const diasQueFaltam = (new Date(depois) - Date.now()) / 86400000;
+  certo(diasQueFaltam > 170,
+    'USAR A SESSÃO EMPURRA O PRAZO — quem abre o balcão todos os dias não é posto fora ao fim de seis meses',
+    `faltavam 10 dias, passaram a faltar ${diasQueFaltam.toFixed(0)}`);
+
+  /* E NÃO ESCREVE A CADA PEDIDO. A renovação custa uma escrita no D1, que tem
+     tecto diário e é partilhado com tudo o resto; a condição está dentro do
+     UPDATE para só mexer uma vez em cada 24 horas. Um segundo pedido logo a
+     seguir não pode mexer em nada. */
+  await pedir('/v1/cliente/eu', { sessao: aCaducar });
+  const outraVez = linhas(`SELECT expira_em FROM sessoes WHERE resumo = '${rc}'`)[0]?.expira_em;
+  certo(outraVez === depois,
+    'e o segundo pedido do mesmo dia NÃO volta a escrever — o D1 tem tecto diário',
+    `${depois} vs ${outraVez}`);
+  sql(`DELETE FROM sessoes WHERE resumo = '${rc}'`);
 
   /* E a testemunha: um prazo BOM continua a valer. Sem ela, esta secção
      passava na mesma se a guarda tivesse passado a recusar tudo. */
