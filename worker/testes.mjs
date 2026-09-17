@@ -3449,6 +3449,127 @@ grupo('Um prazo ilegível não é um prazo eterno');
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
 }
 
+grupo('A alcunha: quem é o UTUEVN?');
+{
+  /* O PROBLEMA A SÉRIO: o balcão olha para seis caracteres e não faz ideia de
+     quem é. A saída fácil era pedir o nome e o telemóvel ao cliente — e essa
+     obrigava a consentimento com data guardada, a acordo de responsabilidade
+     conjunta com cada café, e a deitar fora a frase «não pedimos nome,
+     telefone nem morada», que está publicada em dois sítios.
+
+     A alcunha é escrita pelo CAFÉ e nunca se pede nada a ninguém. O que estas
+     afirmações provam é o que a torna aceitável: fica no cartão daquele café e
+     não sai de lá, o cliente vê-a, e o cliente pode apagá-la. */
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${c.dados.cliente.publico}`, programaId: 'p1' } });
+  const lista = await pedir('/v1/balcao/clientes', { sessao: sessaoBalcao });
+  const meu = lista.dados.find((x) => x.publico === c.dados.cliente.publico);
+  certo(!!meu?.id,
+    'a lista do balcão passa a trazer o id do CARTÃO — sem ele não há por onde escrever nada',
+    JSON.stringify(meu)?.slice(0, 90));
+  certo(meu?.alcunha === null, 'e a alcunha começa vazia');
+
+  const posta = await pedir(`/v1/balcao/cartoes/${meu.id}/alcunha`, {
+    metodo: 'PUT', sessao: sessaoBalcao, corpo: { alcunha: 'a Joana da manhã' } });
+  certo(posta.estado === 200 && posta.dados?.alcunha === 'a Joana da manhã',
+    'o balcão escreve como trata este cliente', JSON.stringify(posta.dados));
+
+  const outraVez = await pedir('/v1/balcao/clientes', { sessao: sessaoBalcao });
+  certo(outraVez.dados.find((x) => x.id === meu.id)?.alcunha === 'a Joana da manhã',
+    'e passa a vê-la na lista — é isto que responde a «quem é o UTUEVN?»');
+
+  /* O CLIENTE VÊ-A. Uma nota sobre uma pessoa que ela não pode ler é o
+     contrário do que este produto diz ser, e o art. 15.º não é opcional. */
+  const meus = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(meus.dados[0]?.alcunha === 'a Joana da manhã',
+    'O CLIENTE VÊ a alcunha que lhe puseram — sem isso era uma nota às escondidas',
+    JSON.stringify(meus.dados[0]?.alcunha));
+
+  const dados = await pedir('/v1/cliente/dados', { sessao: c.dados.sessao });
+  certo(JSON.stringify(dados.dados).includes('a Joana da manhã'),
+    'e ela sai na exportação do artigo 20.º, como todo o resto');
+
+  /* E PODE APAGÁ-LA, sem apagar mais nada. */
+  const tirou = await pedir(`/v1/cliente/cartoes/${meu.id}/alcunha`, {
+    metodo: 'DELETE', sessao: c.dados.sessao });
+  certo(tirou.estado === 200, 'o cliente pode tirá-la', String(tirou.estado));
+  const depois = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(depois.dados[0]?.alcunha === null, 'e ela desaparece');
+  certo(depois.dados[0]?.carimbos === 1,
+    'e MAIS NADA se mexe — o carimbo continua lá', String(depois.dados[0]?.carimbos));
+
+  /* UM CAFÉ NÃO ESCREVE NO CARTÃO DE OUTRO. É o `negocio_id` na condição que o
+     impede, e sem ele bastava adivinhar um identificador.
+
+     O CARTÃO ALHEIO CONSTRÓI-SE AQUI, e não se procura na base. A primeira
+     versão fazia `SELECT ... WHERE negocio_id != 'n1' LIMIT 1` e punha as duas
+     afirmações dentro de um `if`: numa base limpa não há segundo negócio, o
+     `if` não corria, e as duas afirmações DESAPARECIAM em silêncio — sem um
+     ✗, sem um aviso, e sem ninguém dar por isso. Apanhou-se a provar a
+     vermelho: quebrei o `negocio_id` das duas rotas de propósito e estas duas
+     continuaram verdes. São as afirmações de segurança do grupo; eram as duas
+     que não estavam a correr. */
+  sql(`INSERT OR IGNORE INTO negocios (id, slug, nome, cor, localidade, criado_em)
+       VALUES ('n-alheio', 'outro-cafe', 'Café Alheio', '#333333', 'Aveiro', datetime('now'))`);
+  sql(`INSERT OR IGNORE INTO programas (id, negocio_id, nome, premio, objetivo, criado_em)
+       VALUES ('p-alheio', 'n-alheio', 'Cartão alheio', 'Um bolo', 10, datetime('now'))`);
+  const idAlheio = randomBytes(16).toString('hex');
+  sql(`INSERT INTO cartoes (id, cliente_id, programa_id, negocio_id, aderiu_em)
+       VALUES ('${idAlheio}', '${c.dados.cliente.id}', 'p-alheio', 'n-alheio', datetime('now'))`);
+
+  const intruso = await pedir(`/v1/balcao/cartoes/${idAlheio}/alcunha`, {
+    metodo: 'PUT', sessao: sessaoBalcao, corpo: { alcunha: 'não devia entrar' } });
+  certo(intruso.estado === 404,
+    'UM BALCÃO NÃO ESCREVE no cartão de outro café', String(intruso.estado));
+  certo(linhas(`SELECT alcunha FROM cartoes WHERE id = '${idAlheio}'`)[0]?.alcunha === null,
+    'e o cartão alheio fica intacto');
+
+  const espreitar = await pedir(`/v1/balcao/cartoes/${idAlheio}/historico`, { sessao: sessaoBalcao });
+  certo(espreitar.estado === 404,
+    'UM BALCÃO NÃO VÊ o histórico de um cartão de outro café', String(espreitar.estado));
+
+  /* SESSENTA CARACTERES, e não uma ficha de cliente. */
+  await pedir(`/v1/balcao/cartoes/${meu.id}/alcunha`, { metodo: 'PUT', sessao: sessaoBalcao,
+    corpo: { alcunha: 'x'.repeat(300) } });
+  const cortada = linhas(`SELECT alcunha FROM cartoes WHERE id = '${meu.id}'`)[0]?.alcunha;
+  certo(cortada?.length === 60,
+    'a alcunha é cortada aos 60 — chega para «a Joana da manhã» e não para uma ficha clínica',
+    `${cortada?.length} caracteres`);
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
+}
+
+grupo('O histórico do cartão, visto pelo balcão');
+{
+  /* O único dos três pedidos que não recolhe nada de novo: são os movimentos
+     do programa do próprio café, sobre o cartão dele. */
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  for (let i = 0; i < 3; i++) {
+    await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { codigo: `M1.${c.dados.cliente.publico}`, programaId: 'p1' } });
+  }
+  const lista = await pedir('/v1/balcao/clientes', { sessao: sessaoBalcao });
+  const cartaoId = lista.dados.find((x) => x.publico === c.dados.cliente.publico)?.id;
+
+  const h = await pedir(`/v1/balcao/cartoes/${cartaoId}/historico`, { sessao: sessaoBalcao });
+  certo(h.estado === 200, 'o balcão vê o histórico do cartão', String(h.estado));
+  certo(h.dados?.cartao?.publico === c.dados.cliente.publico,
+    'com o cartão certo', String(h.dados?.cartao?.publico));
+  certo(h.dados?.movimentos?.length >= 4,
+    'e os movimentos todos — a adesão e os três carimbos',
+    `${h.dados?.movimentos?.length} movimentos`);
+  certo(h.dados.movimentos.every((m) => 'manual' in m && 'operador' in m),
+    'com o `manual` e o `operador`, que estão gravados desde sempre e nunca foram mostrados',
+    JSON.stringify(h.dados.movimentos[0]));
+  certo(h.dados.movimentos[0].manual === true,
+    'e o `manual` diz a verdade: estes entraram pelo número escrito à mão',
+    JSON.stringify(h.dados.movimentos[0]));
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

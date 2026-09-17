@@ -401,6 +401,11 @@ function moldeDeCartao(env, cartao, p, premios) {
     premiosGanhos: cartao.premios_ganhos,
     aderiuEm: cartao.aderiu_em,
     ultimoEm: cartao.ultimo_em,
+    /* A ALCUNHA VAI PARA OS DOIS LADOS, e é isso que a torna aceitável: é o
+       café que a escreve, mas é o cliente que a lê. Uma nota sobre uma pessoa
+       que ela não pode ver é o contrário do que este produto diz ser — e o
+       direito de acesso do art. 15.º não é opcional. */
+    alcunha: cartao.alcunha || null,
     negocio: moldarNegocio(p),
     programa: moldarPrograma(p),
     porResgatar: premios.length,
@@ -1189,10 +1194,17 @@ async function fundirContas(env, { origem, destino, modo }) {
                 total_carimbos = total_carimbos + ?,
                 premios_ganhos = premios_ganhos + ?,
                 aderiu_em = MIN(aderiu_em, ?),
-                ultimo_em = MAX(COALESCE(ultimo_em, ''), COALESCE(?, ''))
+                ultimo_em = MAX(COALESCE(ultimo_em, ''), COALESCE(?, '')),
+                -- A ALCUNHA DO CARTÃO QUE MORRE NÃO SE PERDE EM SILÊNCIO. É o
+                -- café que a escreveu, e é o mesmo café dos dois lados (os
+                -- dois cartões são do mesmo programa). Fica a que o cartão que
+                -- sobrevive já tinha; se não tinha nenhuma, herda a do outro.
+                -- Sem isto, juntar duas contas apagava ao balcão o nome por
+                -- que ele conhecia aquela pessoa, sem nada que o dissesse.
+                alcunha = COALESCE(alcunha, ?)
           WHERE id = ?`
       ).bind(c.carimbos, c.pontos, c.total_carimbos, c.premios_ganhos,
-             c.aderiu_em, c.ultimo_em, gemeo.id),
+             c.aderiu_em, c.ultimo_em, c.alcunha, gemeo.id),
       env.DB.prepare('DELETE FROM cartoes WHERE id = ?').bind(c.id),
     );
     juntados++;
@@ -3055,6 +3067,120 @@ rota('POST', '/v1/balcao/anular', async (env, pedido, _p, ctx) => {
   return { cartao: await moldarCartao(env, atualizado) };
 });
 
+/**
+ * O café escreve como trata este cliente.
+ *
+ * «A Joana da manhã», «o senhor do jornal», «mesa 4». É texto livre do BALCÃO,
+ * e nunca se pede nada ao cliente — é isso que faz caber no produto uma coisa
+ * que, desenhada ao contrário, obrigaria a consentimento, a acordo de
+ * responsabilidade conjunta com cada café, e a reescrever a frase «não pedimos
+ * nome, telefone nem morada» que está publicada em dois sítios.
+ *
+ * SÓ NO PRÓPRIO NEGÓCIO, e o `WHERE negocio_id` é a única coisa que impede um
+ * café de escrever no cartão de outro. O cartão é identificado pelo `id`, não
+ * pelo `publico`: o `publico` é do CLIENTE e é o mesmo em todos os cafés.
+ *
+ * Sessenta caracteres é de propósito. Chega para «a Joana da manhã» e não
+ * chega para uma ficha de cliente — se alguém quiser escrever ali a morada e o
+ * historial clínico de alguém, que não seja por termos deixado espaço.
+ */
+rota('PUT', /^\/v1\/balcao\/cartoes\/([\w-]+)\/alcunha$/, async (env, pedido, [cartaoId]) => {
+  const op = await exigirOperador(env, pedido);
+  const { alcunha } = await corpoJSON(pedido);
+  const texto = String(alcunha ?? '').trim().slice(0, 60);
+
+  const feito = await env.DB.prepare(
+    'UPDATE cartoes SET alcunha = ? WHERE id = ? AND negocio_id = ?'
+  ).bind(texto || null, cartaoId, op.negocio_id).run();
+
+  if (!feito.meta || feito.meta.changes !== 1) {
+    throw new Falha('Esse cartão não é deste balcão.', { estado: 404, codigo: 'sem-cartao' });
+  }
+  return { alcunha: texto || null };
+});
+
+/**
+ * O cliente apaga a alcunha que lhe puseram.
+ *
+ * NÃO É UM EXTRA. A alcunha é um dado sobre uma pessoa identificável guardado
+ * por nós por conta do café; ela tem direito a vê-la (art. 15.º) e a opor-se
+ * (art. 21.º). A app mostra-lha no cartão e este é o botão.
+ *
+ * Apaga a alcunha e MAIS NADA — não toca nos carimbos, não sai do café, não
+ * mexe na conta. Ao lado disto há um defeito maior e mais antigo, que é não
+ * haver forma de largar um cartão sem apagar a conta inteira; esse trata-se à
+ * parte, e este não espera por ele.
+ *
+ * O café pode escrever outra a seguir, e é assim que tem de ser: a alcunha é
+ * dele. O que a pessoa tem é o direito de a ver e de a mandar apagar, não o de
+ * proibir o café de a reconhecer.
+ */
+rota('DELETE', /^\/v1\/cliente\/cartoes\/([\w-]+)\/alcunha$/, async (env, pedido, [cartaoId]) => {
+  const clienteId = await exigirCliente(env, pedido);
+  const feito = await env.DB.prepare(
+    'UPDATE cartoes SET alcunha = NULL WHERE id = ? AND cliente_id = ?'
+  ).bind(cartaoId, clienteId).run();
+
+  if (!feito.meta || feito.meta.changes !== 1) {
+    throw new Falha('Cartão não encontrado', { estado: 404, codigo: 'sem-cartao' });
+  }
+  return { alcunha: null };
+});
+
+/**
+ * O histórico de um cartão, visto pelo balcão.
+ *
+ * O café já vê as visitas a ESTE café na app do cliente; o que faltava era ele
+ * próprio poder olhar. É o único dos três pedidos do dono que não recolhe nada
+ * de novo: são os movimentos do programa dele, sobre o cartão dele.
+ *
+ * `negocio_id` na condição, outra vez: sem ele, um balcão pedia o histórico de
+ * qualquer cartão de qualquer café só por adivinhar um identificador.
+ *
+ * Leva o `operador` e o `manual`, que estão gravados desde sempre e nunca
+ * foram mostrados a ninguém — é o que distingue «a câmara leu o código» de
+ * «alguém escreveu o número à mão», e é a diferença que interessa quando um
+ * carimbo é discutido ao balcão.
+ */
+rota('GET', /^\/v1\/balcao\/cartoes\/([\w-]+)\/historico$/, async (env, pedido, [cartaoId]) => {
+  const op = await exigirOperador(env, pedido);
+  const cartao = await env.DB.prepare(
+    `SELECT c.id, c.alcunha, c.carimbos, c.pontos, c.aderiu_em, c.ultimo_em,
+            cl.publico, p.objetivo, p.tipo, p.nome AS programa
+       FROM cartoes c
+       JOIN clientes cl ON cl.id = c.cliente_id
+       JOIN programas p ON p.id = c.programa_id
+      WHERE c.id = ? AND c.negocio_id = ?`
+  ).bind(cartaoId, op.negocio_id).first();
+  if (!cartao) throw new Falha('Esse cartão não é deste balcão.', { estado: 404, codigo: 'sem-cartao' });
+
+  const movimentos = (await env.DB.prepare(
+    `SELECT id, tipo, quantidade, nota, operador, manual, em
+       FROM movimentos WHERE cartao_id = ? ORDER BY em DESC LIMIT 100`
+  ).bind(cartaoId).all()).results;
+
+  const premios = (await env.DB.prepare(
+    `SELECT id, descricao, ganho_em, resgatado_em FROM premios
+      WHERE cartao_id = ? ORDER BY ganho_em DESC LIMIT 60`
+  ).bind(cartaoId).all()).results;
+
+  return {
+    cartao: {
+      id: cartao.id, publico: cartao.publico, alcunha: cartao.alcunha || null,
+      carimbos: cartao.carimbos, pontos: cartao.pontos, objetivo: cartao.objetivo,
+      tipo: cartao.tipo, programa: cartao.programa,
+      aderiuEm: cartao.aderiu_em, ultimoEm: cartao.ultimo_em,
+    },
+    movimentos: movimentos.map((m) => ({
+      id: m.id, tipo: m.tipo, quantidade: m.quantidade, nota: m.nota,
+      operador: m.operador || null, manual: Boolean(m.manual), em: m.em,
+    })),
+    premios: premios.map((x) => ({
+      id: x.id, descricao: x.descricao, ganhoEm: x.ganho_em, resgatadoEm: x.resgatado_em,
+    })),
+  };
+});
+
 rota('GET', '/v1/balcao/clientes', async (env, pedido) => {
   const op = await exigirOperador(env, pedido);
   const linhas = (await env.DB.prepare(
@@ -3095,9 +3221,17 @@ rota('GET', '/v1/balcao/clientes', async (env, pedido) => {
   return linhas.map((c) => {
     const premios = porCartao.get(c.id) || [];
     return {
+      /* O `id` do cartão passa a ir junto. Sem ele o balcão não tem por onde
+         escrever a alcunha nem pedir o histórico — só tinha o `publico`, que
+         é do CLIENTE e não do cartão, e usá-lo como chave era misturar as
+         duas coisas. */
+      id: c.id,
       publico: c.publico, carimbos: c.carimbos, pontos: c.pontos,
       objetivo: c.objetivo, tipo: c.tipo,
       ultimoEm: c.ultimo_em, aderiuEm: c.aderiu_em,
+      /* Como este café trata este cliente. É o que responde a «quem é o
+         UTUEVN?» sem se ter pedido nada a ninguém. */
+      alcunha: c.alcunha || null,
       /* A contagem FICA: é o que a versão da app que está nos telemóveis lê,
          e esta API acrescenta em vez de renomear. */
       porResgatar: premios.length,

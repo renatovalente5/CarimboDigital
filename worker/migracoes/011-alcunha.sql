@@ -1,0 +1,35 @@
+-- --------------------------------------------------------------------------
+-- 011 — a alcunha do cartão (17 set 2026)
+--
+--   npx wrangler d1 execute carimbodigital --remote --config ./wrangler.toml \
+--     --file=migracoes/011-alcunha.sql
+--
+-- O PROBLEMA A SÉRIO: o balcão olha para `UTUEVN` e não faz ideia de quem é.
+-- É o momento do carimbo que resolve isso — a pessoa está ali à frente, o
+-- código acabou de ser lido — e esse momento era deitado fora.
+--
+-- QUEM ESCREVE É O CAFÉ, E NUNCA SE PEDE NADA AO CLIENTE. É essa a diferença
+-- que faz isto caber no produto:
+--
+--   · «Não pedimos nome, telefone nem morada» continua verdade à letra. É a
+--     frase mais cara deste projecto, está publicada em dois sítios, e é a
+--     única que não teria reparação possível.
+--   · Não é preciso consentimento: é o café a reconhecer os seus próprios
+--     clientes, no interesse legítimo dele. Não há data de consentimento para
+--     guardar, nem finalidades para separar, nem nada para demonstrar.
+--   · Continuamos SUBCONTRATANTES. Se fôssemos nós a desenhar um campo
+--     «nome» e um campo «telemóvel» e a decidir que o balcão os vê, éramos nós
+--     a determinar que dados existem — e o art. 28.º/10 transformava-nos em
+--     responsáveis, com acordo escrito obrigatório com cada café.
+--
+-- E O CLIENTE VÊ-A, e pode tirá-la. Uma nota sobre uma pessoa que ela não
+-- pode ler é o contrário do que este produto diz ser — e o direito de acesso
+-- do art. 15.º não é opcional. A alcunha aparece no cartão, na app, com quem
+-- a escreveu; e há um botão para a apagar que não apaga mais nada.
+--
+-- Vive no CARTÃO e não na conta, de propósito: é do café que a escreveu. O
+-- café da esquina chamar-lhe «Joana da manhã» não diz nada à gelataria, e
+-- apagar o cartão leva-a à frente sem ninguém ter de se lembrar dela.
+-- --------------------------------------------------------------------------
+
+ALTER TABLE cartoes ADD COLUMN alcunha TEXT;

@@ -124,6 +124,10 @@ CREATE TABLE IF NOT EXISTS cartoes (
   wallet_sincronizado TEXT,
   apple_em         TEXT,                          -- e este é o da Apple
   ultimo_em        TEXT,
+  -- Como o BALCÃO trata este cliente — «a Joana da manhã». Escreve-a o café,
+  -- nunca se pede ao cliente, e o cliente vê-a e pode tirá-la. Ver
+  -- migracoes/011: é o que resolve «quem é o UTUEVN?» sem recolher nada.
+  alcunha          TEXT,
   UNIQUE (cliente_id, programa_id)
 );
 CREATE INDEX IF NOT EXISTS ix_cartoes_cliente ON cartoes(cliente_id);
