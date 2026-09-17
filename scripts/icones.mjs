@@ -118,6 +118,11 @@ const TRABALHOS = [
   { nome: 'apple-touch-icon.png', lado: 180, svg: marca(180) },
   { nome: '192.png',              lado: 192, svg: marca(192) },
   { nome: '512.png',              lado: 512, svg: marca(512) },
+  /* 1024 para as consolas que pedem mais do que 512. A da Google exige um
+     mínimo de 640×640 para o logótipo do perfil de empresa, e o maior que esta
+     casa tinha era 512 — não se corta de um lado nem se estica do outro: o
+     glifo é vectorial e desenha-se no tamanho que for preciso. */
+  { nome: 'logo-1024.png',        lado: 1024, svg: marca(1024) },
   { nome: 'mascara.png',          lado: 512, svg: mascara(512) },
   { nome: 'balcao-192.png',       lado: 192, svg: marca(192, { fundo: '#17161C' }) },
   { nome: 'balcao-512.png',       lado: 512, svg: marca(512, { fundo: '#17161C' }) },

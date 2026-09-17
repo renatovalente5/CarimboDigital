@@ -276,7 +276,27 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   marcos editáveis no balcão.
 - ~~Cartaz para imprimir, com o código de adesão~~ — **feito**
   (`balcao/cartaz.html`).
-- ~~Google Wallet~~ — **feito.**
+- ~~Google Wallet~~ — **feito**, e **fora do modo de demonstração pedido a 17
+  de Setembro de 2026.**
+
+  > O passe sempre funcionou; o que faltava era a conta poder publicá-lo a
+  > alguém que não estivesse numa lista de teste. São três passos na consola e
+  > estão os três verdes: criar classe, perfil de empresa, pedir acesso.
+  >
+  > O perfil ficou com o nome público **Carimbo Digital** (era «Renato
+  > Valente», que não diz nada a um cliente de um café), logótipo em 1024 — o
+  > `icones.mjs` passou a gerar esse tamanho, porque a Google exige um mínimo
+  > de 640 e o maior desta casa era 512 —, e os contactos de apoio que já
+  > estavam nas páginas legais.
+  >
+  > **A resposta demora 2 a 3 dias úteis e chega por email.** Quando chegar:
+  > as duas classes activas passam a públicas de imediato, e **não se pode
+  > voltar ao modo de demonstração**. Se não chegar nada ao fim de 3 dias, há
+  > um «Contacte o apoio técnico» na mesma página.
+  >
+  > O MCC ficou **4816**. A consola chama-lhe «Computer Network Services» na
+  > lista e «Internet Cafes» depois de gravar — é o mesmo código, é o standard
+  > para serviços online, e o rótulo é da Google.
 - **Vários operadores, com PIN por pessoa e histórico de quem carimbou.** POR
   FAZER. Hoje um negócio tem um operador e o `movimentos.operador` existe mas
   guarda sempre o mesmo. É o que separa um café de uma pessoa só de um café com
