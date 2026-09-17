@@ -251,6 +251,48 @@ export async function correr(palco, certo) {
     return document.querySelector('#campo-codigo').getAttribute('maxlength') === null`),
     'colar o código: o maxlength sai do campo — é ele que corta a colagem antes de a limpar');
 
+  /* --- NÃO SE LÊ A ÁREA DE TRANSFERÊNCIA ---------------------------------
+     Esteve cá dentro um dia, para o campo se preencher sozinho a quem já
+     tivesse copiado o código. No iPhone, `navigator.clipboard.readText()` faz
+     aparecer um botão «Paste» do sistema que fica PARADO por cima do ecrã à
+     espera de um toque — e quem não perceber o que aquilo é não chega sequer
+     ao campo do código. Relatado de um iPhone a sério, com estas palavras:
+     «bloqueia o ecrã e não passa para a parte de inserir o código».
+
+     Deixou de ser preciso, que é o que torna a remoção fácil: com a palavra
+     «código» encostada aos algarismos no email, o teclado do telemóvel já
+     oferece o código. Uma conveniência que atravessa o caminho de quem a não
+     quer é pior do que não existir.
+
+     Esta afirmação existe para ninguém a repor sem pensar — eu incluído. */
+  const espiou = await palco.js(`
+    let chamou = false;
+    const real = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      readText: async () => { chamou = true; return '314159'; },
+      writeText: async () => {},
+    } });
+    /* Fecha o painel e volta a abrir, que é quando a leitura acontecia. */
+    document.querySelector('#painel .painel-fecho, #painel-fundo')?.click();
+    await new Promise((r) => setTimeout(r, 300));
+    document.querySelectorAll('#principal .lista .linha').forEach((l) => {
+      if (/Guardar a conta/.test(l.textContent)) l.click();
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    const e = document.querySelector('#campo-email');
+    if (e) { e.value = ${JSON.stringify('teste@exemplo.pt')}; e.dispatchEvent(new Event('input', { bubbles: true })); }
+    document.querySelector('#botao-enviar')?.click();
+    await new Promise((r) => setTimeout(r, 1500));
+    const valor = document.querySelector('#campo-codigo')?.value ?? null;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: real });
+    return { chamou, valor };`);
+  certo(espiou.chamou === false,
+    'NÃO se lê a área de transferência — no iPhone abre um «Paste» que fica parado por cima do ecrã',
+    JSON.stringify(espiou));
+  certo(espiou.valor === '',
+    'e o campo fica vazio à espera do teclado, em vez de se preencher por conta própria',
+    JSON.stringify(espiou.valor));
+
   for (const [nome, texto, esperado] of [
     ['a linha inteira do email', 'Código: 314 159', '314159'],
     ['com espaço a meio', '31 41 59', '314159'],
