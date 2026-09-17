@@ -799,7 +799,7 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 .btn-wallet:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
 
 .btn-wallet.a-carregar { opacity: .55; }
-.btn-wallet[aria-disabled="sim"] { cursor: progress; }
+.btn-wallet[aria-disabled="true"] { cursor: progress; }
 
 .wallet-nota { margin: var(--e-2) auto 0; max-width: 34ch; }
 
@@ -856,3 +856,17 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
   height: 1px;
   background: var(--linha);
 }
+
+/* Uma porta de entrada já ligada, dentro do painel da conta. Não é um botão —
+   o que se toca é o que está ao lado — e a `.linha` já só dá o efeito de
+   pressão a `button.linha` e `a.linha`, por isso nada promete um toque. */
+.linha-porta .linha-texto span { overflow-wrap: anywhere; }
+/* O `min-height` NÃO se toca: o `.btn-pequeno` declara 44 e o `nucleo.css`
+   escreve ao lado porquê — «as variantes pequenas não descem abaixo de 44,
+   senão a promessa da classe não vale nada no sítio onde ela é mais precisa».
+   Esta regra chegou a pôr 40 aqui, e ganhava por especificidade. A linha já
+   mede 76 px de alto: o botão a 44 não a faz crescer um pixel. */
+.linha-porta > .btn { flex: 0 0 auto; padding-inline: var(--e-3); }
+/* A marca da Google é colorida e não herda a cor do texto: o quadrado por trás
+   dela fica claro nos dois temas, para ela assentar como assenta no botão. */
+.linha-porta .linha-icone:has(> svg[viewBox="0 0 48 48"]) { background: #fff; }

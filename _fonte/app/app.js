@@ -336,7 +336,7 @@ async function ecraCartao(principal) {
           texto: 'Apagar este nome',
           aoClick: async (ev) => {
             const botao = ev.currentTarget;
-            botao.setAttribute('aria-disabled', 'sim');
+            botao.setAttribute('aria-disabled', 'true');
             try {
               await api.tirarAlcunha(cheio.id);
               avisar('Apagado. O café pode escrever outro.', 'bom');
@@ -437,7 +437,7 @@ function largarCartao(cartao) {
       class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Deixar este cartão',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
-        botao.setAttribute('aria-disabled', 'sim');
+        botao.setAttribute('aria-disabled', 'true');
         try {
           await api.largarCartao(cartao.id);
           estado.cartoes = await api.cartoes(estado.cliente.id);
@@ -493,9 +493,16 @@ function botaoWallet(cartao, carteira = 'google') {
   botao.addEventListener('click', async () => {
     /* `aria-disabled` e não `disabled`: desactivar um botão enquanto ele tem
        o foco atira o foco para o corpo da página, e quem navega por teclado
-       ou leitor de ecrã perde o sítio onde estava. */
-    if (botao.getAttribute('aria-disabled') === 'sim') return;
-    botao.setAttribute('aria-disabled', 'sim');
+       ou leitor de ecrã perde o sítio onde estava.
+
+       O VALOR É `true`, e durante muito tempo foi «sim» — que não é um valor
+       de ARIA e que nenhuma das duas coisas que dependem dele reconhecia: nem
+       o leitor de ecrã, que nunca o anunciou desactivado, nem a regra
+       `.btn[aria-disabled="true"]` do `nucleo.css`, que é quem lhe tira os
+       cliques. Oito botões desta casa ficavam com ar de desactivados e
+       continuavam a aceitar o segundo toque. */
+    if (botao.getAttribute('aria-disabled') === 'true') return;
+    botao.setAttribute('aria-disabled', 'true');
     botao.classList.add('a-carregar');
     let aCaminhoDaCarteira = false;
     try {
@@ -810,9 +817,15 @@ async function ecraPerfil(principal) {
     el('p', { class: 'miudo', texto: 'É este número que identifica todos os teus cartões. '
       + 'Se a câmara do balcão não ler o código, podem escrevê-lo à mão.' })));
 
-  /* Como é que esta conta está guardada, em uma linha. Antes dizia sempre
-     «Guardar a conta» a quem não tivesse email — incluindo a quem tivesse
-     entrado pela Google, que é exactamente ter a conta guardada. */
+  /* Como é que esta conta está guardada, em uma linha — e é a ÚNICA linha do
+     perfil sobre isto. Ligar, desligar, ver com que morada se entrou: está
+     tudo do outro lado do toque, no painel. Estavam aqui três linhas para a
+     mesma pergunta, e nenhuma delas respondia à que se faz primeiro — «com que
+     conta é que eu entrei?».
+
+     E antes dizia sempre «Guardar a conta» a quem não tivesse email —
+     incluindo a quem tivesse entrado pela Google, que é exactamente ter a
+     conta guardada. */
   const comoEstaGuardada = () => {
     if (comEmail && comGoogle) return { titulo: 'A conta está guardada', sub: `Google e ${morada}` };
     if (comGoogle) return { titulo: 'A conta está guardada', sub: morada ? `Google · ${morada}` : 'Entras com a Google' };
@@ -829,27 +842,7 @@ async function ecraPerfil(principal) {
         el('span', { texto: guardada.sub })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
 
-    /* DESLIGAR A GOOGLE. A entrada pela Google é consentimento, e o art. 7.º/3
-       obriga a que retirar seja tão fácil como dar. Só aparece a quem a tem
-       ligada — a quem não tem, é uma linha sem sentido. */
-    comGoogle ? el('button', { class: 'linha', aoClick: desligarGoogle },
-      el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
-      el('span', { class: 'linha-texto' },
-        el('b', { texto: 'Desligar a conta Google' }),
-        el('span', { texto: 'Sem apagar a conta nem os cartões' })),
-      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })) : null,
 
-    /* TIRAR O EMAIL, E MAIS NADA. Dar era escrever a morada e um código de
-       seis algarismos; tirar era apagar a conta e perder os cartões todos. O
-       artigo 7.º/3 diz que retirar o consentimento tem de ser tão fácil como
-       dá-lo, e isto não era a mesma facilidade: era o contrário. Só aparece a
-       quem tem email guardado — a quem não tem, é uma linha sem sentido. */
-    comEmail ? el('button', { class: 'linha', aoClick: tirarEmail },
-      el('span', { class: 'linha-icone', html: icone('caixote', { tamanho: 20 }) }),
-      el('span', { class: 'linha-texto' },
-        el('b', { texto: 'Tirar o email' }),
-        el('span', { texto: 'Sem apagar a conta nem os cartões' })),
-      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })) : null,
     /* Isto era um botão que prometia «em breve» e não fazia nada. A Carteira
        do telemóvel já existe, e o botão dela está em cada cartão — que é onde
        tem de estar, porque o passe é de um cartão e não da conta. Aqui fica só
@@ -1143,8 +1136,18 @@ async function portasAbertas() {
 async function carregarIdentidades() {
   try {
     const r = await api.eu();
-    estado.identidades = r && Array.isArray(r.identidades) ? r.identidades : [];
-    guardar('identidades', estado.identidades);
+    /* «NÃO VEIO» NÃO É «NÃO HÁ». Um corpo vazio, um Worker mais velho, um
+       intermediário que corta a resposta — nada disso é uma conta sem portas,
+       e escrever `[]` por cima da cache boa tem um preço concreto: é dela que
+       o ecrã da sessão terminada tira os botões, e sem ela quem só entra pela
+       Google fica com «entra com o email» (não tem) e «começar de novo»
+       (deita os cartões fora). Só se escreve quando veio mesmo uma lista. */
+    if (r && Array.isArray(r.identidades)) {
+      estado.identidades = r.identidades;
+      guardar('identidades', estado.identidades);
+    } else if (!estado.identidades || !estado.identidades.length) {
+      estado.identidades = ler('identidades', []) || [];
+    }
   } catch {
     estado.identidades = ler('identidades', []) || [];
   }
@@ -1183,7 +1186,7 @@ async function iniciarGoogle(ev) {
   /* Antes do `await`. Depois de um, o `currentTarget` vale null — foi um
      defeito desta casa e não se repete. */
   const botao = ev.currentTarget;
-  botao.setAttribute('aria-disabled', 'sim');
+  botao.setAttribute('aria-disabled', 'true');
   try {
     const r = await api.comecarGoogle();
     /* Na demonstração não se sai do site: não há Google nenhuma do outro lado,
@@ -1391,8 +1394,24 @@ function ecraEntradaFalhou(mensagem) {
  * E diz-se o que se perde ANTES — e o que se perde depende de haver ou não
  * outra porta, por isso a frase muda.
  */
-function desligarGoogle() {
+async function desligarGoogle({ voltar = false } = {}) {
+  /* O AVISO SAI DE UM RETRATO FRESCO. Ele diz «continuas a poder entrar com o
+     teu email» ou «esta é a tua única forma de entrar», e a diferença entre os
+     dois é a diferença entre um gesto sem preço e um gesto que deixa alguém de
+     fora. Se a lista for a que o perfil leu há minutos, quem tiver tirado o
+     email noutro aparelho leva a frase suave no momento exacto em que está a
+     desligar a última porta. O aviso existe para não haver enganos. */
+  await carregarIdentidades();
   const temEmail = temIdentidade('email');
+  /* Quem chega aqui vem do painel da conta, e é para lá que volta — tenha
+     desligado ou tenha desistido. Mandá-lo para o perfil a meio de um gesto
+     que ele começou noutro sítio é fazê-lo perder o lugar. */
+  /* E SÓ VOLTA SE AINDA FOR ESTE O PAINEL ABERTO. O pedido pode demorar, e
+     quem o fechar a meio não quer vê-lo ressuscitar por cima do perfil. */
+  const daquiVolta = () => {
+    if (!$('#painel')) return;
+    if (voltar) guardarConta(); else fecharPainel();
+  };
   const painel = abrirPainel('Desligar a conta Google');
   painel.append(
     el('p', { class: 'subtexto', texto:
@@ -1410,21 +1429,28 @@ function desligarGoogle() {
       class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Desligar a Google',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
-        botao.setAttribute('aria-disabled', 'sim');
+        botao.setAttribute('aria-disabled', 'true');
         try {
           const r = await api.desligarGoogle();
-          estado.identidades = (r && r.identidades) || [];
-          guardar('identidades', estado.identidades);
-          fecharPainel();
+          if (r && Array.isArray(r.identidades)) {
+            estado.identidades = r.identidades;
+            guardar('identidades', estado.identidades);
+          } else {
+            await carregarIdentidades();
+          }
           avisar('Conta Google desligada. Os cartões ficaram.', 'bom');
+          /* O perfil por baixo repinta-se ANTES de o painel voltar: a linha da
+             conta muda de texto, e deixá-la com o texto velho por trás de um
+             painel aberto é uma mentira à espera de ser vista. */
           await irPara('perfil');
+          daquiVolta();
         } catch (e) {
           botao.removeAttribute('aria-disabled');
           avisar(e.message || 'Não deu para desligar.', 'mau');
         }
       } }),
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
-      aoClick: fecharPainel }));
+      aoClick: daquiVolta }));
 }
 
 /**
@@ -1438,34 +1464,170 @@ function recuperarConta() {
   return guardarConta({ recuperar: true });
 }
 
-async function guardarConta({ recuperar = false } = {}) {
-  const painel = abrirPainel(recuperar ? 'Recuperar os cartões' : 'Guardar a conta');
-  painel.append(
-    el('p', { class: 'subtexto', texto: recuperar
-      ? 'Entra com a Google, ou escreve a morada de email que já usaste. Os '
-        + 'cartões voltam para este telemóvel.'
-      : 'Duas formas, e chega uma: entrar com a Google, ou deixar um email. '
-        + 'Se mudares de telemóvel, entras outra vez e os cartões voltam todos.' }));
+/** A morada por onde uma porta entra — a que o provedor mostrou. */
+const moradaDaPorta = (provedor, lista = estado.identidades) =>
+  ((lista || []).find((i) => i.provedor === provedor) || {}).email || null;
 
-  /* A PORTA DA GOOGLE SÓ APARECE SE EXISTIR. Pergunta-se ao servidor em vez de
-     se adivinhar, pela mesma razão por que os botões das carteiras se
-     perguntam: um botão que só falha ao ser tocado é pior do que um botão que
-     não está lá. E a pergunta é assíncrona, por isso o botão entra no painel
-     quando a resposta chega — sempre ACIMA do email, que é onde o painel o
-     espera. */
-  const lugarDaGoogle = el('div', {});
-  painel.append(lugarDaGoogle);
-  portasAbertas().then((portas) => {
-    if (!portas.google || !lugarDaGoogle.isConnected) return;
-    lugarDaGoogle.append(
+/**
+ * Uma porta JÁ LIGADA, com a morada por onde ela entra e o botão de a tirar.
+ *
+ * Não é um botão, e é de propósito: o que se toca é o que está ao lado. A
+ * classe `.linha` já só dá o efeito de pressão a `button.linha` e `a.linha`,
+ * por isso uma `div` com ela não promete um toque que não existe.
+ */
+function linhaDaPorta({ marca, nome, morada, accao, aoClick }) {
+  /* O BOTÃO TEM DE DIZER O QUÊ. Escrito, lê-se «Desligar» ao lado de «Google»
+     e a proximidade chega; num leitor de ecrã a proximidade não existe — o
+     rotor de botões dá «Desligar, Tirar» e não se sabe qual é qual. Com a
+     porta da Apple a caminho, «Desligar» apareceria duas vezes.
+     O que se vê continua a ser o verbo; o nome acessível é que é inteiro. */
+  const rotulo = morada ? `${accao} — ${nome}, ${morada}` : `${accao} — ${nome}`;
+  return el('div', { class: 'linha linha-porta', role: 'listitem' },
+    el('span', { class: 'linha-icone', html: marca }),
+    el('span', { class: 'linha-texto' },
+      el('b', { texto: nome }),
+      /* A MORADA DIZ-SE, e é o que a pessoa vem aqui ver: «com que conta é que
+         eu entrei?». Quando o provedor não a confirmou não há nada para
+         mostrar, e diz-se isso em vez de um espaço em branco. */
+      el('span', { texto: morada || 'ligada a esta conta' })),
+    el('button', {
+      class: 'btn btn-fantasma btn-pequeno', texto: accao,
+      'aria-label': rotulo, aoClick,
+    }));
+}
+
+/**
+ * Guardar a conta — e, quando já está guardada, ver e mexer em como está.
+ *
+ * ESTAVA REPARTIDO POR TRÊS LINHAS DO PERFIL: uma para guardar a conta, outra
+ * para desligar a Google, outra para tirar o email. Três sítios para a mesma
+ * pergunta, e nenhum deles respondia à que a pessoa faz primeiro — «com que
+ * conta é que eu entrei?». Agora é um sítio só: mostra as portas que estão
+ * ligadas, com a morada de cada uma, e oferece as que faltam.
+ *
+ * O MODO «RECUPERAR» NÃO GERE NADA, só oferece. Chega-se a ele de um telemóvel
+ * novo, ou de uma sessão que já morreu — e em nenhum dos dois casos há sessão
+ * para desligar seja o que for. Um botão de desligar ali era prometer uma coisa
+ * que ia dar 401.
+ */
+async function guardarConta({ recuperar = false } = {}) {
+  /* DUAS PERGUNTAS DIFERENTES, e confundi-las custava caro.
+     «O que é que esta conta TEM» decide o que se oferece, e sai da lista —
+     da cache, quando não há sessão para a ir buscar. «Posso MEXER nisto»
+     decide se há botões de desligar, e isso sim depende de haver sessão.
+
+     Estavam as duas coladas: no modo `recuperar` a lista era esvaziada, e com
+     ela desaparecia o que decide a OFERTA. Resultado: a quem chegava do ecrã
+     da sessão terminada com uma conta só de email, o painel oferecia a Google
+     — e tocar-lhe não dava 401 nenhum, porque a ida à Google é rota aberta e
+     a sessão é opcional: NASCIA UMA CONTA NOVA, vazia, e a antiga ficava do
+     outro lado. É a forma mais cara de alguém perder os cartões no gesto que
+     lhos ia devolver. */
+  const lista = (estado.identidades && estado.identidades.length)
+    ? estado.identidades : (ler('identidades', []) || []);
+  const comEmail = temIdentidade('email', lista);
+  const comGoogle = temIdentidade('google', lista);
+  const conhecidas = comEmail || comGoogle;
+  const podeMexer = !recuperar;
+  const ligadas = conhecidas && podeMexer;
+
+  const painel = abrirPainel(ligadas
+    ? 'Como entras nesta conta'
+    : (recuperar ? 'Recuperar os cartões' : 'Guardar a conta'));
+
+  /* No modo recuperar, quando já se sabe por onde esta conta entra, diz-se —
+     em vez de oferecer as duas como se fosse um telemóvel novo. */
+  const soUma = recuperar && conhecidas && !(comEmail && comGoogle);
+  painel.append(el('p', { class: 'subtexto', texto: ligadas
+    ? 'É por aqui que voltas a esta conta se mudares de telemóvel. Chega uma '
+      + 'forma; com duas, não ficas de fora se perderes uma delas.'
+    : (soUma
+      ? (comGoogle
+        ? 'Esta conta entra pela Google. Toca no botão e os cartões voltam '
+          + 'para este telemóvel.'
+        : 'Esta conta entra por email. Escreve a morada que já usaste e os '
+          + 'cartões voltam para este telemóvel.')
+      : (recuperar
+        ? 'Entra com a Google, ou escreve a morada de email que já usaste. Os '
+          + 'cartões voltam para este telemóvel.'
+        : 'Duas formas, e chega uma: entrar com a Google, ou deixar um email. '
+          + 'Se mudares de telemóvel, entras outra vez e os cartões voltam todos.')) }));
+
+  /* --- o que já está ligado ---------------------------------------------- */
+  if (ligadas) {
+    /* Um título por cima, a par do «Juntar outra forma de entrar» que está em
+       baixo: sem ele, a lista aparece sem se apresentar. E `role="list"`,
+       porque uma `div` nunca se anuncia como «lista, 2 itens». */
+    painel.append(el('h3', { class: 'seccao-titulo', style: 'margin-top:4px',
+      texto: 'Ligadas a esta conta' }));
+    /* `caixa` e não `lista`: `lista` já é a das identidades, três linhas acima,
+       e uma `const` com o mesmo nome tapa-a aqui dentro sem um aviso. */
+    const caixa = el('div', { class: 'lista', role: 'list' });
+    if (comGoogle) {
+      caixa.append(linhaDaPorta({
+        marca: MARCA_GOOGLE, nome: 'Google',
+        morada: moradaDaPorta('google', lista),
+        accao: 'Desligar',
+        aoClick: () => desligarGoogle({ voltar: true }),
+      }));
+    }
+    if (comEmail) {
+      caixa.append(linhaDaPorta({
+        marca: icone('carta', { tamanho: 20 }), nome: 'Email',
+        morada: moradaDaPorta('email', lista),
+        accao: 'Tirar',
+        aoClick: () => tirarEmail({ voltar: true }),
+      }));
+    }
+    painel.append(caixa);
+  }
+
+  /* --- o que falta ------------------------------------------------------- */
+  /* ESPERA-SE PELA RESPOSTA ANTES DE PINTAR. A porta da Google pode não
+     existir — Worker por configurar, ou o `/v1/portas` a falhar, que responde
+     «não» por omissão. O título nascia sempre e o botão só chegava depois:
+     a quem já tinha email e não tinha Google, o painel acabava num
+     «Juntar outra forma de entrar» com NADA por baixo. Um cabeçalho que
+     promete uma coisa que não vem é pior do que não haver cabeçalho. */
+  const portas = await portasAbertas();
+  if (!painel.isConnected) return;
+
+  /* Em modo de recuperação oferece-se o que a conta TEM; a gerir, o que lhe
+     FALTA. Num telemóvel novo não se sabe nada dela, e oferecem-se as duas. */
+  const oferecerGoogle = portas.google
+    && (recuperar ? (conhecidas ? comGoogle : true) : !comGoogle);
+  const oferecerEmail = recuperar ? (conhecidas ? comEmail : true) : !comEmail;
+
+  if (!oferecerGoogle && !oferecerEmail) {
+    painel.append(el('p', { class: 'miudo', style: 'margin-top:16px', texto: ligadas
+      ? 'Tens as duas. Podes tirar uma quando quiseres — os cartões ficam.'
+      : 'Não há por onde entrar neste momento. Tenta outra vez daqui a pouco.' }));
+    return;
+  }
+
+  const oferta = el('div', {});
+  painel.append(oferta);
+  if (ligadas) {
+    oferta.append(el('h3', { class: 'seccao-titulo', style: 'margin-top:20px',
+      texto: 'Juntar outra forma de entrar' }));
+  }
+
+  if (oferecerGoogle) {
+    oferta.append(
       botaoGoogle(iniciarGoogle),
       el('p', { class: 'miudo', style: 'margin-top:8px', texto:
         'A Google fica a saber que usas o Carimbo Digital. Não lhe pedimos o '
-        + 'teu nome nem a tua fotografia.' }),
-      el('div', { class: 'ou', role: 'separator' }, el('span', { texto: 'ou' })));
-  });
+        + 'teu nome nem a tua fotografia.' }));
+    /* O «ou» só faz sentido quando há mesmo duas escolhas. */
+    if (oferecerEmail) {
+      oferta.append(
+        el('div', { class: 'ou', role: 'separator' }, el('span', { texto: 'ou' })));
+    }
+  }
 
-  painel.append(
+  if (!oferecerEmail) return;
+
+  oferta.append(
     el('label', { class: 'campo' },
       el('span', { texto: 'Email' }),
       el('input', { type: 'email', inputmode: 'email', autocomplete: 'email',
@@ -1963,7 +2125,12 @@ async function irPara(nome, { historico = true } = {}) {
   /* Ao topo outra vez, agora que o conteúdo existe: a primeira volta corre
      com a coluna vazia e a página desce sozinha quando ela enche. */
   window.scrollTo({ top: 0, behavior: 'instant' });
-  principal.focus({ preventScroll: true });
+  /* MAS NÃO SE ROUBA O FOCO A UM PAINEL ABERTO. Isto repinta-se por baixo de
+     um modal — desligar uma porta da conta repinta o perfil e volta ao painel
+     — e um `focus()` no `<main>` atira o foco para fora de um diálogo que
+     promete `aria-modal="true"`, para um ecrã tapado pelo véu. Quem vê não dá
+     por nada; quem ouve fica no sítio errado. */
+  if (!$('#painel')) principal.focus({ preventScroll: true });
 }
 
 /**
@@ -2275,7 +2442,13 @@ function ecraSessaoTerminada(cliente) {
  * mudar de telemóvel passa a perder os cartões. Não é um aviso de rotina — é a
  * única coisa que aquele email fazia.
  */
-function tirarEmail() {
+function tirarEmail({ voltar = false } = {}) {
+  /* Como no desligar da Google: volta-se para onde se veio, e só se ainda
+     houver painel para onde voltar. */
+  const daquiVolta = () => {
+    if (!$('#painel')) return;
+    if (voltar) guardarConta(); else fecharPainel();
+  };
   /* O QUE SE PERDE DEPENDE DE HAVER OUTRA PORTA. Dizer «perdes os cartões» a
      quem tem a Google ligada é assustar por engano — e a frase existe
      justamente para não haver enganos. */
@@ -2297,22 +2470,22 @@ function tirarEmail() {
       class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Tirar o email',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
-        botao.setAttribute('aria-disabled', 'sim');
+        botao.setAttribute('aria-disabled', 'true');
         try {
           await api.tirarEmail();
           estado.cliente = { ...estado.cliente, email: null };
           guardar('cliente', estado.cliente);
           await carregarIdentidades();
-          fecharPainel();
           avisar('Email retirado. Os cartões ficaram.', 'bom');
-          irPara('perfil');
+          await irPara('perfil');
+          daquiVolta();
         } catch (e) {
           botao.removeAttribute('aria-disabled');
           avisar(e.message || 'Não deu para tirar.', 'mau');
         }
       } }),
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
-      aoClick: fecharPainel }));
+      aoClick: daquiVolta }));
 }
 
 /**

@@ -272,12 +272,22 @@ export async function correr(palco, certo) {
       readText: async () => { chamou = true; return '314159'; },
       writeText: async () => {},
     } });
-    /* Fecha o painel e volta a abrir, que é quando a leitura acontecia. */
-    document.querySelector('#painel .painel-fecho, #painel-fundo')?.click();
+    /* Fecha o painel e volta a abrir, que é quando a leitura acontecia.
+
+       OS DOIS SELECTORES ANTIGOS NÃO EXISTIAM: eram .painel-fecho e
+       #painel-fundo, e o painel tem .painel-veu e .painel-pega. Aquela linha
+       não fechava nada há muito tempo, e o #campo-codigo que se lia a seguir
+       era o do painel que nunca chegou a ser substituído. A afirmação passava
+       por acidente, que é o pior modo de uma afirmação passar.
+       (Sem crases: isto vive dentro de um template literal, e uma crase aqui
+       fecha-o. Mesma armadilha, segunda vez no mesmo dia.)
+
+       E a linha reabre-se pelo SELECTOR e não pelo texto: o texto daquela
+       linha tem agora quatro grafias, conforme as portas ligadas. */
+    document.querySelector('#painel .painel-veu')?.click();
     await new Promise((r) => setTimeout(r, 300));
-    document.querySelectorAll('#principal .lista .linha').forEach((l) => {
-      if (/Guardar a conta/.test(l.textContent)) l.click();
-    });
+    if (document.querySelector('#painel')) throw new Error('o painel não fechou');
+    document.querySelector('#principal section:first-of-type .lista .linha:first-child')?.click();
     await new Promise((r) => setTimeout(r, 400));
     const e = document.querySelector('#campo-email');
     if (e) { e.value = ${JSON.stringify('teste@exemplo.pt')}; e.dispatchEvent(new Event('input', { bubbles: true })); }

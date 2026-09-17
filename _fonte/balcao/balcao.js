@@ -617,7 +617,7 @@ function avisoDeInstalar() {
       texto: 'Instalar no ecrã principal',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
-        botao.setAttribute('aria-disabled', 'sim');
+        botao.setAttribute('aria-disabled', 'true');
         try {
           convidarAInstalar.prompt();
           const { outcome } = await convidarAInstalar.userChoice;
@@ -1361,7 +1361,7 @@ function expulsarBalcoes() {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Terminar nos outros',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
-        botao.setAttribute('aria-disabled', 'sim');
+        botao.setAttribute('aria-disabled', 'true');
         try {
           await api.sairDosOutrosBalcoes();
           fecharPainel();

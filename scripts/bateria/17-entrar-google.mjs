@@ -36,6 +36,23 @@ const BOTAO_GOOGLE = '#painel .btn-google';
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Marca o botão de uma porta para lhe podermos tocar.
+ *
+ * CHAMA-SE DE CADA VEZ, e não uma só: o painel da conta é repintado a cada
+ * volta — depois de desligar, depois de cancelar — e um atributo posto no nó
+ * antigo desaparece com ele. Marcar uma vez e clicar duas é esperar por um
+ * elemento que já não existe.
+ */
+async function marcarPorta(palco, verbo) {
+  return palco.js(`
+    const b = [...document.querySelectorAll('#painel .linha-porta .btn')]
+      .find((n) => n.textContent.includes(${JSON.stringify(verbo)}));
+    if (!b) return null;
+    b.setAttribute('data-prova', 'porta');
+    return true`);
+}
+
 /** O que está no armazenamento da demonstração, já lido de volta. */
 async function guardado(palco, chave) {
   return palco.js(`
@@ -96,30 +113,70 @@ export async function correr(palco, certo) {
     'e o botão de segurança aparece a quem tem por onde voltar a entrar — '
     + 'estava fechado atrás de «tens email?»');
 
-  /* --- 3. RETIRAR É TÃO FÁCIL COMO DAR --------------------------------- */
-  certo((await palco.textoTodo()).includes('Desligar a conta Google'),
-    'há por onde desligar a conta Google (art. 7.º/3 do RGPD)');
+  /* --- 3. «COM QUE CONTA É QUE EU ENTREI?» ----------------------------- */
+  /* É a primeira pergunta que alguém faz depois de entrar, e não tinha
+     resposta em lado nenhum: o perfil dizia que a conta estava guardada e
+     ficava-se por aí. Agora o painel mostra a porta e a morada por onde ela
+     entra. */
+  await palco.clicar(LINHA_CONTA);
+  await palco.esperar('#painel .linha-porta');
+  certo((await palco.texto('#painel h2')) === 'Como entras nesta conta',
+    'com uma porta ligada, o painel deixa de se chamar «Guardar a conta»',
+    await palco.texto('#painel h2'));
+  const portaGoogle = await palco.texto('#painel .linha-porta');
+  certo(portaGoogle.includes('Google') && portaGoogle.includes('@'),
+    'e mostra a conta Google com a morada por onde se entrou', portaGoogle);
+  certo(await palco.contar('#painel .linha-porta') === 1,
+    'só uma porta, que é só uma que está ligada',
+    String(await palco.contar('#painel .linha-porta')));
+  /* O `.seccao-titulo` é maiúsculas por CSS, e o `innerText` devolve o texto
+     JÁ TRANSFORMADO — comparar com o que está escrito na fonte falha sem que
+     nada esteja errado no ecrã. */
+  certo((await palco.textoTodo()).toLowerCase().includes('juntar outra forma de entrar'),
+    'e o que falta é oferecido por baixo, como o que falta e não como alternativa');
+  certo(!(await palco.visivel('#painel .ou')),
+    'sem duas escolhas não há «ou» — ele separa alternativas, e aqui não há duas');
 
-  const linhaDesligar = await palco.js(`
-    const l = [...document.querySelectorAll('#principal .linha')]
-      .find((n) => n.textContent.includes('Desligar a conta Google'));
-    if (!l) return null;
-    l.setAttribute('data-prova', 'desligar');
-    return true`);
-  certo(linhaDesligar === true, 'e essa linha existe mesmo, para lhe podermos tocar');
-  await palco.clicar('[data-prova="desligar"]');
+  /* --- 4. RETIRAR É TÃO FÁCIL COMO DAR (art. 7.º/3 do RGPD) ------------ */
+  /* O botão vive AO LADO da porta que desliga, e não numa linha solta do
+     perfil: quem quer desligar uma conta vai ver qual é primeiro. */
+  certo(await marcarPorta(palco, 'Desligar') === true,
+    'a porta da Google tem um «Desligar» ao lado');
+  await palco.clicar('[data-prova="porta"]');
   await palco.esperar('#painel .btn-perigo');
   certo((await palco.textoTodo()).includes('Os cartões e os carimbos ficam todos'),
     'o painel diz o que se perde ANTES — e o que se perde é só a forma de entrar');
   await palco.clicar('#painel .btn-perigo');
+
+  /* E VOLTA-SE PARA ONDE SE VEIO. Mandar a pessoa para o perfil a meio de um
+     gesto que ela começou no painel é fazê-la perder o lugar.
+
+     O TÍTULO MUDA, e muda bem: esta era a ÚNICA porta, por isso o painel deixa
+     de poder chamar-se «como entras» — já não se entra por lado nenhum — e
+     volta a ser o de guardar a conta. Afirma-se o que interessa, que é o painel
+     estar lá e oferecer outra vez o que se acabou de desligar. */
+  await palco.esperar(BOTAO_GOOGLE);
+  certo(await palco.visivel('#painel'), 'o painel da conta volta, em vez de nos largar no perfil');
+  certo((await palco.texto('#painel h2')) === 'Guardar a conta',
+    'e sem portas nenhumas volta a chamar-se «Guardar a conta»',
+    await palco.texto('#painel h2'));
+  certo(await palco.contar('#painel .linha-porta') === 0,
+    'desligada a Google, a porta desaparece da lista',
+    String(await palco.contar('#painel .linha-porta')));
+  certo(await palco.visivel(BOTAO_GOOGLE),
+    'e o painel volta a oferecê-la, no mesmo sítio onde ela estava');
+  certo(!(await palco.textoTodo()).includes('null'),
+    'e nada escreve «null» no ecrã — o `append` do browser não ignora filhos nulos '
+    + 'como o `el()` desta casa ignora');
+
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
   await palco.esperar(LINHA_CONTA);
   certo((await palco.texto(LINHA_CONTA)).includes('Guardar a conta'),
-    'desligada a Google, o perfil volta a oferecer guardar a conta',
+    'e o perfil por baixo repintou-se — não ficou com o texto velho',
     await palco.texto(LINHA_CONTA));
-  certo(!(await palco.textoTodo()).includes('Desligar a conta Google'),
-    'e a linha de desligar desaparece, que já não tem o que desligar');
 
-  /* --- 4. A VOLTA QUE ATERRA NA JANELA ERRADA -------------------------- */
+  /* --- 5. A VOLTA QUE ATERRA NA JANELA ERRADA -------------------------- */
   /* É o caminho do ataque, e o que o fecha é o bilhete. Chega-se aqui com um
      código na barra de endereço e sem bilhete guardado: pode ser um iPhone
      antigo a abrir a ligação no Safari em vez de dentro da app, ou pode ser
@@ -133,7 +190,7 @@ export async function correr(palco, certo) {
   certo(!(await palco.js('return location.search.includes("code=")')),
     'e o código sai da barra de endereço logo — não fica no histórico do telemóvel');
 
-  /* --- 5. A VOLTA NA JANELA CERTA -------------------------------------- */
+  /* --- 6. A VOLTA NA JANELA CERTA -------------------------------------- */
   await palco.js(`localStorage.setItem('carimbo-demo:entrada-google',
     JSON.stringify({ bilhete: 'bilhete-de-demonstracao', em: Date.now() }))`);
   await palco.ir('/app/?code=um-codigo-qualquer&state=um-estado-qualquer');
@@ -148,19 +205,112 @@ export async function correr(palco, certo) {
   certo((await palco.texto(LINHA_CONTA)).includes('A conta está guardada'),
     'e a conta ficou guardada pela Google', await palco.texto(LINHA_CONTA));
 
-  /* --- 6. O QUE FICA PARA TRÁS DEPOIS DE APAGAR ------------------------ */
+  /* --- 7. O QUE FICA PARA TRÁS DEPOIS DE APAGAR ------------------------ */
   const chaves = await palco.js(`return Object.keys(localStorage)`);
   certo(!chaves.some((k) => k.includes('entrada-google')),
     'não sobra bilhete nenhum no armazenamento depois de a entrada estar feita',
     JSON.stringify(chaves));
 
-  /* --- 7. NUM ECRÃ ESTREITO ------------------------------------------- */
+  /* --- 8. A OUTRA PORTA, E O «TIRAR» ----------------------------------- */
+  /* O `Desligar` da Google está provado acima; o `Tirar` do email não tinha
+     uma única afirmação — é o mesmo caminho por outra porta, e «o mesmo
+     caminho» é precisamente o que se diz antes de uma das duas partir. */
+  await palco.clicar(LINHA_CONTA);
+  await palco.esperar('#campo-email');
+  await palco.preencher('#campo-email', 'porta@exemplo.pt');
+  await palco.clicar('#botao-enviar');
+  await palco.esperar('#campo-codigo');
+  await palco.escrever('#campo-codigo', '000000');
+  await palco.sumir('#painel', 4000);
+
+  await palco.esperar(LINHA_CONTA);
+  await palco.clicar(LINHA_CONTA);
+  await palco.esperar('#painel .linha-porta');
+  certo(await palco.contar('#painel .linha-porta') === 2,
+    'com as duas portas ligadas, aparecem as duas',
+    String(await palco.contar('#painel .linha-porta')));
+  const texto = await palco.textoTodo();
+  certo(texto.includes('porta@exemplo.pt'),
+    'e a do email mostra a morada que se escreveu');
+  certo(!(await palco.ver('#painel #campo-email')),
+    'quem já tem email não o volta a escrever — o campo deixa de ser oferecido');
+  certo(!(await palco.ver(BOTAO_GOOGLE)),
+    'e o botão da Google também não, que já está ligada');
+  certo(texto.includes('Tens as duas'),
+    'e o painel fecha-se a dizer que não falta nada');
+
+  /* A morada que o painel mostra e a que o perfil mostra são lidas por duas
+     funções diferentes — `moradaDaPorta` e `moradaDaConta`. Nada as obriga a
+     concordar, por isso afirma-se que concordam. */
+  certo((await palco.texto(LINHA_CONTA)).includes('porta@exemplo.pt'),
+    'e é a MESMA morada que o perfil mostra por baixo',
+    await palco.texto(LINHA_CONTA));
+
+  /* O Cancelar volta ao painel da conta com a porta ainda lá. É uma linha
+     diferente da do confirmar, e só a do confirmar tinha prova. */
+  certo(await marcarPorta(palco, 'Tirar') === true,
+    'a porta do email tem um «Tirar» ao lado');
+  await palco.clicar('[data-prova="porta"]');
+  await palco.esperar('#painel .btn-perigo');
+  await palco.clicar('#painel .btn-fantasma.btn-bloco');
+  await palco.esperar('#painel .linha-porta');
+  certo(await palco.contar('#painel .linha-porta') === 2,
+    'o Cancelar volta ao painel da conta, com as duas portas ainda lá',
+    String(await palco.contar('#painel .linha-porta')));
+
+  /* E o confirmar tira mesmo. O botão é marcado OUTRA VEZ: o painel que
+     voltou é outro, e o atributo ficou no que saiu. */
+  certo(await marcarPorta(palco, 'Tirar') === true, 'e o «Tirar» continua lá depois de voltar');
+  await palco.clicar('[data-prova="porta"]');
+  await palco.esperar('#painel .btn-perigo');
+  await palco.clicar('#painel .btn-perigo');
+  await palco.esperar('#painel #campo-email');
+  certo(await palco.contar('#painel .linha-porta') === 1,
+    'tirado o email, fica só a porta da Google',
+    String(await palco.contar('#painel .linha-porta')));
+  certo(await palco.visivel('#painel #campo-email'),
+    'e o campo do email volta a ser oferecido, onde ele estava');
+
+  /* --- 9. UM NOME QUE SE OUÇA ------------------------------------------ */
+  /* Escrito, «Tirar» ao lado de «Email» chega. Num leitor de ecrã não há
+     «ao lado»: o rotor de botões dá os verbos sozinhos. */
+  const nomes = await palco.js(`
+    return [...document.querySelectorAll('#painel .linha-porta .btn')]
+      .map((b) => b.getAttribute('aria-label') || b.textContent.trim())`);
+  certo(nomes.length === 1 && /Google/.test(nomes[0]) && /@/.test(nomes[0]),
+    'o botão de uma porta diz O QUÊ, e não só o verbo', JSON.stringify(nomes));
+
+  /* --- 10. NUM ECRÃ ESTREITO ------------------------------------------- */
+  /* Aqui a Google JÁ está ligada, por isso o que se mede é a linha da porta —
+     que tem uma morada de email inteira lá dentro, e é ela que estica.
+
+     FECHA-SE O PAINEL E ESPERA-SE PELO AVISO. O «Email retirado» pousa no topo
+     do ecrã e tapa a linha do perfil: o clique seguinte não lhe chega, e o que
+     a bateria diz é «está tapado por span» — que é exactamente a classe de
+     defeito que o módulo 06 persegue, só que aqui é o teste a tropeçar nela. */
+  await palco.tecla('Escape');
+  await palco.sumir('#painel', 4000);
+  try { await palco.sumir('.aviso', 6000); } catch { /* já tinha ido */ }
   await palco.tamanho(320, 640);
   await palco.clicar(LINHA_CONTA);
-  await palco.esperar(BOTAO_GOOGLE);
-  const caixa = await palco.medir(BOTAO_GOOGLE);
-  certo(caixa.largura > 200 && caixa.altura >= 44,
-    'a 320 px o botão continua inteiro e tocável', JSON.stringify(caixa));
-  certo(await palco.visivel(BOTAO_GOOGLE), 'e continua à vista, sem nada por cima');
+  await palco.esperar('#painel .linha-porta');
+  const porta = await palco.medir('#painel .linha-porta');
+  certo(porta.largura <= 320, 'a 320 px a linha da porta não passa do ecrã',
+    JSON.stringify(porta));
+  const botaoDesligar = await palco.medir('#painel .linha-porta .btn');
+  certo(botaoDesligar.altura >= 40 && botaoDesligar.largura >= 44,
+    'e o «Desligar» continua com tamanho para ser tocado', JSON.stringify(botaoDesligar));
+  certo(botaoDesligar.x + botaoDesligar.largura <= 321,
+    'e não sai pela direita — a morada é que encolhe, não o botão',
+    JSON.stringify(botaoDesligar));
+  certo(!(await palco.js(`
+    return document.documentElement.scrollWidth > document.documentElement.clientWidth`)),
+    'e a 320 px a página não ganha barra de rolar para o lado');
+
+  /* E a porta que falta continua a ser oferecida, inteira. */
+  await palco.esperar('#painel .campo input');
+  const campo = await palco.medir('#painel .campo input');
+  certo(campo.largura > 180, 'o campo do email que falta também cabe',
+    JSON.stringify(campo));
   await dormir(50);
 }

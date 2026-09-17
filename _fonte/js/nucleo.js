@@ -175,6 +175,7 @@ const TRACO = {
   descarregar: '<path d="M12 3.5v12M8 11.5l4 4 4-4"/><path d="M4.5 17.5v1A2.5 2.5 0 0 0 7 21h10a2.5 2.5 0 0 0 2.5-2.5v-1"/>',
   olho: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>',
   cadeado: '<rect x="4.5" y="10" width="15" height="11" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>',
+  carta: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.6 7.2 7.1 5.1a2.2 2.2 0 0 0 2.6 0l7.1-5.1"/>',
   procurar: '<circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/>',
   lampada: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/>',
 };
@@ -375,9 +376,22 @@ export function prenderFoco(no, { aoEscapar } = {}) {
     const primeiroF = lista[0];
     const ultimo = lista[lista.length - 1];
     /* O `document.activeElement` pode estar fora do painel — por exemplo
-       logo a seguir a abrir, antes de o `setTimeout` correr. */
-    if (!no.contains(document.activeElement)) {
-      ev.preventDefault(); primeiroF.focus(); return;
+       logo a seguir a abrir, antes de o `setTimeout` correr.
+
+       E O PRÓPRIO CONTENTOR CONTA COMO FORA, que era por onde a trava furava.
+       Quando um painel abre sem campos, o foco vai para a folha, que é focável
+       com `tabindex="-1"`. A partir daí: `no.contains(no)` é VERDADE, por isso
+       esta guarda não disparava; e a folha não é nem o primeiro nem o último
+       da lista, por isso as duas condições de baixo também não. Sem
+       `preventDefault`, um Shift+Tab saltava para o focável anterior do
+       DOCUMENTO — para fora do diálogo, para um botão tapado pelo véu, e um
+       Enter a seguir carregava nele. O `aria-modal` promete que isso não
+       acontece. */
+    const activo = document.activeElement;
+    if (!no.contains(activo) || activo === no) {
+      ev.preventDefault();
+      (ev.shiftKey ? ultimo : primeiroF).focus();
+      return;
     }
     if (ev.shiftKey && document.activeElement === primeiroF) {
       ev.preventDefault(); ultimo.focus();
@@ -408,6 +422,23 @@ export function avisar(mensagem, tipo = 'neutro') {
   no.querySelector('span').textContent = mensagem;
   document.body.append(no);
   avisoAtual = no;
+
+  /* E UMA CÓPIA DENTRO DO PAINEL, quando há um aberto. Um `aria-modal="true"`
+     tira da árvore de acessibilidade tudo o que está fora do diálogo — e o
+     aviso vive no `body`. Quem não vê o ecrã ficava sem saber que a coisa
+     tinha resultado, e isso passou a ser o caso normal desde que desligar uma
+     porta deixa o painel aberto em vez de o fechar.
+
+     É uma cópia só para quem ouve, e não o aviso mudado de sítio: o aviso é
+     `position: fixed`, e uma folha que se desloque com `transform` passaria a
+     ser o bloco que o posiciona. */
+  const folha = document.querySelector('#painel .painel-folha');
+  if (folha) {
+    const paraOuvir = el('p', { class: 'so-leitor', role: 'status', 'aria-live': 'polite' });
+    paraOuvir.textContent = mensagem;
+    folha.append(paraOuvir);
+    setTimeout(() => paraOuvir.remove(), 4000);
+  }
   setTimeout(() => {
     no.dataset.saida = 'sim';
     setTimeout(() => { no.remove(); if (avisoAtual === no) avisoAtual = null; }, 220);
