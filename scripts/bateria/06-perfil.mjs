@@ -545,10 +545,41 @@ export async function correr(palco, certo) {
   const caixa = await palco.armazenamento();
   const chaves = Object.keys(caixa);
   for (const chave of ['carimbo-demo:cliente', 'carimbo-demo:sessao',
-                       'carimbo-demo:visto-bv', 'carimbo-demo:desvio']) {
+                       'carimbo-demo:visto-bv', 'carimbo-demo:desvio',
+                       /* Estas três entraram depois, e as três tinham
+                          sobrevivido ao apagamento: a lista de CARTÕES leva os
+                          nomes dos cafés e os carimbos de cada um, as
+                          IDENTIDADES levam a morada, e o BILHETE é uma entrada
+                          por concluir. Nenhuma delas estava nesta lista porque
+                          nenhuma existia quando ela foi escrita. */
+                       'carimbo-demo:cartoes', 'carimbo-demo:identidades',
+                       'carimbo-demo:entrada-google']) {
     certo(!(chave in caixa), `apagar: «${chave}» desapareceu do armazenamento`,
       String(caixa[chave]).slice(0, 60));
   }
+
+  /* E A REGRA GERAL, para não ser preciso lembrar-se de acrescentar à lista
+     acima de cada vez que nasce uma chave: depois de apagar, a app é um
+     telemóvel novo.
+
+     Três excepções, e as três são o que são: o TEMA é uma preferência do
+     aparelho e não um dado da conta — quem apaga a conta não pediu para o ecrã
+     voltar a branco; o `modo-demo` é o interruptor da demonstração; e o
+     `carimbo-demo:demo` é o SERVIDOR da demonstração, o lugar onde uma
+     demonstração sem rede guarda o que o D1 guardaria — o que lá está por
+     dentro é coberto pelas duas afirmações a seguir. */
+  const restosDaConta = chaves.filter((k) => k.startsWith('carimbo')
+    && !k.endsWith(':tema') && k !== 'carimbo:modo-demo' && k !== 'carimbo-demo:demo');
+  certo(restosDaConta.length === 0,
+    'apagar: não sobra chave nenhuma da conta no armazenamento do telemóvel',
+    restosDaConta.join(', '));
+
+  /* E o servidor da demonstração também não guarda a conta apagada. É o que a
+     app promete em remoto e o que o Worker cumpre — a demonstração não pode
+     ensinar outra coisa. */
+  const dentroDaDemo = String(caixa['carimbo-demo:demo'] || '');
+  certo(!dentroDaDemo.includes(EMAIL),
+    'apagar: o servidor da demonstração também deixou de ter a morada');
 
   /* O email é o único dado pessoal que esta app chega a pedir: se sobreviver
      numa chave qualquer, «sem volta» não é verdade. */

@@ -1674,15 +1674,21 @@ function apagarConta() {
           return;
         }
         await esquecerSegredo();
-        apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
-        apagar('sessao-por-juntar');
-        /* E AS DUAS CHAVES QUE A PORTA DA GOOGLE TROUXE. A lista de
-           identidades tem lá dentro a morada de email — que é o único dado
-           pessoal que esta app chega a guardar — e «sem volta» quer dizer que
-           não fica nada para trás. Foi a bateria que apanhou isto: o email
-           sobrevivia ao apagamento, numa chave que não existia quando aquele
-           teste foi escrito. */
-        apagar('identidades'); apagar(CHAVE_ENTRADA);
+        /* TODAS AS CHAVES, e não as que nos lembrarmos. «Não há forma de
+           recuperar» é uma promessa sobre o que fica no telemóvel tanto como
+           sobre o que fica no servidor.
+
+           Duas destas faltavam, e as duas foram encontradas depois de o texto
+           já estar escrito: a lista de IDENTIDADES tem lá dentro a morada de
+           email — o único dado pessoal que esta app chega a guardar — e foi a
+           bateria que a apanhou; e a lista de CARTÕES tem os nomes dos cafés e
+           os carimbos de cada um, e sobreviveu ao apagamento até se olhar para
+           o armazenamento a seguir a carregar no botão. O teste perguntava
+           pelo email, e só pelo email, por isso só o email estava coberto. */
+        for (const chave of ['cliente', 'sessao', 'cartoes', 'desvio', 'visto-bv',
+                             'sessao-por-juntar', 'identidades', CHAVE_ENTRADA]) {
+          apagar(chave);
+        }
         location.reload();
       },
     }),
