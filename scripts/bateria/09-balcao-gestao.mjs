@@ -1435,7 +1435,41 @@ export async function correr(palco, certo) {
     String(await palco.texto('#principal .subtexto')).slice(0, 90));
   certo(/apag/i.test(await palco.texto('#principal .subtexto')),
     'Clientes: e que o cliente a vê e a pode apagar, que é o que a torna aceitável',
-    String(await palco.texto('#principal .subtexto')));
+    String(await palco.texto('#principal .subtexto')).slice(0, 90));
+
+  /* A ALCUNHA CHEGA MESMO À LISTA. Escrever e não aparecer foi o defeito que
+     isto apanhou, e só se viu a conduzir: o balcão gravava, o aviso dizia
+     «Guardado», e a linha continuava a mostrar só o número. A demonstração não
+     devolvia nem o `id` do cartão nem a `alcunha` — devolvia um `nome` que o
+     Worker a sério nunca teve. Uma demonstração que devolve campos diferentes
+     do produto deixa de servir para o provar. */
+  const comAlcunha = await palco.js(`
+    const linhas = [...document.querySelectorAll('#principal .lista > .linha')];
+    const l = linhas[0];
+    if (!l) return { erro: 'lista vazia' };
+    const d = JSON.parse(localStorage.getItem('carimbo-demo:demo'));
+    if (!d.cartoes.length) return { erro: 'sem cartões' };
+    d.cartoes[0].alcunha = 'o senhor do jornal';
+    localStorage.setItem('carimbo-demo:demo', JSON.stringify(d));
+    document.querySelectorAll('#barra button').forEach((b) => {
+      if (/Clientes/.test(b.textContent)) b.click();
+    });
+    await new Promise((r) => setTimeout(r, 900));
+    const alvo = [...document.querySelectorAll('#principal .lista > .linha')]
+      .find((x) => /o senhor do jornal/.test(x.textContent));
+    return {
+      apareceu: !!alvo,
+      naClasse: !!alvo?.querySelector('.alcunha-na-lista'),
+      /* E o número do cartão continua a ser o primeiro <b>, que é o que
+         quatro módulos desta bateria medem. */
+      primeiroB: alvo?.querySelector('.linha-texto b')?.textContent.trim() ?? null,
+    };`);
+  certo(comAlcunha.apareceu && comAlcunha.naClasse,
+    'Clientes: uma alcunha escrita APARECE na linha — gravar sem aparecer foi o defeito que isto apanha',
+    JSON.stringify(comAlcunha));
+  certo(comAlcunha.primeiroB && /^[A-Z0-9]{6}$/.test(comAlcunha.primeiroB),
+    'e o número do cartão continua a ser o primeiro <b> — é o que esta bateria mede em quatro módulos',
+    String(comAlcunha.primeiroB));
 
   /* =======================================================================
      O cartão: a pré-visualização acompanha o que se escreve

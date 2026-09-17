@@ -665,8 +665,16 @@ function criarDemo() {
             .filter((x) => x.cartaoId === c.id && !x.resgatadoEm)
             .map((x) => ({ id: x.id, descricao: x.descricao, ganhoEm: x.ganhoEm }));
           return {
+            /* O `id` DO CARTÃO, que faltava: sem ele o balcão não tem por onde
+               escrever a alcunha nem pedir o histórico. Apanhado a conduzir a
+               demonstração — a alcunha gravava e não aparecia na lista. */
+            id: c.id,
             publico: cliente ? cliente.publico : '??????',
-            nome: cliente && cliente.nome,
+            /* O `nome` SAIU. Era um campo fantasma: o Worker a sério nunca o
+               devolveu, ninguém o lia, e estava aqui a prometer ao demo uma
+               forma que a aplicação verdadeira não tem. Uma demonstração que
+               devolve mais do que o produto deixa de servir para o provar. */
+            alcunha: c.alcunha || null,
             carimbos: c.carimbos, pontos: c.pontos, objetivo: p.objetivo, tipo: p.tipo,
             ultimoEm: c.ultimoEm, aderiuEm: c.aderiuEm,
             porResgatar: premios.length, premios,
