@@ -1876,6 +1876,85 @@ async function apagarCliente(env, clienteId) {
   await env.DB.batch(instrucoes);
 }
 
+/**
+ * Sair de UM café, sem apagar a conta.
+ *
+ * NÃO HAVIA COMO. Em toda a API existia uma única rota `DELETE`, e apagava a
+ * conta inteira: para deixar de estar na lista de um sítio, a pessoa tinha de
+ * perder os carimbos de TODOS os outros. Nove carimbos na padaria ao lado
+ * deitados fora para sair de uma lista.
+ *
+ * Enquanto a lista do balcão era anónima, isto quase não mordia. Com a alcunha
+ * lá dentro passa a ser um dado sobre uma pessoa identificável, e o art. 21.º
+ * dá-lhe o direito de se opor. Um direito que só se exerce destruindo tudo o
+ * resto é o prejuízo que o art. 7.º/4 proíbe.
+ *
+ * Leva tudo o que é DAQUELE cartão — movimentos, prémios, a alcunha com a
+ * linha — e não toca em mais nada. O passe da Google é expirado; o da Apple
+ * não tem por onde se lhe tocar, e o que o mata é o `wallet_codigo` deixar de
+ * existir com o cartão.
+ *
+ * O CAFÉ PERDE O HISTÓRICO, e isso diz-se à pessoa antes: o dono deixa de ver
+ * aquelas visitas para sempre. É o preço certo — os dados eram dela.
+ */
+rota('DELETE', /^\/v1\/cliente\/cartoes\/([\w-]+)$/, async (env, pedido, [cartaoId]) => {
+  const clienteId = await exigirCliente(env, pedido);
+  const cartao = await env.DB.prepare(
+    'SELECT id, wallet_em FROM cartoes WHERE id = ? AND cliente_id = ?'
+  ).bind(cartaoId, clienteId).first();
+  if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404, codigo: 'sem-cartao' });
+
+  if (walletLigada(env) && cartao.wallet_em) {
+    try {
+      await googlePedir(env, `/loyaltyObject/${env.GOOGLE_EMISSOR}.${cartao.id}`, {
+        metodo: 'PATCH', corpo: { state: 'EXPIRED' },
+      });
+    } catch (erro) {
+      /* Falhar aqui não trava o apagamento, pela mesma razão do
+         `apagarCliente`: entre deixar o cartão na base de quem pediu para sair
+         e deixar um rectângulo morto numa carteira, a escolha é fácil. */
+      console.error('wallet: não deu para expirar o passe ao largar o cartão', cartao.id, String(erro));
+    }
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM movimentos WHERE cartao_id = ?').bind(cartaoId),
+    env.DB.prepare('DELETE FROM premios WHERE cartao_id = ?').bind(cartaoId),
+    env.DB.prepare('DELETE FROM cartoes WHERE id = ? AND cliente_id = ?').bind(cartaoId, clienteId),
+  ]);
+  return { largado: true };
+});
+
+/**
+ * Tirar o email, e mais nada.
+ *
+ * O EMAIL FOI DADO POR CONSENTIMENTO — está escrito assim na política, art.
+ * 6.º/1/a — e o art. 7.º/3 diz que retirar tem de ser tão fácil como dar. Dar
+ * era escrever a morada e um código de seis algarismos; tirar era apagar a
+ * conta e perder os cartões todos. Não é a mesma facilidade: é o contrário.
+ *
+ * Sai dos dois sítios, e os dois são precisos: a identidade, que é quem manda
+ * desde a migração 009, e o espelho em `clientes.email`, que a app que está
+ * nos telemóveis ainda lê.
+ *
+ * O QUE SE PERDE DIZ-SE ANTES, e não é pouco: sem email guardado, mudar de
+ * telemóvel passa a perder os cartões. É o painel da app que o diz — aqui só
+ * se faz o que foi pedido.
+ */
+rota('DELETE', '/v1/cliente/email', async (env, pedido) => {
+  const clienteId = await exigirCliente(env, pedido);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM identidades WHERE cliente_id = ? AND provedor = 'email'")
+      .bind(clienteId),
+    env.DB.prepare('UPDATE clientes SET email = NULL, email_verificado = 0 WHERE id = ?')
+      .bind(clienteId),
+    /* Os códigos por usar morrem com ele: um código emitido para uma morada
+       que já não é da conta não tem para onde levar ninguém. */
+    env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`cliente:${clienteId}`),
+  ]);
+  return { email: null };
+});
+
 rota('DELETE', '/v1/cliente', async (env, pedido) => {
   const clienteId = await exigirCliente(env, pedido);
   await apagarCliente(env, clienteId);
@@ -3179,6 +3258,57 @@ rota('GET', /^\/v1\/balcao\/cartoes\/([\w-]+)\/historico$/, async (env, pedido, 
       id: x.id, descricao: x.descricao, ganhoEm: x.ganho_em, resgatadoEm: x.resgatado_em,
     })),
   };
+});
+
+/**
+ * Expulsar os outros balcões.
+ *
+ * O CENÁRIO É BANAL E NÃO HAVIA RESPOSTA NENHUMA: o telemóvel do balcão fica
+ * no táxi, ou alguém sai zangado com a app instalada. A rota que expulsa
+ * aparelhos, `/v1/cliente/sair-dos-outros`, recusa liminarmente quem não é
+ * cliente — e não havia equivalente deste lado.
+ *
+ * E EU PIOREI ISTO, no mesmo dia em que o escrevo: para o balcão «ficar sempre
+ * ligado» pus a sessão a deslizar, o que resolveu o problema certo e fez com
+ * que um balcão activo NUNCA expire. Antes havia ao menos um fim de linha aos
+ * 180 dias; agora não havia nenhum, e a única saída seria apagar o negócio.
+ *
+ * O que está em causa cresceu com a alcunha: um balcão perdido já não expõe só
+ * códigos de seis caracteres sem dono — expõe a lista de clientes com o nome
+ * por que o café os trata, e o histórico de visitas de cada um.
+ *
+ * Fica ESTA sessão e morrem as outras, que é o que permite carregar no botão
+ * do telemóvel novo sem se pôr fora a si próprio. Vale para todos os
+ * operadores do negócio, e não só para quem carrega: o telemóvel perdido pode
+ * ter entrado com outra morada.
+ */
+rota('POST', '/v1/balcao/sair-dos-outros', async (env, pedido) => {
+  const s = await lerSessao(env, pedido);
+  if (!s || s.tipo !== 'operador') throw new Falha('Sessão inválida', { estado: 401 });
+  const op = await env.DB.prepare(
+    'SELECT id, negocio_id FROM operadores WHERE id = ? AND ativo = 1'
+  ).bind(s.id).first();
+  if (!op) throw new Falha('Operador desativado', { estado: 403 });
+
+  /* Todos os operadores DESTE negócio. Um balcão é do negócio, e não da
+     pessoa: quem perde o telemóvel quer fechar a porta, não auditar quem
+     entrou por onde. */
+  const operadores = (await env.DB.prepare(
+    'SELECT id FROM operadores WHERE negocio_id = ?'
+  ).bind(op.negocio_id).all()).results;
+
+  const instrucoes = operadores.map((o) => env.DB.prepare(
+    'DELETE FROM sessoes WHERE sujeito = ? AND resumo != ?'
+  ).bind(`operador:${o.id}`, s.resumo));
+
+  /* E os códigos de entrada por usar. Um código que ficasse vivo era uma
+     segunda chave deixada para trás, a valer quinze minutos — e quinze
+     minutos chegam para quem tem o telemóvel na mão. */
+  instrucoes.push(...operadores.map((o) => env.DB.prepare(
+    'DELETE FROM entradas WHERE alvo = ?').bind(`operador:${o.id}`)));
+
+  await env.DB.batch(instrucoes);
+  return { feito: true, operadores: operadores.length };
 });
 
 rota('GET', '/v1/balcao/clientes', async (env, pedido) => {

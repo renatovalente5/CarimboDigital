@@ -310,6 +310,39 @@ async function ecraCartao(principal) {
     principal.append(botaoWallet(cheio, 'apple'));
   }
 
+  /* COMO ESTE CAFÉ TE TRATA. O balcão pode escrever uma alcunha no cartão para
+     saber quem és quando lá chegas — nunca te é pedido nada, é ele que a
+     escreve. Mas uma nota sobre uma pessoa que ela não pode ler é o contrário
+     do que este produto diz ser: mostra-se, com o nome de quem a escreveu, e
+     há um botão para a apagar. O artigo 15.º do RGPD não é opcional, e o 21.º
+     dá o direito de se opor. */
+  if (cheio.alcunha) {
+    principal.append(el('section', { class: 'seccao' },
+      el('h2', { class: 'seccao-titulo', texto: 'Como te tratam aqui' }),
+      el('div', { class: 'folha caixa-texto' },
+        el('p', { html: `<b>${seguro(cheio.alcunha)}</b>` }),
+        el('p', { class: 'miudo', style: 'margin-top:6px', texto:
+          `É assim que ${cheio.negocio.nome} te chama na lista de clientes, para `
+          + 'saber quem és quando cá chegas. Não te foi pedido nada — foi o '
+          + 'balcão que escreveu.' }),
+        el('button', {
+          class: 'btn btn-fantasma btn-pequeno', style: 'margin-top:10px',
+          texto: 'Apagar este nome',
+          aoClick: async (ev) => {
+            const botao = ev.currentTarget;
+            botao.setAttribute('aria-disabled', 'sim');
+            try {
+              await api.tirarAlcunha(cheio.id);
+              avisar('Apagado. O café pode escrever outro.', 'bom');
+              await irPara('carteira');
+            } catch (e) {
+              botao.removeAttribute('aria-disabled');
+              avisar(e.message || 'Não deu para apagar.', 'mau');
+            }
+          },
+        }))));
+  }
+
   if (cheio.porResgatar) {
     const caixa = el('section', { class: 'seccao' },
       el('h2', { class: 'seccao-titulo', texto: cheio.porResgatar === 1 ? 'Prémio a levantar' : 'Prémios a levantar' }));
@@ -362,11 +395,56 @@ async function ecraCartao(principal) {
       el('h2', { class: 'seccao-titulo', texto: 'Histórico' }), lista));
   }
 
+  /* ESTE BOTÃO EXISTIA E NÃO FAZIA NADA: dizia «numa versão futura poderás
+     arquivar cartões» e ficava por ali. Agora faz — e faz porque tinha de
+     passar a fazer. Enquanto a lista do balcão era uma coluna de códigos sem
+     dono, sair de um café era uma comodidade; com a alcunha lá dentro, é o
+     direito de oposição do artigo 21.º, e a única forma de o exercer era
+     apagar a conta inteira e perder os carimbos de todos os outros cafés. */
   principal.append(el('button', {
     class: 'btn btn-fantasma btn-bloco', style: 'margin-top:24px',
     texto: 'Deixar de usar este cartão',
-    aoClick: () => avisar('Numa versão futura poderás arquivar cartões.', 'neutro'),
+    aoClick: () => largarCartao(cheio),
   }));
+}
+
+/**
+ * Sair de UM café.
+ *
+ * Pergunta, e diz o que se perde antes — não tem volta, e o que se perde não é
+ * só o cartão: é o histórico daquelas visitas, que o café também deixa de ver.
+ * É o preço certo, porque os dados eram da pessoa; mas não é o que alguém
+ * adivinha ao ler «deixar de usar».
+ */
+function largarCartao(cartao) {
+  const painel = abrirPainel('Deixar este cartão');
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      `Sais do cartão de ${cartao.negocio.nome}. Os teus outros cartões ficam como estão.` }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        `<b>Perdes ${cartao.carimbos || cartao.pontos || 0} carimbo(s) neste café</b>, e o `
+        + 'histórico das tuas visitas aqui. Não há forma de os trazer de volta.<br>'
+        + 'O café deixa de te ver na lista de clientes dele — que é normalmente '
+        + 'a razão para se fazer isto.' })),
+    el('button', {
+      class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Deixar este cartão',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.setAttribute('aria-disabled', 'sim');
+        try {
+          await api.largarCartao(cartao.id);
+          estado.cartoes = await api.cartoes(estado.cliente.id);
+          fecharPainel();
+          avisar('Saíste desse cartão.', 'bom');
+          irPara('carteira');
+        } catch (e) {
+          botao.removeAttribute('aria-disabled');
+          avisar(e.message || 'Não deu para sair.', 'mau');
+        }
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
 }
 
 /* =========================================================================
@@ -715,9 +793,21 @@ function ecraPerfil(principal) {
     el('button', { class: 'linha', aoClick: guardarConta },
       el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
-        el('b', { texto: 'Guardar a conta' }),
+        el('b', { texto: estado.cliente.email ? 'A tua morada de email' : 'Guardar a conta' }),
         el('span', { texto: estado.cliente.email || 'Para não perderes os cartões se mudares de telemóvel' })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
+
+    /* TIRAR O EMAIL, E MAIS NADA. Dar era escrever a morada e um código de
+       seis algarismos; tirar era apagar a conta e perder os cartões todos. O
+       artigo 7.º/3 diz que retirar o consentimento tem de ser tão fácil como
+       dá-lo, e isto não era a mesma facilidade: era o contrário. Só aparece a
+       quem tem email guardado — a quem não tem, é uma linha sem sentido. */
+    estado.cliente.email ? el('button', { class: 'linha', aoClick: tirarEmail },
+      el('span', { class: 'linha-icone', html: icone('caixote', { tamanho: 20 }) }),
+      el('span', { class: 'linha-texto' },
+        el('b', { texto: 'Tirar o email' }),
+        el('span', { texto: 'Sem apagar a conta nem os cartões' })),
+      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })) : null,
     /* Isto era um botão que prometia «em breve» e não fazia nada. A Carteira
        do telemóvel já existe, e o botão dela está em cada cartão — que é onde
        tem de estar, porque o passe é de um cartão e não da conta. Aqui fica só
@@ -1736,6 +1826,45 @@ function ecraSessaoTerminada(cliente) {
     }),
     el('p', { class: 'miudo', style: 'margin-top:12px', texto:
       cliente?.publico ? `O número deste cartão era ${cliente.publico}.` : '' })));
+}
+
+/**
+ * Tirar o email da conta.
+ *
+ * Diz o que se perde ANTES, e o que se perde é concreto: sem email guardado,
+ * mudar de telemóvel passa a perder os cartões. Não é um aviso de rotina — é a
+ * única coisa que aquele email fazia.
+ */
+function tirarEmail() {
+  const painel = abrirPainel('Tirar o email');
+  painel.append(
+    el('p', { class: 'subtexto', html:
+      `Deixamos de ter <b>${seguro(estado.cliente.email || '')}</b> associado a esta conta.` }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        '<b>Os cartões e os carimbos ficam todos.</b> O que perdes é a forma de '
+        + 'os recuperar noutro telemóvel: sem email guardado, se perderes este '
+        + 'aparelho perdes os cartões.<br>Podes voltar a pôr um email quando '
+        + 'quiseres.' })),
+    el('button', {
+      class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Tirar o email',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.setAttribute('aria-disabled', 'sim');
+        try {
+          await api.tirarEmail();
+          estado.cliente = { ...estado.cliente, email: null };
+          guardar('cliente', estado.cliente);
+          fecharPainel();
+          avisar('Email retirado. Os cartões ficaram.', 'bom');
+          irPara('perfil');
+        } catch (e) {
+          botao.removeAttribute('aria-disabled');
+          avisar(e.message || 'Não deu para tirar.', 'mau');
+        }
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
 }
 
 /**

@@ -172,7 +172,12 @@ const lerClientes = (palco) => palco.js(`
   return [...document.querySelectorAll('#principal .lista > .linha')].map((l) => ({
     publico: l.querySelector('.linha-texto b')?.textContent.trim() ?? null,
     mono: !!l.querySelector('.linha-texto b.mono'),
-    detalhe: l.querySelector('.linha-texto span')?.textContent.trim() ?? null,
+    /* PRECISO, e não «o primeiro span»: a linha ganhou a alcunha, que é um
+       span e vem antes. Um leitor que apanhe «o primeiro» passa a medir outra
+       coisa sem se queixar — que é a forma mais silenciosa de um teste deixar
+       de provar o que diz. */
+    detalhe: l.querySelector('.linha-texto .linha-detalhe')?.textContent.trim() ?? null,
+    alcunha: l.querySelector('.linha-texto .alcunha-na-lista')?.textContent.trim() ?? null,
     etiqueta: l.querySelector('.etiqueta')?.textContent.trim() ?? null,
   }));`);
 
@@ -1416,8 +1421,20 @@ export async function correr(palco, certo) {
     'Clientes: e só esse',
     lista.map((c) => `${c.publico}=${c.etiqueta}`).join(' · '));
 
-  certo((await palco.texto('#principal .subtexto')).includes('Não guardamos nomes nem telefones'),
-    'Clientes: a lista diz o que o balcão NÃO guarda sobre quem lá vai',
+  /* O TEXTO MUDOU PORQUE O PRODUTO MUDOU, e a afirmação tem de dizer o que
+     agora é verdade em vez de guardar a frase antiga. Dizia «não guardamos
+     nomes nem telefones»; com a alcunha, a verdade passou a ter duas metades e
+     as duas têm de estar no ecrã: continua a não se PEDIR nada ao cliente, e
+     o café pode escrever uma alcunha que o cliente vê e pode apagar. Calar a
+     segunda metade seria a página a mentir por omissão. */
+  certo((await palco.texto('#principal .subtexto')).includes('Não pedimos nomes nem telefones'),
+    'Clientes: a lista continua a dizer que não se PEDE nada ao cliente',
+    String(await palco.texto('#principal .subtexto')).slice(0, 90));
+  certo(/alcunha/i.test(await palco.texto('#principal .subtexto')),
+    'Clientes: e diz que o café pode escrever uma alcunha — a outra metade da verdade',
+    String(await palco.texto('#principal .subtexto')).slice(0, 90));
+  certo(/apag/i.test(await palco.texto('#principal .subtexto')),
+    'Clientes: e que o cliente a vê e a pode apagar, que é o que a torna aceitável',
     String(await palco.texto('#principal .subtexto')));
 
   /* =======================================================================

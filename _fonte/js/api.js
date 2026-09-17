@@ -728,6 +728,50 @@ function criarDemo() {
       return { demo: true };
     },
 
+    /* Os pares da demonstração. Têm de existir mesmo quando não fazem nada: a
+       app chama-os sem saber em que modo está, e uma chave em falta rebenta com
+       «is not a function» num ecrã que quase nunca se abre em teste. */
+    async alcunhaDoCartao(cartaoId, alcunha) {
+      const e = estado();
+      const c = e.cartoes.find((x) => x.id === cartaoId);
+      if (c) { c.alcunha = String(alcunha || '').trim().slice(0, 60) || null; gravar(e); }
+      return { alcunha: c ? c.alcunha : null };
+    },
+
+    async historicoDoCartao(cartaoId) {
+      const e = estado();
+      const c = e.cartoes.find((x) => x.id === cartaoId) || null;
+      return {
+        cartao: c ? { id: c.id, publico: e.clientes[0]?.publico, alcunha: c.alcunha || null,
+                      carimbos: c.carimbos, pontos: c.pontos } : null,
+        movimentos: (e.movimentos || []).filter((m) => m.cartao_id === cartaoId)
+          .map((m) => ({ ...m, manual: Boolean(m.manual), operador: m.operador || null })),
+        premios: (e.premios || []).filter((x) => x.cartao_id === cartaoId),
+      };
+    },
+
+    async sairDosOutrosBalcoes() { return { feito: true, demo: true }; },
+
+    async tirarAlcunha(cartaoId) {
+      const e = estado();
+      const c = e.cartoes.find((x) => x.id === cartaoId);
+      if (c) { c.alcunha = null; gravar(e); }
+      return { alcunha: null };
+    },
+
+    async largarCartao(cartaoId) {
+      const e = estado();
+      e.cartoes = e.cartoes.filter((x) => x.id !== cartaoId);
+      gravar(e);
+      return { largado: true };
+    },
+
+    async tirarEmail() {
+      const e = estado();
+      if (e.clientes[0]) { e.clientes[0].email = null; gravar(e); }
+      return { email: null };
+    },
+
     base: () => '',
 
     async apagarTudo(clienteId) {
@@ -886,6 +930,21 @@ export const api = MODO === 'remoto'
       negocioDoOperador: () => remoto.pedir('/v1/balcao/negocio'),
       resumo: () => remoto.pedir('/v1/balcao/resumo'),
       clientesDoNegocio: () => remoto.pedir('/v1/balcao/clientes'),
+      /* Como o BALCÃO trata este cliente. Texto livre, escrito pelo café —
+         nunca se pede nada ao cliente, e é isso que faz a frase «não pedimos
+         nome, telefone nem morada» continuar verdade. */
+      alcunhaDoCartao: (cartaoId, alcunha) =>
+        remoto.pedir(`/v1/balcao/cartoes/${cartaoId}/alcunha`,
+          { metodo: 'PUT', corpo: { alcunha } }),
+      historicoDoCartao: (cartaoId) =>
+        remoto.pedir(`/v1/balcao/cartoes/${cartaoId}/historico`),
+      sairDosOutrosBalcoes: () => remoto.pedir('/v1/balcao/sair-dos-outros', { metodo: 'POST' }),
+      /* Do lado do cliente: ver a alcunha é no cartão; tirá-la é aqui. */
+      tirarAlcunha: (cartaoId) =>
+        remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/alcunha`, { metodo: 'DELETE' }),
+      largarCartao: (cartaoId) =>
+        remoto.pedir(`/v1/cliente/cartoes/${cartaoId}`, { metodo: 'DELETE' }),
+      tirarEmail: () => remoto.pedir('/v1/cliente/email', { metodo: 'DELETE' }),
       guardarPrograma: (_, dados) => remoto.pedir('/v1/balcao/programas', { metodo: 'POST', corpo: dados }),
       guardarNegocio: (_, dados) => remoto.pedir('/v1/balcao/negocio', { metodo: 'PUT', corpo: dados }),
       guardarLogotipo: (logotipo, fundo) =>

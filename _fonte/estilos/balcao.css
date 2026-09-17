@@ -172,6 +172,35 @@
   max-width: 32ch; margin-inline: auto;
 }
 .resultado-cartao { margin-top: var(--e-5); text-align: left; }
+
+/* A alcunha, no painel do carimbo. Discreta de propósito: é uma ajuda ao
+   balcão, não o assunto do ecrã — quem está a carimbar às oito da manhã tem a
+   fila à frente e não uma ficha de cliente para preencher. */
+/* Na lista de clientes, logo por baixo do número do cartão: é o que o dono
+   procura ao correr trezentas linhas. Herda o tamanho do `b` de cima em vez do
+   `.8125rem` dos detalhes — é informação, não rodapé. */
+.linha-texto .alcunha-na-lista {
+  color: var(--tinta); font-weight: 600; font-size: .9375rem;
+}
+
+.alcunha-linha { margin-top: var(--e-3); }
+.alcunha-botao {
+  display: flex; align-items: center; gap: var(--e-2);
+  width: 100%; padding: var(--e-3);
+  border: 1px dashed var(--linha); border-radius: var(--r-3);
+  background: none; color: var(--tinta-2); font: inherit; font-size: .875rem;
+  text-align: left; cursor: pointer;
+}
+.alcunha-botao:hover { border-style: solid; color: var(--tinta); }
+.alcunha-botao:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+/* Já tem nome: deixa de ser um convite e passa a ser informação. */
+.alcunha-valor { color: var(--tinta); font-weight: 600; }
+.alcunha-vazia { color: var(--tinta-3); }
+.campo-alcunha {
+  width: 100%; padding: var(--e-3);
+  border: 1px solid var(--marca); border-radius: var(--r-3);
+  background: var(--fundo-2); color: var(--tinta); font: inherit; font-size: .9375rem;
+}
 .resultado-cartao .cartao-corpo { padding: var(--e-4); }
 .resultado-acoes {
   display: flex; flex-direction: column; gap: var(--e-2);

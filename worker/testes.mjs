@@ -3570,6 +3570,121 @@ grupo('O histórico do cartão, visto pelo balcão');
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
 }
 
+grupo('Sair de um café, tirar o email, expulsar um balcão');
+{
+  /* TRÊS BURACOS QUE A ALCUNHA TORNOU URGENTES. Enquanto a lista do balcão era
+     anónima quase não mordiam; com o nome por que o café trata cada pessoa lá
+     dentro, mordem. */
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+
+  /* --- 1. SAIR DE UM CAFÉ, sem apagar a conta ------------------------- */
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: `M1.${c.dados.cliente.publico}`, programaId: 'p1' } });
+  /* Um segundo cartão, noutro café: é ele que prova que sair de um não leva o
+     outro à frente — que era exactamente o preço que a única rota DELETE
+     cobrava. */
+  sql(`INSERT OR IGNORE INTO negocios (id, slug, nome, cor, localidade, criado_em)
+       VALUES ('n-vizinho', 'padaria', 'Padaria ao Lado', '#884400', 'Ovar', datetime('now'))`);
+  sql(`INSERT OR IGNORE INTO programas (id, negocio_id, nome, premio, objetivo, criado_em)
+       VALUES ('p-vizinho', 'n-vizinho', 'Cartão da padaria', 'Um pão', 10, datetime('now'))`);
+  const outroId = randomBytes(16).toString('hex');
+  sql(`INSERT INTO cartoes (id, cliente_id, programa_id, negocio_id, carimbos, aderiu_em)
+       VALUES ('${outroId}', '${c.dados.cliente.id}', 'p-vizinho', 'n-vizinho', 9, datetime('now'))`);
+
+  const meus = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(meus.dados.length === 2, 'a pessoa tem dois cartões, em dois cafés',
+    `${meus.dados.length}`);
+  const doCafe = meus.dados.find((x) => x.negocio.id === 'n1');
+
+  const largou = await pedir(`/v1/cliente/cartoes/${doCafe.id}`, {
+    metodo: 'DELETE', sessao: c.dados.sessao });
+  certo(largou.estado === 200, 'sai-se de UM café', String(largou.estado));
+
+  const sobra = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(sobra.dados.length === 1 && sobra.dados[0].id === outroId,
+    'E OS OUTROS CARTÕES FICAM — era este o preço que a rota única cobrava',
+    JSON.stringify(sobra.dados.map((x) => x.negocio.nome)));
+  certo(sobra.dados[0].carimbos === 9,
+    'com os carimbos intactos', String(sobra.dados[0].carimbos));
+
+  const naLista = await pedir('/v1/balcao/clientes', { sessao: sessaoBalcao });
+  certo(!naLista.dados.some((x) => x.publico === c.dados.cliente.publico),
+    'e o café deixa de a ver na lista, que é o que ela foi lá fazer');
+  certo(linhas(`SELECT 1 FROM movimentos WHERE cartao_id = '${doCafe.id}'`).length === 0,
+    'o histórico daquele cartão vai com ele — o café perde-o, e os dados eram dela');
+
+  const alheio = await pedir(`/v1/cliente/cartoes/${outroId}`, {
+    metodo: 'DELETE', sessao: (await pedir('/v1/cliente/registar',
+      { metodo: 'POST', corpo: {} })).dados.sessao });
+  certo(alheio.estado === 404,
+    'e NÃO se larga o cartão de outra pessoa', String(alheio.estado));
+
+  /* --- 2. TIRAR O EMAIL, e mais nada ---------------------------------- */
+  const correio = 'sair-do-email@exemplo.pt';
+  sql(`DELETE FROM entradas`); sql(`DELETE FROM envios`);
+  sql(`DELETE FROM identidades WHERE sujeito = '${correio}'`);
+  sql(`UPDATE clientes SET email = NULL, email_verificado = 0 WHERE email = '${correio}'`);
+  const r = createHash('sha256').update(`${correio}|111111`).digest('hex');
+  sql(`INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em)
+       VALUES ('${r}', 'cliente:${c.dados.cliente.id}', '${correio}', datetime('now'),
+               '${new Date(Date.now() + 600000).toISOString()}')`);
+  await pedir('/v1/cliente/entrar', { metodo: 'POST', corpo: { email: correio, codigo: '111111' } });
+
+  certo(linhas(`SELECT 1 FROM identidades WHERE sujeito = '${correio}'`).length === 1,
+    'a morada está guardada (o teste é válido)');
+
+  const tirou = await pedir('/v1/cliente/email', { metodo: 'DELETE', sessao: c.dados.sessao });
+  certo(tirou.estado === 200, 'TIRA-SE O EMAIL sozinho', String(tirou.estado));
+  certo(linhas(`SELECT 1 FROM identidades WHERE sujeito = '${correio}'`).length === 0,
+    'sai da identidade, que é quem manda desde a migração 009');
+  const espelho = linhas(`SELECT email, email_verificado FROM clientes
+                            WHERE id = '${c.dados.cliente.id}'`)[0];
+  certo(espelho?.email === null && espelho?.email_verificado === 0,
+    'e do espelho, que a app nos telemóveis ainda lê', JSON.stringify(espelho));
+  const aindaLa = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(aindaLa.dados.length === 1,
+    'E OS CARTÕES FICAM — dar era um código de seis algarismos, tirar não pode custar a conta');
+
+  /* E a morada fica livre para outra conta, que é a prova de que saiu mesmo. */
+  const novo = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  sql(`DELETE FROM entradas`);
+  const r2 = createHash('sha256').update(`${correio}|222222`).digest('hex');
+  sql(`INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em)
+       VALUES ('${r2}', 'cliente:${novo.dados.cliente.id}', '${correio}', datetime('now'),
+               '${new Date(Date.now() + 600000).toISOString()}')`);
+  const outraPessoa = await pedir('/v1/cliente/entrar',
+    { metodo: 'POST', corpo: { email: correio, codigo: '222222' } });
+  certo(outraPessoa.estado === 200 && outraPessoa.dados.cliente.id === novo.dados.cliente.id,
+    'e a morada fica mesmo livre — não ficou presa a uma conta que já não a quer');
+
+  /* --- 3. EXPULSAR UM BALCÃO PERDIDO ---------------------------------- */
+  /* Uma segunda sessão do mesmo operador, como a de um telemóvel esquecido. */
+  const perdida = `balcao-perdido-${randomBytes(6).toString('hex')}`;
+  const rp = createHash('sha256').update(perdida).digest('hex');
+  sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+       VALUES ('${rp}', 'operador:o1', datetime('now'),
+               '${new Date(Date.now() + 86400000).toISOString()}')`);
+  const antes = await pedir('/v1/balcao/resumo', { sessao: perdida });
+  certo(antes.estado === 200, 'o balcão perdido abre (o teste é válido)', String(antes.estado));
+
+  const expulsou = await pedir('/v1/balcao/sair-dos-outros', { metodo: 'POST', sessao: sessaoBalcao });
+  certo(expulsou.estado === 200, 'o balcão manda expulsar os outros aparelhos',
+    JSON.stringify(expulsou.dados));
+
+  const depois = await pedir('/v1/balcao/resumo', { sessao: perdida });
+  certo(depois.estado === 401,
+    'O BALCÃO PERDIDO FECHA-SE — com a alcunha lá dentro, isto deixou de ser um pormenor',
+    String(depois.estado));
+  const eu = await pedir('/v1/balcao/resumo', { sessao: sessaoBalcao });
+  certo(eu.estado === 200,
+    'e quem carregou no botão NÃO se expulsa a si próprio', String(eu.estado));
+  certo(linhas(`SELECT 1 FROM entradas WHERE alvo LIKE 'operador:%'`).length === 0,
+    'e os códigos de entrada por usar morrem com ele — eram uma segunda chave deixada para trás');
+
+  sql(`DELETE FROM clientes WHERE id IN ('${c.dados.cliente.id}','${novo.dados.cliente.id}')`);
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

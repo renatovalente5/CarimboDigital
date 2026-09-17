@@ -319,6 +319,18 @@ function mostrarResultado(r) {
   pintarCartao(mini, cartao.negocio.cor);
   caixa.append(mini);
 
+  /* QUEM É ESTE? É aqui, e em mais lado nenhum, que a pergunta tem resposta: a
+     pessoa está à frente, o código acabou de ser lido, e o balcão sabe com
+     certeza a quem corresponde. Esse instante era deitado fora, e era por isso
+     que a lista de clientes era uma coluna de códigos sem dono.
+
+     Escreve o CAFÉ, e nunca se pede nada ao cliente. É a diferença entre isto
+     caber no produto e obrigar a consentimento, a acordo de responsabilidade
+     conjunta com cada café, e a deitar fora a frase «não pedimos nome,
+     telefone nem morada» que está publicada em dois sítios. O cliente vê a
+     alcunha na app dele e pode tirá-la. */
+  caixa.append(linhaDaAlcunha(cartao));
+
   const acoes = el('div', { class: 'resultado-acoes' });
   if (temPremio) {
     for (const g of porEntregar) {
@@ -405,6 +417,64 @@ function mostrarResultado(r) {
   if (ganhou) confetes();
   /* Fecha-se sozinho: ao balcão ninguém carrega em «ok». */
   estado.fecho = setTimeout(fecharResultado, ganhou ? 20000 : 6000);
+}
+
+/**
+ * A linha da alcunha, no painel do carimbo.
+ *
+ * Fechada por omissão: quem está a carimbar às oito da manhã não quer um campo
+ * de texto entre ele e o cliente seguinte. Mostra o que lá está, ou um convite
+ * pequeno; abre quando se toca.
+ */
+function linhaDaAlcunha(cartao) {
+  const caixa = el('div', { class: 'alcunha-linha' });
+
+  const pintar = () => {
+    caixa.innerHTML = '';
+    caixa.append(el('button', {
+      class: 'alcunha-botao', type: 'button',
+      'aria-label': cartao.alcunha ? `Mudar o nome: ${cartao.alcunha}` : 'Dar um nome a este cliente',
+      aoClick: () => abrirCampo(),
+    },
+      el('span', { class: 'linha-icone', html: icone('pessoas', { tamanho: 16 }) }),
+      el('span', { class: cartao.alcunha ? 'alcunha-valor' : 'alcunha-vazia',
+                   texto: cartao.alcunha || 'Quem é? Dá-lhe um nome' })));
+  };
+
+  const abrirCampo = () => {
+    caixa.innerHTML = '';
+    const campo = el('input', {
+      class: 'campo-alcunha', type: 'text', maxlength: '60',
+      placeholder: 'a Joana da manhã', value: cartao.alcunha || '',
+      'aria-label': 'Como tratas este cliente',
+    });
+    const gravar = async () => {
+      const texto = campo.value.trim().slice(0, 60);
+      if (texto === (cartao.alcunha || '')) { pintar(); return; }
+      campo.disabled = true;
+      try {
+        const r = await api.alcunhaDoCartao(cartao.id, texto);
+        cartao.alcunha = (r && r.alcunha) || null;
+        avisar(cartao.alcunha ? 'Guardado.' : 'Nome apagado.', 'bom');
+      } catch (e) {
+        avisar(e.message || 'Não deu para guardar.', 'mau');
+      } finally {
+        pintar();
+      }
+    };
+    campo.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); gravar(); }
+      if (ev.key === 'Escape') pintar();
+    });
+    /* Grava ao sair do campo TAMBÉM, e não só no Enter: num telemóvel quase
+       ninguém carrega em Enter — toca noutro sítio e espera que fique. */
+    campo.addEventListener('blur', gravar);
+    caixa.append(campo);
+    setTimeout(() => campo.focus(), 40);
+  };
+
+  pintar();
+  return caixa;
 }
 
 function grelhaResultado(cartao, quantidade) {
@@ -639,7 +709,9 @@ async function ecraClientes(principal) {
   }
 
   principal.append(el('p', { class: 'subtexto', texto:
-    'Não guardamos nomes nem telefones — só o número do cartão. É quanto basta para carimbar.' }));
+    'Não pedimos nomes nem telefones aos teus clientes. Podes escrever uma alcunha '
+    + 'em cada cartão — «a Joana da manhã» — para saberes quem é quem; eles vêem-na '
+    + 'na app deles e podem apagá-la.' }));
 
   const lista = el('div', { class: 'lista' });
   for (const c of clientes) {
@@ -654,7 +726,17 @@ async function ecraClientes(principal) {
       el('span', { class: 'linha-icone', html: icone(premios.length ? 'presente' : 'cartoes', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { class: 'mono', texto: c.publico }),
-        el('span', { texto: c.tipo === 'pontos'
+        /* A ALCUNHA LOGO A SEGUIR AO NÚMERO, e na ordem do DOM e não por um
+           `order` do CSS: quem lê com um leitor de ecrã ouve pela ordem do
+           documento, e pôr o nome a seguir ao detalhe fazia-o ouvir «8 de 10,
+           última visita há dois dias» antes de saber de quem se trata.
+
+           Tentei primeiro deixá-la no fim e subi-la com `order: -1`, para não
+           mexer no que a bateria mede. Não funcionava: o `.linha-texto` não é
+           um contentor flex — é um FILHO flex, com `flex: 1` — e os filhos
+           dele são blocos. O `order` não tinha sobre o que agir. */
+        c.alcunha ? el('span', { class: 'alcunha-na-lista', texto: c.alcunha }) : null,
+        el('span', { class: 'linha-detalhe', texto: c.tipo === 'pontos'
           ? `${c.pontos} pontos · última visita ${c.ultimoEm ? haQuanto(c.ultimoEm) : '—'}`
           : `${c.carimbos}/${c.objetivo} · última visita ${c.ultimoEm ? haQuanto(c.ultimoEm) : '—'}` })),
       c.porResgatar
@@ -1236,6 +1318,61 @@ async function ecraPrograma(principal) {
           + '&p=' + encodeURIComponent(estado.programa.premio)
           + '&s=' + encodeURIComponent(estado.negocio.slug || ''), '_blank'),
       }))));
+
+  /* UM BALCÃO PERDIDO NÃO SE PODIA EXPULSAR, e o cenário é banal: o telemóvel
+     fica no táxi, ou alguém sai zangado com a app instalada. A sessão dura 180
+     dias E desliza a cada utilização — o que resolve «ficar sempre ligado» e
+     fazia com que um balcão activo nunca expirasse. Não havia saída nenhuma
+     sem apagar o negócio.
+
+     Com a alcunha na lista, o que um telemóvel perdido mostra deixou de ser
+     uma coluna de códigos sem dono: é o nome por que o café trata cada pessoa
+     e o histórico de visitas de cada uma. */
+  principal.append(el('section', { class: 'seccao' },
+    el('h2', { class: 'seccao-titulo', texto: 'Segurança' }),
+    el('div', { class: 'lista' },
+      el('button', { class: 'linha', aoClick: expulsarBalcoes },
+        el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
+        el('span', { class: 'linha-texto' },
+          el('b', { texto: 'Terminar sessão nos outros aparelhos' }),
+          el('span', { texto: 'Se perdeste um telemóvel com o balcão aberto' })),
+        el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })))));
+}
+
+/**
+ * Fechar os outros balcões.
+ *
+ * Este aparelho fica. Vale para todos os operadores do negócio, e não só para
+ * quem carrega: o telemóvel perdido pode ter entrado com outra morada, e quem
+ * o perde quer fechar a porta e não auditar por onde alguém entrou.
+ */
+function expulsarBalcoes() {
+  const painel = abrirPainel('Terminar nos outros aparelhos');
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      'Todos os outros telemóveis e computadores onde este balcão esteja aberto '
+      + 'deixam de lá entrar. Este continua.' }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        'Quem estiver noutro aparelho tem de <b>pedir o código por email outra '
+        + 'vez</b> para voltar a entrar. Os códigos que estejam por usar também '
+        + 'deixam de valer — eram uma segunda chave deixada para trás.' })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Terminar nos outros',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.setAttribute('aria-disabled', 'sim');
+        try {
+          await api.sairDosOutrosBalcoes();
+          fecharPainel();
+          avisar('Feito. Os outros aparelhos deixaram de ter acesso.', 'bom');
+        } catch (e) {
+          botao.removeAttribute('aria-disabled');
+          avisar(e.message || 'Não deu para terminar.', 'mau');
+        }
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
 }
 
 function desenharPrevia(previa) {
