@@ -364,6 +364,95 @@ export async function correr(palco, certo) {
   certo(m.quantos === 1 && m.qual === 'Hoje',
     'Hoje: a marca da barra acompanha', JSON.stringify(m));
 
+  /* --- INSTALAR NO ECRÃ PRINCIPAL ---------------------------------------
+     Não é um convite de cortesia. O Safari do iPhone apaga TODO o
+     armazenamento escrito por JavaScript de um site ao fim de sete dias sem
+     ninguém lá ir — a sessão E o registo do service worker. Um café fechado
+     uma semana volta a encontrar o ecrã de entrada e um balcão que já não abre
+     sem Wi-Fi. Instalado no ecrã principal, aquilo não lhe toca.
+
+     Mede-se nos dois estados, e é o segundo que é fácil esquecer: um aviso que
+     aparece a quem JÁ instalou é só barulho em cima do ecrã de trabalho. */
+  certo(await palco.js(`
+    return !!document.querySelector('#principal .caixa-texto')`),
+    'Hoje: quem ainda não instalou é convidado a pôr o balcão no ecrã principal');
+
+  /* A RAZÃO VAI EM TODO O LADO — ficar ligado e carimbar sem rede — porque um
+     «instala isto» sem motivo é um pedido que ninguém cumpre. */
+  certo(await palco.js(`
+    const t = document.querySelector('#principal .caixa-texto')?.textContent || '';
+    return /ligado/.test(t) && /Wi-Fi/.test(t)`),
+    'e o aviso diz PORQUÊ a quem quer que seja: ficar ligado, e carimbar sem rede',
+    String(await palco.texto('#principal .caixa-texto')).slice(0, 90));
+
+  /* Os SETE DIAS são uma regra do Safari e só se dizem a quem está no iPhone —
+     escrevê-los a um utilizador de Android era assustá-lo com uma coisa que
+     não lhe acontece. E as instruções do «Partilhar» também: mandar alguém
+     procurar um botão que o browser dele não tem é pior do que não dizer nada.
+
+     Isto obrigou a corrigir a detecção, e o defeito só apareceu a conduzir: a
+     forma conhecida de reconhecer um iPad (`MacIntel` com mais de um toque)
+     dá positivo em QUALQUER emulação de telemóvel sobre um Mac. Foi medido um
+     `userAgent` de Pixel 8 a receber instruções de Safari. */
+  const comIPhone = await palco.js(`
+    const real = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1' });
+    document.querySelectorAll('#barra button').forEach((b) => {
+      if (/Hoje/.test(b.textContent)) b.click();
+    });
+    await new Promise((r) => setTimeout(r, 700));
+    const t = document.querySelector('#principal .caixa-texto')?.textContent || '';
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: real });
+    return { seteDias: /sete dias/.test(t), partilhar: /Partilhar/.test(t) };`);
+  certo(comIPhone.seteDias && comIPhone.partilhar,
+    'no iPhone, o aviso diz os sete dias E onde fica o botão Partilhar',
+    JSON.stringify(comIPhone));
+
+  /* A COMBINAÇÃO EXACTA QUE PRODUZIU O DEFEITO, e não um Android qualquer:
+     `userAgent` de Android COM `platform: MacIntel` e vários toques. Sem
+     forçar as três, este teste passa por acidente — o browser da bateria não
+     se apresenta como `MacIntel`, por isso o falso positivo nem chega a
+     acontecer aqui, e a afirmação ficava verde com a detecção partida. */
+  const comAndroidNumMac = await palco.js(`
+    const ua = navigator.userAgent, plat = navigator.platform, toques = navigator.maxTouchPoints;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value:
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/152 Mobile Safari/537.36' });
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+    document.querySelectorAll('#barra button').forEach((b) => {
+      if (/Hoje/.test(b.textContent)) b.click();
+    });
+    await new Promise((r) => setTimeout(r, 700));
+    const t = document.querySelector('#principal .caixa-texto')?.textContent || '';
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: ua });
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: plat });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: toques });
+    return { seteDias: /sete dias/.test(t), partilhar: /Partilhar/.test(t), temAviso: !!t };`);
+  certo(comAndroidNumMac.temAviso
+        && !comAndroidNumMac.seteDias && !comAndroidNumMac.partilhar,
+    'um Android que diz «MacIntel» NÃO leva instruções de Safari — mandá-lo procurar '
+    + 'um botão que não tem é pior do que não dizer nada',
+    JSON.stringify(comAndroidNumMac));
+
+  const semAviso = await palco.js(`
+    const mm = window.matchMedia;
+    window.matchMedia = (q) => q.includes('standalone')
+      ? { matches: true, addEventListener() {}, removeEventListener() {} }
+      : mm.call(window, q);
+    const antes = !!document.querySelector('#principal .caixa-texto');
+    document.querySelectorAll('#barra button').forEach((b) => {
+      if (/Hoje/.test(b.textContent)) b.click();
+    });
+    await new Promise((r) => setTimeout(r, 700));
+    const depois = !!document.querySelector('#principal .caixa-texto');
+    window.matchMedia = mm;
+    return { antes, depois };`);
+  certo(semAviso.antes === true && semAviso.depois === false,
+    'e QUEM JÁ INSTALOU não leva com ele — seria barulho por cima do ecrã de trabalho',
+    JSON.stringify(semAviso));
+  await irAo(palco, 'hoje');
+
   const vazios = await lerNumeros(palco);
   certo(vazios.length === 4, 'Hoje: são quatro caixas de números',
     `são ${vazios.length}`);

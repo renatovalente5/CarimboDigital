@@ -460,8 +460,122 @@ function mostrarErro(e) {
    Ecrã: hoje
    ========================================================================= */
 
+/* =========================================================================
+   Instalar no ecrã principal
+
+   Não é conveniência nem vaidade de PWA: é o que impede o balcão de se
+   desligar sozinho.
+
+   O Safari do iPhone apaga TODO o armazenamento escrito por JavaScript de um
+   site ao fim de 7 DIAS sem alguém lá ir — `localStorage`, `IndexedDB` e, o
+   que dói mais, o registo do service worker. Traduzido para este balcão: a
+   sessão desaparece e o modo sem rede desaparece com ela. Um café fechado à
+   segunda, uma semana de férias, e o dono volta a encontrar o ecrã de entrada
+   e um balcão que já não abre sem Wi-Fi.
+
+   Uma app no ECRÃ PRINCIPAL não é parte do Safari e tem o seu próprio
+   contador: aquilo não lhe toca. É a diferença entre «entra uma vez» e «entra
+   outra vez cada vez que fecha uma semana».
+
+   Do lado do Android o browser oferece-se para instalar e há um evento para o
+   pedir. Do lado do iPhone não há evento nenhum: só se pode dizer à pessoa
+   onde é que o botão está, e por isso os passos estão escritos à letra.
+   ========================================================================= */
+
+/** Já está instalado no ecrã principal? */
+function noEcraPrincipal() {
+  return window.matchMedia?.('(display-mode: standalone)').matches
+    || navigator.standalone === true;
+}
+
+/* O Android dá um evento que se pode guardar e disparar mais tarde; o iPhone
+   não dá nada. Apanha-se cedo, antes de qualquer ecrã existir. */
+let convidarAInstalar = null;
+addEventListener('beforeinstallprompt', (ev) => {
+  ev.preventDefault();
+  convidarAInstalar = ev;
+});
+
+const ADIADO = 'instalar-adiado';
+
+/**
+ * O aviso, e a razão por que ele volta.
+ *
+ * Dá para adiar — um aviso que não se pode calar é um aviso que se aprende a
+ * ignorar — mas volta ao fim de três dias, porque o prazo do outro lado são
+ * sete e a consequência é perder a sessão a meio de um turno. E o adiamento
+ * mora no mesmo `localStorage` que o Safari apaga: se ele o apagar, o aviso
+ * volta, o que nesse caso é exactamente o que tem de acontecer.
+ */
+function avisoDeInstalar() {
+  if (noEcraPrincipal()) return null;
+  const adiado = ler(ADIADO);
+  if (adiado && Date.now() - adiado < 3 * 86400000) return null;
+
+  /* O ANDROID TEM DE SAIR PRIMEIRO, e isto foi apanhado a conduzir e não a
+     ler. A segunda metade — `MacIntel` com mais de um toque — é a forma
+     conhecida de reconhecer um iPad, que desde o iPadOS 13 se apresenta como
+     um Mac. Mas qualquer ambiente que emule um telemóvel em cima de um Mac
+     satisfaz as duas condições: foi medido um `userAgent` de Pixel 8 com
+     `platform: MacIntel` e cinco toques, e o aviso mandava um utilizador de
+     Android procurar o botão Partilhar do Safari.
+
+     Instruções erradas são piores do que nenhumas: quem as segue não encontra
+     o que lá está escrito e conclui que a app é que está estragada. */
+  const ua = navigator.userAgent;
+  const iOS = !/Android/i.test(ua)
+    && (/iPad|iPhone|iPod/.test(ua)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+  const caixa = el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+    el('p', { html: '<b>Põe o balcão no ecrã principal.</b> Assim ficas ligado '
+      + 'sem ter de pedir o código outra vez, e o balcão continua a carimbar '
+      + 'mesmo quando o Wi-Fi vai abaixo.' }));
+
+  if (iOS) {
+    /* Os passos à letra. Não há forma de o fazer por ela, e «adiciona ao ecrã
+       principal» sem dizer onde é o botão é uma instrução que não se cumpre. */
+    caixa.append(el('p', { class: 'miudo', style: 'margin-top:10px', html:
+      'No iPhone: toca em <b>Partilhar</b> (o quadrado com a seta para cima, '
+      + 'em baixo no Safari) e depois em <b>Adicionar ao ecrã principal</b>.' }));
+    caixa.append(el('p', { class: 'miudo', style: 'margin-top:10px', html:
+      'Enquanto isto estiver só no Safari, o iPhone apaga a tua sessão ao fim '
+      + 'de <b>sete dias</b> sem abrires o balcão.' }));
+  } else if (convidarAInstalar) {
+    caixa.append(el('button', {
+      class: 'btn btn-cheio btn-pequeno', style: 'margin-top:12px',
+      texto: 'Instalar no ecrã principal',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.setAttribute('aria-disabled', 'sim');
+        try {
+          convidarAInstalar.prompt();
+          const { outcome } = await convidarAInstalar.userChoice;
+          if (outcome === 'accepted') { convidarAInstalar = null; irPara('hoje'); }
+          else botao.removeAttribute('aria-disabled');
+        } catch { botao.removeAttribute('aria-disabled'); }
+      },
+    }));
+  } else {
+    caixa.append(el('p', { class: 'miudo', style: 'margin-top:10px', texto:
+      'No menu do browser, procura «Instalar aplicação» ou «Adicionar ao ecrã '
+      + 'principal».' }));
+  }
+
+  caixa.append(el('button', {
+    class: 'btn btn-fantasma btn-pequeno', style: 'margin-top:8px',
+    texto: 'Agora não',
+    aoClick: () => { guardar(ADIADO, Date.now()); irPara('hoje'); },
+  }));
+  return caixa;
+}
+
 async function ecraHoje(principal) {
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Hoje' }));
+  /* Antes dos números: é o que decide se este balcão ainda cá está para os
+     mostrar daqui a duas semanas. */
+  const aviso = avisoDeInstalar();
+  if (aviso) principal.append(aviso);
   const r = await api.resumo(estado.negocio.id);
 
   principal.append(el('div', { class: 'numeros' },
