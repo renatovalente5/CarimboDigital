@@ -9,7 +9,7 @@
 import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
   pintarCartao, haQuanto, dataCurta, horas, NOMES_SELOS, seguro,
-  prenderFoco, colunas,
+  prenderFoco, colunas, prepararCampoDeCodigo,
 } from '../js/nucleo.js';
 import { api, MODO, DEMO_FORCADO, definirChaveSessao } from '../js/api.js';
 
@@ -1448,6 +1448,8 @@ function pedirCodigoBalcao(email) {
       el('input', { id: 'e-codigo', type: 'text', inputmode: 'numeric',
                     autocomplete: 'one-time-code', maxlength: '6',
                     placeholder: '000000', class: 'campo-codigo' })),
+      /* O `maxlength` acima é só a rede para browsers sem JavaScript a correr;
+         quem manda é o `prepararCampoDeCodigo`, lá em baixo, que o tira. */
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Entrar',
       aoClick: async (ev) => {
@@ -1473,7 +1475,11 @@ function pedirCodigoBalcao(email) {
       aoClick: fundarNegocio,
     }));
   const campo = $('#e-codigo');
-  campo.addEventListener('input', () => { campo.value = campo.value.replace(/\D/g, ''); });
+  /* O mesmo do lado do cliente: a colagem é limpa antes de ser cortada, a
+     sugestão do teclado passa, e ao sexto algarismo entra sozinho. Ao balcão
+     isto vale ainda mais — quem está a abrir a loja tem uma mão no telemóvel
+     e a outra na máquina do café. */
+  prepararCampoDeCodigo(campo, () => painel.querySelector('.btn-cheio')?.click());
   setTimeout(() => campo.focus(), 120);
 }
 

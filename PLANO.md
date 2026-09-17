@@ -258,29 +258,32 @@ Verificado contra os textos originais.
 
 ## 8. O que falta
 
-### Antes de mostrar a alguém
+> Conferido contra o código a 17 de Setembro de 2026, item a item. O que estava
+> aqui dava por fazer coisas que já estavam feitas há semanas — incluindo
+> «comprar o domínio», com o domínio no ar.
 
-1. **Comprar o domínio.** `carimbodigital.pt` e `carimbodigital.pt` estavam livres. As contas
-   dos clientes são guardadas por origem: mudar de
-   `renatovalente5.github.io/CarimboDigital` para `carimbodigital.pt` apaga todas as que já
-   existirem. Com dois utilizadores não custa nada; com duzentos, custa os
-   duzentos.
-2. **Preencher `entidade` no `_fonte/config.json`** e pôr `producao: true`.
-   Sem isso as páginas legais têm marcadores «POR PREENCHER» à vista, e a
-   auditoria avisa.
-3. **Publicar o Worker** e pôr o endereço em `config.json`. Enquanto isso não
-   acontecer, tudo corre em modo de demonstração dentro do browser.
+### ~~Antes de mostrar a alguém~~ — feito
+
+O domínio está comprado e a servir (`carimbodigital.pt`), a `entidade` está
+preenchida no `_fonte/config.json` com `producao: true`, e o Worker está
+publicado com o endereço em `config.json`. Há **dois negócios de teste** na
+base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 contas.
 
 ### Versão 2
 
-- Vários programas por estabelecimento, e cartões de pontos com marcos
-  editáveis no balcão.
-- Vários operadores, com PIN por pessoa e histórico de quem carimbou.
-- Notificações: «faltam-lhe dois carimbos» e «há dois meses que não aparece».
-  Web Push funciona no iOS 16.4+ **apenas em apps instaladas no ecrã
-  principal**, e pode ser enviado de graça do Worker com VAPID.
-- Cartaz para imprimir, com o código de adesão do estabelecimento.
-- Google Wallet.
+- ~~Vários programas por estabelecimento, e cartões de pontos com marcos~~ —
+  **feito.** `PROGRAMAS_MAX = 12`, os dois tipos (`carimbos` e `pontos`) e os
+  marcos editáveis no balcão.
+- ~~Cartaz para imprimir, com o código de adesão~~ — **feito**
+  (`balcao/cartaz.html`).
+- ~~Google Wallet~~ — **feito.**
+- **Vários operadores, com PIN por pessoa e histórico de quem carimbou.** POR
+  FAZER. Hoje um negócio tem um operador e o `movimentos.operador` existe mas
+  guarda sempre o mesmo. É o que separa um café de uma pessoa só de um café com
+  três turnos.
+- **Notificações.** POR FAZER. «Faltam-lhe dois carimbos» e «há dois meses que
+  não aparece». Web Push funciona no iOS 16.4+ **apenas em apps instaladas no
+  ecrã principal**, e sai de graça do Worker com VAPID.
 
 ### Versão 3
 
@@ -294,8 +297,20 @@ Verificado contra os textos originais.
   push pela APNs; é trabalho de dias, não de horas, e o que está publicado
   hoje diz a verdade sobre a limitação em vez de a esconder (no painel de
   apagar a conta e no email de conta parada).
-- Descobrir estabelecimentos por perto.
-- Convites: cada cliente traz outro, e ganham os dois.
+- **Descobrir estabelecimentos por perto.** POR FAZER, e tem uma decisão pelo
+  meio: pedir a localização traz um aviso de permissão e uma linha nova na
+  política de privacidade. Hoje o «Descobrir» é uma lista, e ordená-la por
+  distância é o que a torna útil numa cidade.
+- **Convites entre clientes** («cada cliente traz outro, e ganham os dois»).
+  POR FAZER. Os `convites` que existem hoje são de NEGÓCIO — para fundar um
+  balcão — e não têm nada que ver com isto.
+
+### O login
+
+Tem plano próprio, em [PLANO-LOGIN.md](PLANO-LOGIN.md). Fases 0 a 3 feitas e no
+ar; a 4 está a meio. Falta o **ecrã de entrada** (à espera das portas da Google
+e da Apple, para se fazer uma vez só com os três botões) e as fases **5** e
+**6**, que dependem de passos de consola.
 
 ## 9. Riscos
 

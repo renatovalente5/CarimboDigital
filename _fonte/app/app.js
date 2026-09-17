@@ -3,7 +3,7 @@
    ========================================================================= */
 
 import {
-  $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
+  $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes, prepararCampoDeCodigo,
   pintarCartao, haQuanto, dataCurta, horas, manterEcraAceso, seguro,
   prenderFoco, colunas,
 } from '../js/nucleo.js';
@@ -1114,7 +1114,10 @@ function pedirCodigo(email, demo = false) {
         }
       } }));
   const campo = $('#campo-codigo');
-  campo.addEventListener('input', () => { campo.value = campo.value.replace(/\D/g, ''); });
+  /* Limpa a colagem, aceita a sugestão do teclado, e confirma sozinho quando
+     os seis algarismos lá estiverem — ver `prepararCampoDeCodigo`. O botão é
+     procurado na altura e não agora: o painel ainda está a ser montado. */
+  prepararCampoDeCodigo(campo, () => painel.querySelector('.btn-cheio')?.click());
   setTimeout(() => campo.focus(), 120);
 }
 

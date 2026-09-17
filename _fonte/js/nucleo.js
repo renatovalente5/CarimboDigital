@@ -255,6 +255,80 @@ export function apagar(chave) {
 }
 
 /* =========================================================================
+   O campo do código de seis algarismos
+   ========================================================================= */
+
+/**
+ * Prepara um campo para receber um código de email, venha ele de onde vier.
+ *
+ * SÃO TRÊS CAMINHOS E NENHUM DELES FUNCIONAVA BEM:
+ *
+ * 1. O TECLADO DO TELEMÓVEL. O iOS e o Android lêem o email e oferecem o
+ *    código por cima do teclado; o `autocomplete="one-time-code"` já estava
+ *    posto e o email já escreve os seis algarismos contíguos de propósito,
+ *    por isso este caminho só precisava de que o resto não lhe estragasse o
+ *    valor a seguir.
+ *
+ * 2. COLAR. Este estava PARTIDO, e de uma forma que ninguém desconfia: o
+ *    `maxlength="6"` corta a colagem ANTES de qualquer código nosso lhe tocar.
+ *    Medido: colar «Código: 314159» deixava no campo a palavra `Código` e zero
+ *    algarismos — e a app respondia «O código tem seis algarismos», que é
+ *    verdade e não ajuda nada. E copiar a linha inteira é o gesto natural de
+ *    quem tem o email aberto ao lado. O `maxlength` sai daqui e passa a ser
+ *    feito à mão, DEPOIS de limpar.
+ *
+ * 3. A ÁREA DE TRANSFERÊNCIA. Se a pessoa já copiou o código antes de chegar
+ *    aqui, o campo aparece preenchido sozinho. Só quando o que lá está são
+ *    exactamente seis algarismos — e nunca se submete por conta própria a
+ *    partir daqui: um número de seis algarismos copiado por outra razão
+ *    gastava uma das cinco tentativas que o código tem antes de morrer.
+ *
+ * `aoCompletar` é chamado quando o campo chega aos seis algarismos por acção
+ * da pessoa (escrever, colar, ou aceitar a sugestão do teclado). É o que
+ * evita o «agora carrega em Confirmar» depois de o código já lá estar.
+ */
+export function prepararCampoDeCodigo(campo, aoCompletar) {
+  if (!campo) return;
+  /* Fora com ele: é o `maxlength` que corta a colagem antes de a podermos
+     limpar. O limite continua a existir, mais abaixo, mas depois de tirar o
+     que não é algarismo. */
+  campo.removeAttribute('maxlength');
+
+  let jaChamou = false;
+  const limpar = (deQuem) => {
+    const antes = campo.value;
+    const digitos = antes.replace(/\D/g, '').slice(0, 6);
+    if (digitos !== antes) campo.value = digitos;
+    if (digitos.length === 6 && !jaChamou && deQuem !== 'area') {
+      jaChamou = true;
+      aoCompletar?.();
+    }
+    if (digitos.length < 6) jaChamou = false;
+  };
+
+  campo.addEventListener('input', () => limpar('pessoa'));
+
+  /* A área de transferência. Pode falhar de várias maneiras que não são
+     problema nenhum — sem permissão, sem gesto, num browser que não a tem —
+     e em todas elas o que acontece é simplesmente não acontecer nada. */
+  (async () => {
+    try {
+      if (campo.value.trim()) return;
+      if (!navigator.clipboard?.readText) return;
+      const texto = (await navigator.clipboard.readText()).trim();
+      const digitos = texto.replace(/\D/g, '');
+      /* Exige-se que a área de transferência seja SÓ o código (ou o código com
+         um rótulo curto à frente, como sai de um email). Um texto grande com
+         seis algarismos algures lá dentro não é um código: é outra coisa
+         qualquer que a pessoa copiou. */
+      if (digitos.length !== 6 || texto.length > 40) return;
+      campo.value = digitos;
+      campo.select?.();
+    } catch { /* sem área de transferência, escreve-se à mão */ }
+  })();
+}
+
+/* =========================================================================
    Avisos
    ========================================================================= */
 

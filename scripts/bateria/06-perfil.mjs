@@ -237,6 +237,74 @@ export async function correr(palco, certo) {
     'escrever o código: o campo deita fora o que não é algarismo',
     String(await palco.valor('#campo-codigo')));
 
+  /* --- COLAR A LINHA DO EMAIL -------------------------------------------- */
+  /* Isto esteve PARTIDO e ninguém desconfiaria: o `maxlength="6"` corta a
+     colagem ANTES de qualquer limpeza nossa. Colar «Código: 314 159» — que é o
+     gesto natural de quem tem o email aberto ao lado — deixava no campo a
+     palavra `Código` e zero algarismos, e a app respondia «O código tem seis
+     algarismos», que é verdade e não ajuda nada.
+
+     Mede-se com uma colagem A SÉRIO (`insertText`), e não escrevendo o valor à
+     mão: escrever à mão nunca passaria pelo `maxlength`, e o teste passava
+     enquanto o defeito continuava lá. */
+  certo(await palco.js(`
+    return document.querySelector('#campo-codigo').getAttribute('maxlength') === null`),
+    'colar o código: o maxlength sai do campo — é ele que corta a colagem antes de a limpar');
+
+  for (const [nome, texto, esperado] of [
+    ['a linha inteira do email', 'Código: 314 159', '314159'],
+    ['com espaço a meio', '31 41 59', '314159'],
+    ['com hífen', '314-159', '314159'],
+    ['uma frase à volta', 'O teu código é 271828, vale 15 minutos', '271828'],
+  ]) {
+    const ficou = await palco.js(`
+      const c = document.querySelector('#campo-codigo');
+      c.value = ''; c.dispatchEvent(new Event('input', { bubbles: true }));
+      c.focus();
+      document.execCommand('insertText', false, ${JSON.stringify(texto)});
+      return c.value;`);
+    certo(ficou === esperado,
+      `colar ${nome}: fica ${esperado} no campo`, `ficou «${ficou}»`);
+
+    /* CHEGAR AOS SEIS ALGARISMOS CONFIRMA SOZINHO — é para isso que serve — e
+       isso fecha ou muda o painel. Cada caso tem de voltar a pô-lo de pé,
+       senão o que se mede a seguir é o estado deixado pelo caso anterior. E o
+       resto deste módulo continua daqui, a contar com o painel aberto. */
+    await esperarAvisoSair(palco).catch(() => {});
+    if (!(await palco.ver('#campo-codigo'))) {
+      await palco.clicar(LINHA_CONTA);
+      await palco.esperar('#campo-email', 4000);
+      await palco.preencher('#campo-email', EMAIL);
+      await palco.clicar('#botao-enviar');
+      await palco.esperar('#campo-codigo', 4000);
+    }
+  }
+
+  /* E PROVA-SE QUE O AUTO-CONFIRMAR DISPARA MESMO. Sem isto, tudo o que está
+     acima passava na mesma se ele nunca acontecesse — o ciclo só mede o que
+     FICA no campo, e o campo fica igual quer o botão seja tocado quer não.
+
+     Mede-se pelo efeito que só o envio produz: 314159 é um código errado na
+     demonstração, e um código errado põe um aviso no ecrã. Se ninguém tiver
+     confirmado, não há aviso nenhum. */
+  await palco.js(`
+    const c = document.querySelector('#campo-codigo');
+    c.value = ''; c.dispatchEvent(new Event('input', { bubbles: true }));
+    c.focus(); document.execCommand('insertText', false, '314159');
+    return true;`);
+  const avisoSozinho = await palco.texto('.aviso').catch(() => null);
+  certo(!!avisoSozinho,
+    'seis algarismos confirmam SOZINHOS — ninguém tocou no botão e a app já respondeu',
+    `aviso: ${JSON.stringify(avisoSozinho)}`);
+  await esperarAvisoSair(palco).catch(() => {});
+  if (!(await palco.ver('#campo-codigo'))) {
+    await palco.clicar(LINHA_CONTA);
+    await palco.esperar('#campo-email', 4000);
+    await palco.preencher('#campo-email', EMAIL);
+    await palco.clicar('#botao-enviar');
+    await palco.esperar('#campo-codigo', 4000);
+  }
+
   /* --- «não recebi»: na demonstração não há email nenhum a sair ---------- */
   await palco.clicar('#painel .btn-fantasma');
   const reenvio = await palco.texto('.aviso');
@@ -246,8 +314,12 @@ export async function correr(palco, certo) {
   await esperarAvisoSair(palco);
 
   /* --- código certo ------------------------------------------------------ */
+  /* JÁ NÃO SE CARREGA EM CONFIRMAR, e é essa a mudança: o sexto algarismo
+     confirma sozinho. Esta linha tinha um `clicar(CONFIRMAR)` a seguir, e foi
+     ele que rebentou o módulo quando o auto-confirmar entrou — o painel já
+     tinha fechado e o botão não existia. Deixá-lo lá «por segurança» seria
+     esconder a funcionalidade nova atrás de um gesto que ninguém faz. */
   await palco.escrever('#campo-codigo', '000000');
-  await palco.clicar(CONFIRMAR);
   await palco.sumir('#painel', 4000);
 
   certo(await palco.texto('.aviso-bom') === 'Conta guardada. Os cartões já não se perdem.',
