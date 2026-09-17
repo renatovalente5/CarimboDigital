@@ -381,8 +381,8 @@ nosso *client secret*.
 | ~~1~~ | ~~Migração `identidades` + email a passar por lá~~ — **feita, 16 set 2026** | — | nada |
 | ~~2~~ | ~~As contas-sombra (`fundida_em`)~~ — **feita, 16 set 2026** | — | nada |
 | ~~3~~ | ~~A fusão, com a bateria a prová-la~~ — **feita, 16 set 2026** | — | **confirmar a regra dos prémios** (ver abaixo) |
-| 4 | **Metade feita (16 set 2026):** a fusão na app, o botão «sair nos outros aparelhos» e as seis frases conferidas. Falta o **ecrã de entrada**, que espera pelas fases 5 e 6 | 1 dia | ver o ecrã quando as portas existirem |
-| 5 | Continuar com Google | 3–4 dias | 3 passos de consola |
+| 4 | **Metade feita (16 set 2026):** a fusão na app, o botão «sair nos outros aparelhos» e as seis frases conferidas. Falta o **ecrã de entrada**, que espera pela fase 6 | 1 dia | ver o ecrã quando as portas existirem |
+| ~~5~~ | ~~Continuar com Google~~ — **feita, 17 set 2026** (ver §6.2) | — | nada |
 | 6 | Continuar com Apple | 4–5 dias | 4 passos de consola |
 | ~~7~~ | ~~Telefone~~ | — | **fora, decidido** |
 
@@ -453,6 +453,92 @@ Airbnb com **um** botão não é um ecrã de entrada, é um formulário com mold
 e os outros dois botões dependem de passos de consola que não são meus. Fazê-lo
 agora era desenhá-lo duas vezes e, pior, pôr um portão à frente de quem hoje
 entra sem nenhum. Assim que a Google e a Apple existirem, é um dia de trabalho.
+
+---
+
+## 6.2 Fase 5: a porta da Google
+
+**A consola, primeiro** (17 set 2026). Projecto próprio — `carimbo-digital-508917`
+—, e não o que já existia: esse tinha o ecrã de consentimento com a marca do
+*Praiómetro*, que é outro produto, e rebrandeá-lo era pô-lo a mentir a quem lá
+entra. O ecrã de consentimento ficou **em produção** e não em «Testing», onde as
+entradas morriam ao fim de sete dias.
+
+**Âmbitos: `openid` e `email`. Sem `profile`.** Não é economia — é que o
+`profile` traz o nome e a fotografia, e a página de privacidade promete em seis
+sítios que não pedimos o nome. Pedir um âmbito para não o usar era gastar a
+promessa por nada. E é também o que mantém a app fora da verificação da Google:
+com âmbitos não sensíveis e **sem logótipo carregado**, não há processo nenhum a
+esperar por ninguém. (Um logótipo obriga a verificação. Não há logótipo.)
+
+### O buraco que este desenho teve, e que se fechou antes de existir
+
+O primeiro desenho dava à app um **bilhete** para ela vir levantar a sessão
+depois, e deixava qualquer janela concluir a volta. Parece inofensivo e é uma
+tomada de conta completa:
+
+> Eu peço a ida ao servidor, fico com o bilhete, e mando-te o endereço. É um
+> endereço verdadeiro da Google, com o nosso `client_id` — indistinguível de um
+> login legítimo, nem por um perito. Tu entras, a nossa página conclui, e eu
+> levanto a **tua** sessão com o **meu** bilhete.
+
+E se o teu `sub` ainda não fosse conhecido, era a outra metade do mesmo ataque:
+a tua identidade Google ficava colada para sempre a uma conta minha, e no dia em
+que entrasses honestamente ias parar lá dentro. Isto é, à letra, o pré-registo
+do Sudhodanan & Paverd que a regra de ligação existe para impedir — cumprida na
+camada da identidade e partida na do transporte.
+
+**Nem o `state`, nem o PKCE, nem o `nonce` defendem disto**, e vale a pena
+perceber porquê: são todos do lado de quem COMEÇA, e quem começa é o atacante.
+O que defende é exigir que quem conclui seja quem começou — e isso é um segredo
+que só existe no armazenamento local de quem pediu a ida. O `volta` passou a
+exigir o bilhete.
+
+**O preço, escrito em vez de escondido:** se a volta aterrar noutro contexto
+não se conclui nada, e a pessoa vê uma frase que o diz. É por isso que a volta
+aterra em **`/app/`** e não numa página do site: o manifesto declara
+`scope: "/app/"`, e num iPhone uma volta para fora desse âmbito abre o Safari e
+nunca regressa à app instalada.
+
+### O resto do que mudou, e que não é login nenhum
+
+- **A trava por origem não travava em IPv6.** Contava o `/128`, e uma linha
+  doméstica recebe um `/64` inteiro — dezoito triliões de endereços, com o
+  telemóvel a trocar de um para o outro por causa das extensões de privacidade.
+  Passou a contar o `/64`. Isto valia para o `/v1/cliente/registar` desde que
+  ele existe.
+- **Uma conta só-Google era apagada aos dois anos EM SILÊNCIO.** O aviso de
+  conta parada procurava por `clientes.email`, que fica a NULL para quem entra
+  pela Google — e a morada estava ali ao lado, em `identidades.email`. A
+  política de privacidade promete o aviso; agora ele sai.
+- **A app decidia tudo por `cliente.email`.** Com uma segunda porta isso
+  desfaz-se: o perfil dizia «Guardar a conta» a quem tinha acabado de a
+  guardar, o «terminar sessão nos outros aparelhos» ficava escondido a quem
+  tinha por onde voltar, e o ecrã da sessão terminada era um beco. A app passou
+  a ler a lista de identidades, que o `/v1/cliente/eu` já devolvia e que ninguém
+  chamava.
+- **Desligar a conta Google** existe porque a entrada é consentimento e o art.
+  7.º/3 obriga a que retirar seja tão fácil como dar. Publicar a porta sem esta
+  linha era publicar um consentimento sem saída.
+- **A pista da morada igual.** Quem tinha conta pelo email e entra pela Google
+  com a mesma morada cai numa conta nova e vazia — e isso está certo, porque a
+  morada é pista e não chave. Mas o que a pessoa vê é «perdi os cartões», e nós
+  sabemos o suficiente para lho dizer. Diz-se; não se junta.
+
+### O que fica por provar, e fica dito
+
+- **A assinatura do `id_token` não é verificada**, de propósito: ele vem por
+  TLS directamente do endereço de troca da Google, num pedido que leva o nosso
+  segredo de cliente, e o OpenID Connect Core §3.1.3.7 permite trocar uma
+  validação pela outra. A dispensa está presa a uma frase — «acabámos de o ir
+  buscar ao *token endpoint* deste pedido» — e no dia em que ela deixar de ser
+  verdade não há segunda linha de defesa. Está escrito no comentário da função,
+  que é onde quem a for copiar para a fase da Apple o vai ler.
+- **O regresso à app instalada num iPhone** está desenhado a partir do que a
+  Apple documenta desde o iOS 16.4 e **não foi medido num aparelho a sério**.
+  Se falhar, o que acontece é uma frase honesta a dizer que não deu — e não uma
+  credencial entregue no sítio errado. Medir isto é o primeiro passo da próxima
+  vez que houver um iPhone à mão.
 
 ---
 

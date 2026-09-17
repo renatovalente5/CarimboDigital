@@ -13,8 +13,9 @@ prioridade: 0.4
     <div class="caixa-aviso">
       <p><strong>Em duas linhas:</strong> não sabemos quem és. Guardamos um
       número de seis caracteres, os cartões que tens e as datas dos carimbos.
-      Não há nome, telefone, morada nem cookies. Podes descarregar tudo e
-      apagar tudo, a qualquer momento, dentro da app.</p>
+      Não há nome, telefone, morada nem cookies — nem sequer quando entras
+      pela Google. Podes descarregar tudo e apagar tudo, a qualquer momento,
+      dentro da app.</p>
     </div>
 
     <h2>1. Quem é responsável</h2>
@@ -50,6 +51,18 @@ prioridade: 0.4
           <td><strong>Email</strong> (opcional, só se o deres)</td>
           <td>Recuperares os cartões se mudares ou perderes o telemóvel.
               Não é usado para mais nada e não enviamos publicidade.</td>
+          <td>Consentimento — art. 6.º, n.º 1, al. a)</td>
+        </tr>
+        <tr>
+          <td><strong>A tua conta Google</strong> (opcional, só se carregares
+              em «Continuar com a Google»)</td>
+          <td>O mesmo que o email, por outra porta: recuperares os cartões se
+              mudares ou perderes o telemóvel. A Google dá-nos duas coisas —
+              um identificador da tua conta, que só faz sentido entre nós e
+              ela, e a tua morada de email. <strong>Não lhe pedimos o teu nome
+              nem a tua fotografia</strong>, por isso ela também não nos manda
+              nenhum dos dois. Não é usado para mais nada e não enviamos
+              publicidade.</td>
           <td>Consentimento — art. 6.º, n.º 1, al. a)</td>
         </tr>
         <tr>
@@ -102,10 +115,15 @@ prioridade: 0.4
       carrega tipos de letra, mapas ou scripts de terceiros. Por isso não
       verás aqui nenhum aviso de cookies a pedir-te autorização — não há nada
       para autorizar.</p>
+    <p>O botão «Continuar com a Google» não é excepção: ele não carrega nada
+      da Google para dentro desta página. O que faz é <em>levar-te</em> lá, a
+      uma página da Google, e trazer-te de volta — e só depois de lhe tocares.
+      Enquanto não lhe tocares, a Google não sabe que aqui estiveste.</p>
     <p>A app guarda no teu próprio telemóvel (no armazenamento local do
-      browser) o número do cartão, o segredo do aparelho e as tuas
-      preferências. São dados <em>estritamente necessários</em> ao
-      funcionamento do serviço que pediste, nos termos do artigo 5.º, n.º 3
+      browser) o número do cartão, o segredo do aparelho, as tuas preferências
+      e — enquanto vais à Google e voltas — um bilhete de vida curta que serve
+      para concluir essa entrada. São dados <em>estritamente necessários</em>
+      ao funcionamento do serviço que pediste, nos termos do artigo 5.º, n.º 3
       da Directiva 2002/58/CE, e nunca saem do teu equipamento por nossa
       iniciativa.</p>
 
@@ -118,6 +136,17 @@ prioridade: 0.4
       <a href="mailto:geral@carimbodigital.pt">geral@carimbodigital.pt</a> em
       servidores da União Europeia. Quando pedes um código, o que sai daqui é
       a tua morada e o texto da mensagem: seis algarismos e mais nada.</p>
+    <p>Se entrares com <strong>«Continuar com a Google»</strong>, o teu
+      browser vai à Google e volta. A partir daí a <strong>Google LLC</strong>
+      fica a saber que usas o Carimbo Digital e a que horas entraste — não há
+      como fugir a isso, é o que estás a fazer ao carregar no botão. O que vem
+      de lá para cá são duas coisas: um identificador da tua conta, que só faz
+      sentido entre nós e a Google, e a tua morada de email. Nunca uma senha.</p>
+    <p>Nisto a Google <strong>não é subcontratante nossa</strong>: não trata
+      nada por nossa conta nem segue instruções nossas. Responde pelo que faz
+      do lado dela, pelas regras dela, e é uma empresa dos Estados Unidos. Nós
+      respondemos pelo que fazemos com o que nos chega — que é o que está na
+      tabela da secção 2.</p>
     <p>Se puseres um cartão na <strong>Carteira do telemóvel</strong>, o
       conteúdo desse cartão — o nome do estabelecimento, o teu saldo de
       carimbos e o código de barras — passa a estar também no teu telemóvel,
@@ -133,9 +162,9 @@ prioridade: 0.4
       contratuais-tipo aprovadas pela Comissão Europeia — ainda que a base de
       dados fique em região europeia. A Hostinger é europeia e o email não sai
       da União.</p>
-    <p>Se preferires não passar por aqui, não deixes email: a app funciona
-      sem ele — só perdes a possibilidade de recuperar os cartões noutro
-      telemóvel.</p>
+    <p>Se preferires não passar por aqui, não deixes email <strong>nem entres
+      pela Google</strong>: a app funciona sem as duas coisas — só perdes a
+      possibilidade de recuperar os cartões noutro telemóvel.</p>
 
     <h2>6. Durante quanto tempo</h2>
     <ul>
@@ -148,11 +177,17 @@ prioridade: 0.4
         conta.</li>
       <li><strong>Códigos enviados por email:</strong> {{PRAZO_CODIGO_EMAIL}}
         minutos. Depois disso deixam de valer e a linha é apagada.</li>
+      <li><strong>Entradas pela Google a meio:</strong> {{PRAZO_LIGACAO}}
+        minutos. Enquanto vais à Google e voltas, fica cá uma linha a
+        guardar-te o lugar. Serve uma vez, morre ao fim desse tempo e é
+        apagada na limpeza seguinte. Não tem lá dentro nenhuma chave de entrar
+        na tua conta.</li>
       <li><strong>Contas paradas:</strong> {{PRAZO_INACTIVA}} meses. Se durante
         esse tempo ninguém abrir a app nem te carimbar um cartão, a conta é
-        apagada por inteiro — cartões, carimbos e prémios incluídos. Se tiveres
-        deixado email, avisamos-te {{PRAZO_AVISO}} dias antes, e basta abrires
-        a app para ficar tudo como estava.</li>
+        apagada por inteiro — cartões, carimbos e prémios incluídos. Se
+        tivermos uma morada de email — escrita por ti, ou vinda da Google
+        quando entraste por lá — avisamos-te {{PRAZO_AVISO}} dias antes, e
+        basta abrires a app para ficar tudo como estava.</li>
     </ul>
 
     <h2>7. Os teus direitos</h2>
@@ -165,6 +200,9 @@ prioridade: 0.4
         ficheiro com tudo o que temos sobre ti.</li>
       <li><strong>Perfil › Apagar a conta</strong> — apaga tudo, na hora e
         sem volta.</li>
+      <li><strong>Perfil › Tirar o email</strong> e <strong>Perfil › Desligar
+        a conta Google</strong> — retirar o consentimento é um toque, como
+        dá-lo foi. Os cartões ficam.</li>
     </ul>
     <p>Para os restantes, escreve para
       <a href="mailto:{{ENT_EMAIL}}">{{ENT_EMAIL}}</a>. Respondemos no prazo
@@ -182,8 +220,9 @@ prioridade: 0.4
 
     <h2>9. Menores</h2>
     <p>O serviço não se dirige a menores de 13 anos e não recolhe
-      conscientemente dados de crianças. Como não pedimos idade nem
-      identidade, também não conseguimos criar perfis de ninguém.</p>
+      conscientemente dados de crianças. Como não pedimos idade, nem nome, nem
+      nada que descreva quem és, também não conseguimos criar perfis de
+      ninguém.</p>
 
     <h2>10. Alterações</h2>
     <p>Se esta política mudar de forma relevante, avisamos dentro da própria

@@ -274,6 +274,35 @@ CREATE INDEX IF NOT EXISTS ix_identidades_cliente ON identidades(cliente_id);
 CREATE INDEX IF NOT EXISTS ix_identidades_email ON identidades(email);
 CREATE INDEX IF NOT EXISTS ix_entradas_expira ON entradas(expira_em);
 
+-- --- a ida e a volta a um provedor de identidade (ver migracoes/012) -------
+-- O estado que tem de sobreviver entre mandar o browser à Google e o browser
+-- voltar. Vive aqui e não no browser porque a volta pode aterrar noutro
+-- armazenamento — num iPhone com a app no ecrã principal, aterra. A app fica
+-- com um BILHETE e vem cá perguntar se já está.
+-- NUNCA guarda um testemunho de sessão: a sessão cunha-se na recolha.
+CREATE TABLE IF NOT EXISTS ligacoes (
+  id             TEXT PRIMARY KEY,
+  provedor       TEXT NOT NULL,        -- google | apple
+  estado_resumo  TEXT NOT NULL,        -- SHA-256 do `state`
+  bilhete_resumo TEXT NOT NULL,        -- SHA-256 do bilhete que a app guarda
+  verificador    TEXT NOT NULL,        -- PKCE (RFC 7636)
+  nonce          TEXT NOT NULL,
+  redireccao     TEXT NOT NULL,        -- o `redirect_uri` exacto
+  sessao_resumo  TEXT,                 -- o resumo da sessão de quem pediu, se havia
+  criada_em      TEXT NOT NULL,
+  expira_em      TEXT NOT NULL,
+  usada_em       TEXT,                 -- o `state` serve uma vez
+  concluida_em   TEXT,
+  cliente_id     TEXT,
+  recuperada     INTEGER NOT NULL DEFAULT 0,
+  entregues      INTEGER NOT NULL DEFAULT 0,
+  pista          TEXT,                 -- 'mesma-morada': há outra conta com ela
+  erro           TEXT                  -- um código curto, nunca o texto deles
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_ligacoes_estado ON ligacoes(estado_resumo);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_ligacoes_bilhete ON ligacoes(bilhete_resumo);
+CREATE INDEX IF NOT EXISTS ix_ligacoes_prazo ON ligacoes(expira_em);
+
 -- --- códigos já usados (anti-repetição) ---------------------------------
 -- Um código só serve uma vez. Sem isto, a fotografia do ecrã de um amigo
 -- valia carimbos durante os quinze segundos de vida do código.

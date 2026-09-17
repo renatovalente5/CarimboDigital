@@ -295,8 +295,15 @@ tecto as consultas falham até à meia-noite UTC, em vez de serem toleradas.
   24 ângulos × 3 inclinações × 2 tamanhos, com desfoque, grão e luz de lado —
   e a 20 ms por fotograma. Onde o `BarcodeDetector` existe, é ele que trabalha.
 - **Links de email não funcionam dentro de uma app instalada no iOS.** Por
-  isso a recuperação de conta é por **código de seis algarismos**, e não por
-  ligação.
+  isso a recuperação de conta por email é por **código de seis algarismos**, e
+  não por ligação. A outra porta — **entrar com a Google** — é por
+  redireccionamento puro, e a volta aterra dentro de `/app/`, que é o âmbito
+  declarado no manifesto: para fora dele, um iPhone abre o Safari e não volta.
+- **Quem conclui uma entrada pela Google tem de ser quem a começou.** A app
+  guarda um bilhete antes de sair, e sem ele o servidor recusa a volta. Sem
+  isso, bastava mandar a alguém o endereço da ida — um endereço verdadeiro da
+  Google — para lhe levar a conta: o `state`, o PKCE e o `nonce` são todos do
+  lado de quem começa.
 - **Publica-se sempre com `--config ./wrangler.toml`.** O wrangler 4.131
   estreou uma «autoconfig» que, quando não encontra configuração à primeira,
   escreve uma por sua conta — e escreveu-a na **pasta-mãe** (`~/Websites/`),

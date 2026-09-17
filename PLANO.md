@@ -328,9 +328,10 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
 ### O login
 
 Tem plano próprio, em [PLANO-LOGIN.md](PLANO-LOGIN.md). Fases 0 a 3 feitas e no
-ar; a 4 está a meio. Falta o **ecrã de entrada** (à espera das portas da Google
-e da Apple, para se fazer uma vez só com os três botões) e as fases **5** e
-**6**, que dependem de passos de consola.
+ar; a 4 está a meio e a **5 — entrar com a Google — está feita** (17 set 2026,
+ver §6.2 desse plano). Falta o **ecrã de entrada** (à espera da porta da Apple,
+para se fazer uma vez só com os três botões) e a fase **6**, que depende de
+quatro passos de consola.
 
 ## 9. Riscos
 

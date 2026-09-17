@@ -3685,6 +3685,368 @@ grupo('Sair de um café, tirar o email, expulsar um balcão');
   sql(`DELETE FROM clientes WHERE id IN ('${c.dados.cliente.id}','${novo.dados.cliente.id}')`);
 }
 
+grupo('Entrar com a Google');
+{
+  /* Isto corre contra uma Google DE MENTIRA (`scripts/google-de-mentira.mjs`),
+     que serve o ecrã de consentimento e troca o código por um `id_token`. O
+     que ela NÃO prova é a assinatura desse token — e isso é de propósito: o
+     Worker também não a verifica, porque o token vem por TLS directamente do
+     endereço de troca e o OIDC Core §3.1.3.7 permite trocar uma validação pela
+     outra. Fica dito em vez de fingido.
+
+     A ORIGEM VAI EM TODOS OS PEDIDOS. O `comecar` constrói o endereço de volta
+     a partir dela e recusa quem não a mande — com a lista de origens vazia, que
+     é o que o desenvolvimento tem, só o localhost passa. */
+  const GOOGLE = 'http://localhost:8799';
+  const ORIGEM = { origin: 'http://localhost:4321', 'cf-connecting-ip': '198.51.100.77' };
+  const criados = [];
+
+  /* A trava das idas conta na mesma tabela dos registos, noutro espaço. Limpa-se
+     para o tecto de 30/hora não apanhar esta bateria pelo caminho. */
+  sql(`DELETE FROM registos`);
+
+  const comecar = (sessao) => pedir('/v1/cliente/google/comecar',
+    { metodo: 'POST', corpo: {}, sessao, cabecalhos: ORIGEM });
+  const voltar = (corpo) => pedir('/v1/cliente/google/volta',
+    { metodo: 'POST', corpo, cabecalhos: ORIGEM });
+  const levantar = (bilhete) => pedir('/v1/cliente/google/estado',
+    { metodo: 'POST', corpo: { bilhete }, cabecalhos: ORIGEM });
+
+  /** Faz o papel do browser: abre o consentimento, escolhe a conta, e volta. */
+  async function passarPelaGoogle(url, email) {
+    const pagina = await fetch(url);
+    const html = await pagina.text();
+    const codigo = html.match(/name="redireccao" value="([^"]+)"/)[1];
+    const estadoForm = html.match(/name="estado" value="([^"]+)"/)[1];
+    const r = await fetch(`${GOOGLE}/o/oauth2/v2/aprovar`, {
+      method: 'POST', redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ redireccao: codigo, estado: estadoForm, decisao: 'sim', email }),
+    });
+    const destino = new URL(r.headers.get('location'));
+    return { codigo: destino.searchParams.get('code'), estado: destino.searchParams.get('state') };
+  }
+
+  const ultimaLigacao = () => linhas(
+    `SELECT id, nonce, erro, concluida_em, cliente_id, pista, entregues
+       FROM ligacoes ORDER BY criada_em DESC, rowid DESC LIMIT 1`)[0];
+
+  /* --- 1. A PORTA ANUNCIA-SE ------------------------------------------- */
+  const portas = await pedir('/v1/portas', { cabecalhos: ORIGEM });
+  certo(portas.estado === 200 && portas.dados.google === true,
+    'o servidor diz que a porta da Google está aberta — um botão não se adivinha',
+    JSON.stringify(portas.dados));
+  certo(portas.dados.apple === false,
+    'e diz que a da Apple ainda não, em vez de calar o campo');
+
+  /* --- 2. A IDA LEVA O QUE TEM DE LEVAR --------------------------------- */
+  const ida = await comecar();
+  certo(ida.estado === 200 && ida.dados.url && ida.dados.bilhete,
+    'a ida devolve o endereço da Google e um bilhete', JSON.stringify(ida.dados).slice(0, 120));
+  const url = new URL(ida.dados.url);
+  certo(url.searchParams.get('scope') === 'openid email',
+    'o âmbito é `openid email` e mais nada — sem `profile` não vem nome nenhum',
+    url.searchParams.get('scope'));
+  certo(url.searchParams.get('code_challenge_method') === 'S256'
+    && (url.searchParams.get('code_challenge') || '').length > 20,
+    'vai com PKCE (RFC 7636)');
+  certo(url.searchParams.get('prompt') === 'select_account',
+    'pergunta sempre qual é a conta — entrar na errada é uma conta duplicada');
+  certo(url.searchParams.get('redirect_uri') === 'http://localhost:4321/app/',
+    'a volta aterra DENTRO do âmbito da app: fora dele, um iPhone abre o Safari e não volta',
+    url.searchParams.get('redirect_uri'));
+  certo(!url.searchParams.has('access_type'),
+    'e não pede acesso em diferido — um `refresh_token` era uma credencial de longa duração à toa');
+
+  /* --- 3. O ATAQUE DO LINK, que é o que o bilhete existe para fechar ---- */
+  const volta1 = await passarPelaGoogle(ida.dados.url, 'pessoa.a@gmail.com');
+  const semBilhete = await voltar({ estado: volta1.estado, codigo: volta1.codigo });
+  certo(semBilhete.estado === 403,
+    'SEM BILHETE NÃO SE CONCLUI — senão, quem me mandasse o endereço da ida levava a minha conta',
+    String(semBilhete.estado));
+
+  const outraIda = await comecar();
+  const trocado = await voltar({
+    estado: volta1.estado, codigo: volta1.codigo, bilhete: outraIda.dados.bilhete });
+  certo(trocado.estado === 403,
+    'e o bilhete de OUTRA ligação também não serve — é o bilhete daquela ida ou nenhum',
+    String(trocado.estado));
+
+  /* --- 4. O CAMINHO NORMAL --------------------------------------------- */
+  const feito = await voltar({ ...volta1, bilhete: ida.dados.bilhete });
+  certo(feito.estado === 200 && feito.dados.ok === true,
+    'com o bilhete certo, a volta conclui', JSON.stringify(feito.dados));
+  certo(!('sessao' in (feito.dados || {})) && !('segredo' in (feito.dados || {})),
+    'e NÃO devolve credencial nenhuma — quem levanta é o bilhete, na rota seguinte');
+
+  const repetida = await voltar({ ...volta1, bilhete: ida.dados.bilhete });
+  certo(repetida.estado === 409,
+    'o mesmo estado não serve duas vezes — um recarregar da página não dá duas trocas',
+    String(repetida.estado));
+
+  const levantado = await levantar(ida.dados.bilhete);
+  certo(levantado.dados.situacao === 'pronta', 'o bilhete levanta a entrada feita',
+    JSON.stringify(levantado.dados).slice(0, 120));
+  certo(Boolean(levantado.dados.sessao && levantado.dados.segredo
+    && levantado.dados.cliente?.publico),
+    'e traz sessão, segredo e número de cartão — a mesma forma que `/v1/cliente/entrar`');
+  const contaA = levantado.dados.cliente.id;
+  const sessaoA = levantado.dados.sessao;
+  criados.push(contaA);
+
+  const outraVez = await levantar(ida.dados.bilhete);
+  certo(outraVez.dados.situacao === 'expirada',
+    'O BILHETE SERVE UMA VEZ. Cada levantamento cunha uma sessão de 180 dias; três davam três');
+
+  const identidade = linhas(
+    `SELECT provedor, sujeito, email FROM identidades WHERE cliente_id = '${contaA}'`);
+  certo(identidade.length === 1 && identidade[0].provedor === 'google',
+    'ficou uma identidade `google` colada à conta');
+  certo(identidade[0].sujeito !== 'pessoa.a@gmail.com' && identidade[0].sujeito.startsWith('sub-'),
+    'e o que decide é o `sub`, NUNCA a morada', identidade[0].sujeito);
+  certo(identidade[0].email === 'pessoa.a@gmail.com',
+    'a morada fica como pista, para lhe podermos escrever');
+  certo(linhas(`SELECT email FROM clientes WHERE id = '${contaA}'`)[0].email === null,
+    'e o espelho `clientes.email` fica a NULL — uma morada da Google não decide de quem é a conta');
+
+  /* --- 5. O PKCE FOI MESMO USADO --------------------------------------- */
+  {
+    const visto = await (await fetch(`${GOOGLE}/__visto`)).json();
+    const troca = visto.filter((v) => v.caminho === '/token' && /authorization_code/.test(v.bruto || '')).pop();
+    certo(Boolean(troca && /code_verifier=/.test(troca.bruto)),
+      'a troca do código levou o `code_verifier` — o PKCE está ligado e não só escrito no endereço');
+    certo(Boolean(troca && /client_secret=/.test(troca.bruto)),
+      'e levou o segredo do cliente, que é o que faz este caminho ser servidor-a-servidor');
+  }
+
+  /* --- 6. A MESMA PESSOA, OUTRO APARELHO ------------------------------- */
+  const ida2 = await comecar();
+  const volta2 = await passarPelaGoogle(ida2.dados.url, 'pessoa.a@gmail.com');
+  await voltar({ ...volta2, bilhete: ida2.dados.bilhete });
+  const lev2 = await levantar(ida2.dados.bilhete);
+  certo(lev2.dados.cliente.id === contaA,
+    'a mesma conta Google entra sempre na mesma conta nossa, venha de onde vier');
+
+  /* --- 7. COM SESSÃO, A IDENTIDADE COLA-SE À CONTA QUE JÁ EXISTE -------- */
+  const local = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: ORIGEM });
+  criados.push(local.dados.cliente.id);
+  const ida3 = await comecar(local.dados.sessao);
+  const volta3 = await passarPelaGoogle(ida3.dados.url, 'pessoa.b@gmail.com');
+  await voltar({ ...volta3, bilhete: ida3.dados.bilhete });
+  const lev3 = await levantar(ida3.dados.bilhete);
+  certo(lev3.dados.cliente.id === local.dados.cliente.id,
+    'com sessão provada, a identidade nova cola-se à conta que pediu — não nasce outra');
+  certo(lev3.dados.recuperada === false, 'e não é recuperação nenhuma');
+
+  /* --- 8. COM SESSÃO, MAS O `sub` JÁ É DE OUTRA CONTA ------------------ */
+  const local2 = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: ORIGEM });
+  criados.push(local2.dados.cliente.id);
+  const ida4 = await comecar(local2.dados.sessao);
+  const volta4 = await passarPelaGoogle(ida4.dados.url, 'pessoa.a@gmail.com');
+  await voltar({ ...volta4, bilhete: ida4.dados.bilhete });
+  const lev4 = await levantar(ida4.dados.bilhete);
+  certo(lev4.dados.cliente.id === contaA,
+    'quando o `sub` já é de outra conta, entra-se NESSA — e não se junta nada sozinho');
+  certo(lev4.dados.recuperada === true,
+    'e diz-se que é recuperação, para a app poder oferecer juntar as duas');
+  certo(linhas(`SELECT COUNT(*) AS n FROM cartoes WHERE cliente_id = '${local2.dados.cliente.id}'`)[0].n === 0
+    && linhas(`SELECT COUNT(*) AS n FROM clientes WHERE id = '${local2.dados.cliente.id}'`)[0].n === 1,
+    'a conta que ficou para trás NÃO se apaga — os cartões dela continuam a existir para serem juntados');
+
+  /* --- 9. UMA SESSÃO DE BALCÃO NÃO É UMA CONTA DE CLIENTE --------------- */
+  {
+    const doBalcao = `balcao-na-google-${randomBytes(6).toString('hex')}`;
+    const rb = createHash('sha256').update(doBalcao).digest('hex');
+    sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+         VALUES ('${rb}', 'operador:o1', datetime('now'),
+                 '${new Date(Date.now() + 86400000).toISOString()}')`);
+    const ida5 = await comecar(doBalcao);
+    const volta5 = await passarPelaGoogle(ida5.dados.url, 'pessoa.c@gmail.com');
+    await voltar({ ...volta5, bilhete: ida5.dados.bilhete });
+    const lev5 = await levantar(ida5.dados.bilhete);
+    certo(lev5.dados.situacao === 'pronta' && lev5.dados.cliente.id !== 'o1',
+      'uma sessão de balcão vale por «sem sessão»: nasce conta de cliente, e nada se cola ao operador');
+    criados.push(lev5.dados.cliente.id);
+    sql(`DELETE FROM sessoes WHERE resumo = '${rb}'`);
+  }
+
+  /* --- 10. A PESSOA CARREGA EM CANCELAR -------------------------------- */
+  {
+    const ida6 = await comecar();
+    const r = await voltar({ estado: (new URL(ida6.dados.url)).searchParams.get('state'),
+      bilhete: ida6.dados.bilhete, erro: 'access_denied' });
+    certo(r.estado === 200 && r.dados.ok === false && r.dados.codigo === 'google-recusou',
+      'cancelar na Google é um caminho normal e chega cá', JSON.stringify(r.dados));
+    const lev = await levantar(ida6.dados.bilhete);
+    certo(lev.dados.situacao === 'erro' && lev.dados.codigo === 'google-recusou',
+      'e a app fica a saber porquê, em vez de sondar para sempre', JSON.stringify(lev.dados));
+  }
+
+  /* --- 11. A GOOGLE TEM UM MAU DIA ------------------------------------- */
+  {
+    const contasAntes = linhas(`SELECT COUNT(*) AS n FROM clientes`)[0].n;
+    const ida7 = await comecar();
+    const volta7 = await passarPelaGoogle(ida7.dados.url, 'pessoa.d@gmail.com');
+    await fetch(`${GOOGLE}/__avariar?n=1`, { method: 'POST' });
+    const r = await voltar({ ...volta7, bilhete: ida7.dados.bilhete });
+    certo(r.estado === 502 && r.dados.codigo === 'google-falhou',
+      'a Google a responder 500 dá um erro que se explica, e não um 500 nosso',
+      JSON.stringify(r.dados));
+    const lev = await levantar(ida7.dados.bilhete);
+    certo(lev.dados.situacao === 'erro',
+      'e fica anotado na ligação, para a app não ficar à espera do que não vem');
+    certo(linhas(`SELECT COUNT(*) AS n FROM clientes`)[0].n === contasAntes,
+      'e NÃO nasceu conta nenhuma — um mau dia deles não deixa contas-fantasma cá');
+  }
+
+  /* --- 12. O `id_token` TEM DE SER PARA NÓS E PARA ESTA IDA ------------- */
+  {
+    /* O destinatário errado. Muda-se o `client_id` no endereço: a Google de
+       mentira devolve um token para outro, e esse não serve aqui. */
+    const ida8 = await comecar();
+    const torto = new URL(ida8.dados.url);
+    torto.searchParams.set('client_id', 'de-outra-pessoa.apps.googleusercontent.com');
+    const volta8 = await passarPelaGoogle(torto.toString(), 'pessoa.e@gmail.com');
+    const r = await voltar({ ...volta8, bilhete: ida8.dados.bilhete });
+    certo(r.estado === 502 && r.dados.codigo === 'google-falhou',
+      'um `id_token` emitido para outro destinatário é recusado', JSON.stringify(r.dados));
+  }
+  {
+    /* O `nonce` errado. Troca-se o que está guardado: o token vem com o da ida
+       e deixa de bater certo. Sem esta verificação, um token legítimo obtido
+       noutro sítio servia aqui. */
+    const ida9 = await comecar();
+    const volta9 = await passarPelaGoogle(ida9.dados.url, 'pessoa.f@gmail.com');
+    sql(`UPDATE ligacoes SET nonce = 'outro-qualquer' WHERE id = '${ultimaLigacao().id}'`);
+    const r = await voltar({ ...volta9, bilhete: ida9.dados.bilhete });
+    certo(r.estado === 502 && r.dados.codigo === 'google-falhou',
+      'um `id_token` que responde a outra ida é recusado (o `nonce`)', JSON.stringify(r.dados));
+  }
+
+  /* --- 13. PRAZOS ------------------------------------------------------ */
+  {
+    const ida10 = await comecar();
+    const volta10 = await passarPelaGoogle(ida10.dados.url, 'pessoa.g@gmail.com');
+    sql(`UPDATE ligacoes SET expira_em = '2020-01-01T00:00:00.000Z' WHERE id = '${ultimaLigacao().id}'`);
+    const r = await voltar({ ...volta10, bilhete: ida10.dados.bilhete });
+    certo(r.estado === 410 && r.dados.codigo === 'ligacao-expirada',
+      'uma ida que passou do prazo não se conclui', JSON.stringify(r.dados));
+  }
+  {
+    const r = await levantar('um-bilhete-que-nunca-existiu');
+    certo(r.estado === 200 && r.dados.situacao === 'expirada',
+      'um bilhete desconhecido é «expirada» e não um erro — não há aqui oráculo nenhum',
+      JSON.stringify(r.dados));
+  }
+
+  /* --- 14. A PISTA DA MORADA IGUAL ------------------------------------- */
+  {
+    /* Uma conta que já provou a morada pela porta do email. */
+    const doEmail = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: ORIGEM });
+    criados.push(doEmail.dados.cliente.id);
+    sql(`INSERT INTO identidades (id, cliente_id, provedor, sujeito, email, relay, criada_em, verificada_em)
+         VALUES ('${randomBytes(8).toString('hex')}', '${doEmail.dados.cliente.id}', 'email',
+                 'mesma.morada@gmail.com', 'mesma.morada@gmail.com', 0,
+                 datetime('now'), datetime('now'))`);
+    const ida11 = await comecar();
+    const volta11 = await passarPelaGoogle(ida11.dados.url, 'mesma.morada@gmail.com');
+    await voltar({ ...volta11, bilhete: ida11.dados.bilhete });
+    const lev = await levantar(ida11.dados.bilhete);
+    certo(lev.dados.cliente.id !== doEmail.dados.cliente.id,
+      'a mesma morada por outra porta NÃO dá a mesma conta — é o pré-registo que isto impede');
+    certo(lev.dados.pista === 'mesma-morada',
+      'mas diz-se, senão a pessoa lê uma conta vazia como «perdi os cartões»',
+      JSON.stringify(lev.dados.pista));
+    criados.push(lev.dados.cliente.id);
+  }
+
+  /* --- 15. A LIMPEZA DA MADRUGADA -------------------------------------- */
+  {
+    const viva = await comecar();
+    const idViva = ultimaLigacao().id;
+    sql(`INSERT INTO ligacoes (id, provedor, estado_resumo, bilhete_resumo, verificador, nonce,
+                               redireccao, criada_em, expira_em)
+         VALUES ('velha-de-teste', 'google', 'r-velha', 'b-velha', 'v', 'n',
+                 'http://localhost:4321/app/', '2020-01-01T00:00:00.000Z',
+                 '2020-01-01T00:10:00.000Z')`);
+    await pedir('/__scheduled?cron=17+4+*+*+*');
+    certo(linhas(`SELECT COUNT(*) AS n FROM ligacoes WHERE id = 'velha-de-teste'`)[0].n === 0,
+      'a limpeza da madrugada leva as idas que passaram do prazo');
+    certo(linhas(`SELECT COUNT(*) AS n FROM ligacoes WHERE id = '${idViva}'`)[0].n === 1,
+      'e NÃO toca numa que esteja a decorrer — cortava o chão a quem está a entrar');
+    certo(Boolean(viva.dados.bilhete), 'a ida viva existiu mesmo (o teste é válido)');
+  }
+
+  /* --- 16. DESLIGAR, E APAGAR ------------------------------------------ */
+  {
+    const eu = await pedir('/v1/cliente/eu', { sessao: sessaoA, cabecalhos: ORIGEM });
+    certo(eu.dados.identidades.some((i) => i.provedor === 'google'),
+      'o `/v1/cliente/eu` mostra por onde é que se entrou');
+    certo(!JSON.stringify(eu.dados.identidades).includes('sub-'),
+      'e NÃO mostra o `sub` — não serve para nada do lado do ecrã');
+
+    const fora = await pedir('/v1/cliente/identidades/google',
+      { metodo: 'DELETE', sessao: sessaoA, cabecalhos: ORIGEM });
+    certo(fora.estado === 200 && !fora.dados.identidades.some((i) => i.provedor === 'google'),
+      'desligar a conta Google é um toque, como ligá-la foi (art. 7.º/3 do RGPD)',
+      JSON.stringify(fora.dados));
+    certo(linhas(`SELECT COUNT(*) AS n FROM identidades
+                   WHERE cliente_id = '${contaA}' AND provedor = 'google'`)[0].n === 0,
+      'e a identidade sai mesmo da base de dados');
+  }
+  {
+    /* Apagar a conta leva as idas a meio que lhe pertenciam. Sem chave
+       estrangeira ninguém as levava atrás: a linha nasce antes de se saber de
+       que conta é. */
+    const aApagar = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: ORIGEM });
+    const idaX = await comecar(aApagar.dados.sessao);
+    const voltaX = await passarPelaGoogle(idaX.dados.url, 'a.apagar@gmail.com');
+    await voltar({ ...voltaX, bilhete: idaX.dados.bilhete });
+    await levantar(idaX.dados.bilhete);
+    const quantas = linhas(
+      `SELECT COUNT(*) AS n FROM ligacoes WHERE cliente_id = '${aApagar.dados.cliente.id}'`)[0].n;
+    certo(quantas >= 1, 'a ida ficou ligada à conta (o teste é válido)', String(quantas));
+    await pedir('/v1/cliente', { metodo: 'DELETE', sessao: aApagar.dados.sessao, cabecalhos: ORIGEM });
+    certo(linhas(
+      `SELECT COUNT(*) AS n FROM ligacoes WHERE cliente_id = '${aApagar.dados.cliente.id}'`)[0].n === 0,
+      'apagar a conta leva as idas a meio — são dados de quem pediu para desaparecer');
+    certo(linhas(
+      `SELECT COUNT(*) AS n FROM identidades WHERE sujeito LIKE 'sub-%'
+        AND cliente_id = '${aApagar.dados.cliente.id}'`)[0].n === 0,
+      'e a identidade também, libertando o `sub` para uma conta nova');
+  }
+
+  /* --- 17. A TRAVA, E O QUE ELA CONTA EM IPv6 -------------------------- */
+  {
+    sql(`DELETE FROM registos`);
+    /* Dois endereços do MESMO /64 — que é o que uma casa recebe inteiro, e o
+       que um telemóvel troca a cada pedido por causa das extensões de
+       privacidade. Contar o /128 era escrever uma trava que não trava. */
+    const casa1 = { origin: 'http://localhost:4321', 'cf-connecting-ip': '2001:db8:abcd:1234::1' };
+    const casa2 = { origin: 'http://localhost:4321', 'cf-connecting-ip': '2001:db8:abcd:1234:aaaa:bbbb:cccc:dddd' };
+    const vizinho = { origin: 'http://localhost:4321', 'cf-connecting-ip': '2001:db8:abcd:9999::1' };
+    await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: casa1 });
+    await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: casa2 });
+    await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: vizinho });
+    const origens = linhas(`SELECT DISTINCT origem FROM registos`);
+    certo(origens.length === 2,
+      'em IPv6 conta-se o /64: dois endereços da mesma casa são UMA origem, e o vizinho é outra',
+      `${origens.length} origens`);
+    for (const l of linhas(`SELECT id FROM clientes WHERE email IS NULL
+                             AND NOT EXISTS (SELECT 1 FROM cartoes k WHERE k.cliente_id = clientes.id)
+                             AND criado_em > datetime('now', '-2 minutes')`)) {
+      criados.push(l.id);
+    }
+    sql(`DELETE FROM registos`);
+  }
+
+  /* --- limpeza ---------------------------------------------------------- */
+  const lista = [...new Set(criados)].filter(Boolean).map((x) => `'${x}'`).join(',');
+  if (lista) sql(`DELETE FROM clientes WHERE id IN (${lista})`);
+  sql(`DELETE FROM ligacoes`);
+  await fetch(`${GOOGLE}/__limpar`, { method: 'POST' });
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

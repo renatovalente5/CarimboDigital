@@ -83,6 +83,14 @@ function paresDeDesenvolvimento() {
     ['GOOGLE_CHAVE', pem.replace(/\n/g, '\\n')],
     ['GOOGLE_API_BASE', `http://localhost:${PORTA_GOOGLE}`],
     ['GOOGLE_OAUTH_BASE', `http://localhost:${PORTA_GOOGLE}`],
+    /* A Google de ENTRAR, que é outra casa: o ecrã de consentimento vive em
+       `accounts.google.com` e a troca do código em `oauth2.googleapis.com`.
+       Aqui apontam as duas para o mesmo servidor de mentira. O identificador e
+       o segredo do cliente são de mentira e não abrem nada — o que os torna
+       úteis é existirem, porque é a presença dos dois que liga a rota. */
+    ['GOOGLE_CONTAS_BASE', `http://localhost:${PORTA_GOOGLE}`],
+    ['GOOGLE_ENTRAR_ID', 'de-mentira.apps.googleusercontent.com'],
+    ['GOOGLE_ENTRAR_SEGREDO', 'GOCSPX-de-mentira'],
     ['APPLE_PASS_TIPO', 'pass.pt.carimbodigital.dementira'],
     ['APPLE_EQUIPA', 'DEMENTIRA1'],
     ['APPLE_CERTIFICADO', apple.certificado],

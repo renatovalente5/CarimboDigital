@@ -131,6 +131,7 @@ function prazosDoWorker() {
     USADOS_HORAS: ler('USADOS_HORAS'),
     INACTIVA_MESES: ler('INACTIVA_MESES'),
     AVISO_DIAS: ler('AVISO_DIAS'),
+    LIGACAO_MINUTOS: ler('LIGACAO_MINUTOS'),
   };
 }
 const PRAZOS = prazosDoWorker();
@@ -149,6 +150,7 @@ const SUBSTITUICOES = {
   '{{PRAZO_CODIGO_USADO}}': PRAZOS.USADOS_HORAS,
   '{{PRAZO_INACTIVA}}': PRAZOS.INACTIVA_MESES,
   '{{PRAZO_AVISO}}': PRAZOS.AVISO_DIAS,
+  '{{PRAZO_LIGACAO}}': PRAZOS.LIGACAO_MINUTOS,
   '{{CONFIG}}': JSON.stringify({
     base: BASE, api: config.api || '', versao: VERSAO,
     /* A app lê isto para decidir se desenha o botão da Apple. Ver acima. */

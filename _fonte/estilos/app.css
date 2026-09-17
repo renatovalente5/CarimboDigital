@@ -810,3 +810,49 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 @media (max-width: 320px) {
   .btn-wallet img { width: 100%; height: auto; max-width: 240px; }
 }
+
+/* =========================================================================
+   Entrar com a Google
+
+   AS CORES SÃO AS DELAS, e não as da app — é a condição de uso do botão, e as
+   três que a Google publica para o tema escuro estão aqui pelo nome, porque
+   não existem nas nossas variáveis. Não se troca a marca por texto nem se lhe
+   muda a cor: um «G» redesenhado por nós era uma marca falsificada.
+
+   O que se mede, mediu-se: #1f1f1f sobre #ffffff dá 15,9:1, e #e3e3e3 sobre
+   #131314 dá 14,6:1. Os dois passam o AAA com folga.
+   ========================================================================= */
+.btn-google {
+  background: #fff;
+  color: #1f1f1f;
+  border: 1px solid #747775;
+  gap: var(--e-3);
+}
+.btn-google svg { flex: none; }
+/* O tema segue o do sistema, e o interruptor da app ganha aos dois — a mesma
+   ordem do resto do ficheiro. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) .btn-google {
+    background: #131314; color: #e3e3e3; border-color: #8e918f;
+  }
+}
+:root[data-tema="escuro"] .btn-google {
+  background: #131314; color: #e3e3e3; border-color: #8e918f;
+}
+
+/* O «ou» entre as duas portas. Uma risca de cada lado, e a palavra no meio —
+   sem isto as duas formas de entrar leem-se como uma só, em dois passos. */
+.ou {
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
+  margin-block: var(--e-5);
+  color: var(--tinta-2);
+  font-size: .875rem;
+}
+.ou::before, .ou::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--linha);
+}

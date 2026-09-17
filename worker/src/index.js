@@ -926,6 +926,33 @@ async function podeEnviar(env, email) {
 }
 
 /**
+ * O endereço reduzido ao que é, de facto, UMA origem.
+ *
+ * EM IPv6 CONTA-SE O /64, e não o endereço inteiro. Qualquer linha doméstica
+ * recebe um /64 completo — dezoito triliões de endereços — e o telemóvel muda
+ * de um para o outro quando lhe apetece, por causa das extensões de
+ * privacidade. Contar o /128 era escrever uma trava que não trava: cada pedido
+ * chegava de uma «origem» nova. Em IPv4 conta-se o endereço, que é o que a
+ * casa tem.
+ *
+ * Isto vale para as duas travas, a dos registos incluída — que estava com o
+ * mesmo buraco desde que nasceu.
+ */
+function enderecoDeOrigem(ip) {
+  /* IPv4, ou um IPv4 embrulhado em IPv6 (`::ffff:1.2.3.4`). O ponto é o que os
+     distingue, e tratar o segundo como IPv6 punha o mundo inteiro dentro da
+     mesma origem — o contrário do defeito, e pior. */
+  if (ip.includes('.')) return ip;
+  if (!ip.includes(':')) return ip;
+  const [esquerda, direita = ''] = ip.split('::');
+  const a = esquerda ? esquerda.split(':').filter(Boolean) : [];
+  const b = direita ? direita.split(':').filter(Boolean) : [];
+  const faltam = Math.max(0, 8 - a.length - b.length);
+  const grupos = [...a, ...Array(faltam).fill('0'), ...b];
+  return grupos.slice(0, 4).map((g) => g.padStart(4, '0')).join(':');
+}
+
+/**
  * Trava quem cria contas em série.
  *
  * `/v1/cliente/registar` é a ÚNICA rota aberta a quem nunca se identificou —
@@ -947,14 +974,31 @@ async function podeEnviar(env, email) {
  * Faltar só acontece fora da borda, ou seja, em desenvolvimento local.
  */
 async function travarRegistos(env, pedido) {
+  return travarPorOrigem(env, pedido, {
+    marca: 'ip', tecto: REGISTOS_HORA, codigo: 'demasiados-registos',
+    mensagem: 'Demasiados cartões criados daqui. Tenta daqui a uma hora.',
+    aviso: 'registar',
+  });
+}
+
+/**
+ * A trava, para qualquer rota aberta que escreva.
+ *
+ * A `marca` é o que separa os contadores: `ip:` para as contas novas, `liga:`
+ * para as idas a um provedor de identidade. Vão na mesma tabela e no mesmo
+ * HMAC, mas em espaços diferentes — senão quem entrasse pela Google gastava a
+ * quota de quem cria cartões, e a pessoa via «não consigo criar o cartão» sem
+ * nada que o explicasse. A marca antiga NÃO muda: era `ip:` e continua a ser.
+ */
+async function travarPorOrigem(env, pedido, { marca, tecto, codigo, mensagem, aviso = marca }) {
   const ip = pedido.headers.get('cf-connecting-ip');
   if (!ip) return;
-  const origem = base64url(await hmac(deBase64url(env.CHAVE_MESTRA), `ip:${ip}`));
+  const origem = base64url(await hmac(deBase64url(env.CHAVE_MESTRA), `${marca}:${enderecoDeOrigem(ip)}`));
   const desde = new Date(Date.now() - 3600000).toISOString();
   const { n } = await env.DB.prepare(
     'SELECT COUNT(*) AS n FROM registos WHERE origem = ? AND em >= ?'
   ).bind(origem, desde).first();
-  if (n >= REGISTOS_HORA) {
+  if (n >= tecto) {
     /* FICA ESCRITO NO LOG, e não é zelo: os operadores móveis portugueses põem
        muitos clientes atrás do mesmo IPv4 (CGNAT). Com um negócio a sério o
        tecto nunca se alcança; com centenas de cafés, sessenta contas novas por
@@ -962,9 +1006,8 @@ async function travarRegistos(env, pedido) {
        vê é «não consigo criar o cartão», sem nada que o explique deste lado.
        Se isto aparecer no `wrangler tail`, é sinal de que chegou a hora de
        trocar a trava por um tecto global diário. */
-    console.warn('registar: origem travada', { tentativas: n });
-    throw new Falha('Demasiados cartões criados daqui. Tenta daqui a uma hora.',
-      { estado: 429, codigo: 'demasiados-registos' });
+    console.warn(`${aviso}: origem travada`, { tentativas: n });
+    throw new Falha(mensagem, { estado: 429, codigo });
   }
   await env.DB.prepare('INSERT INTO registos (origem, em) VALUES (?, ?)')
     .bind(origem, agora()).run();
@@ -1755,6 +1798,578 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
   };
 });
 
+/* =========================================================================
+   Entrar com a Google
+
+   POR REDIRECCIONAMENTO PURO, e nunca pelo One Tap. O One Tap escreve um
+   cookie `g_state` no nosso domínio e carrega um script de
+   `accounts.google.com` antes de qualquer clique — partia à letra as duas
+   frases publicadas na página de privacidade («não instala cookies», «não
+   carrega scripts de terceiros») e trazia de volta o aviso de cookies que este
+   produto não tem. Aqui não se carrega nada de lá: navega-se para lá e volta-se.
+
+   SÃO TRÊS ROTAS, e a terceira é a que faz isto funcionar num iPhone. Numa app
+   posta no ecrã principal, tocar num endereço de fora abre o browser DE DENTRO,
+   que é outro armazenamento: a app fica de um lado e a volta da Google aterra
+   do outro, e nada do que ela escrevesse lá chegava cá. Por isso:
+
+     1. `comecar` — a app pede a ida e fica com um BILHETE;
+     2. `volta`   — a app, de volta a `/app/?code=...`, entrega o código. Não
+                    recebe credencial nenhuma em troca;
+     3. `estado`  — a app apresenta o bilhete. É aqui, e só aqui, que a sessão
+                    é cunhada.
+
+   A VOLTA ATERRA DENTRO DE `/app/`, que é o âmbito declarado no manifesto, e
+   isso não é gosto: para fora do âmbito, um iPhone abre o Safari e não volta
+   mais à app instalada — e é a app que tem o bilhete.
+
+   QUEM DECIDE DE QUEM É A CONTA É O `sub`, e nunca a morada. A morada que a
+   Google mostra é pista — e nem sempre: só conta se vier com `email_verified`.
+   A regra de ligação é a mesma das outras portas e não se estende nem se
+   abranda: uma identidade nova só se cola a uma conta que JÁ provou ser
+   daquela pessoa na mesma sessão. Sem prova, nasce conta nova. É a mitigação
+   do pré-registo (Sudhodanan e Paverd, USENIX Security 2022).
+   ========================================================================= */
+
+const LIGACAO_MINUTOS = 10;        // quanto tempo uma ida à Google vale
+const RECOLHA_MINUTOS = 2;         // ... e a app, para levantar o que ficou lá
+const RECOLHAS_MAX = 1;            // o bilhete serve uma vez, como tudo por aqui
+const LIGACOES_HORA = 30;          // idas por origem, por hora
+
+/* O mesmo par de sempre: enquanto estes dois não existirem, a rota responde
+   404 e a app não mostra o botão. É o que permite ter isto publicado e provado
+   antes de haver conta na Google — e o que faz um botão nunca falhar só quando
+   é tocado. */
+const googleEntrarPronta = (env) => Boolean(env.GOOGLE_ENTRAR_ID && env.GOOGLE_ENTRAR_SEGREDO);
+
+/* Duas casas diferentes, e é por isso que são duas variáveis: o ecrã de
+   consentimento vive em `accounts.google.com` e a troca do código em
+   `oauth2.googleapis.com`. Nos testes as duas apontam para a Google de
+   mentira. */
+const googleContas = (env) => env.GOOGLE_CONTAS_BASE || 'https://accounts.google.com';
+
+/* O que a Google aceita como emissor do `id_token`. São duas formas da mesma
+   coisa e ela usa as duas conforme o caminho — recusar uma delas era recusar
+   entradas legítimas sem se perceber porquê. */
+const EMISSORES_GOOGLE = ['https://accounts.google.com', 'accounts.google.com'];
+
+/**
+ * Para onde a Google devolve o browser.
+ *
+ * Sai da ORIGEM do pedido e não de uma variável, para a app poder correr em
+ * `carimbodigital.pt`, em `www.` e em `localhost` sem três configurações — e
+ * é validada contra a mesma lista que o CORS. Quem manda uma origem que não
+ * está lá leva 403 aqui, antes de existir linha nenhuma na base de dados.
+ *
+ * Há uma segunda rede, e é do lado de lá: a Google só aceita redireccionar
+ * para os endereços registados na consola. Mesmo que esta guarda falhasse, um
+ * endereço estranho morria lá.
+ */
+function redireccaoDeVolta(env, pedido) {
+  const origem = pedido.headers.get('origin') || '';
+  if (!origem) throw new Falha('Falta a origem do pedido.', { estado: 400, codigo: 'sem-origem' });
+  const lista = origensPermitidas(env);
+  let u;
+  try { u = new URL(origem); } catch { throw new Falha('Origem inválida.', { estado: 400 }); }
+  const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+
+  /* AQUI A LISTA VAZIA RECUSA, e é o contrário do que ela faz no CORS.
+     Lá, «vazia = aceita tudo» é uma comodidade de quem desenvolve e a defesa
+     verdadeira é outra (os testemunhos vão no cabeçalho, não em cookies). Aqui
+     não: a origem vira um endereço para onde a Google devolve o browser, e
+     herdar aquela regra era deixar um ambiente mal configurado escrever o
+     endereço de quem pedisse. Sem lista, só o localhost. */
+  if (lista.length ? !lista.includes(origem) : !local) {
+    throw new Falha('Origem não autorizada.', { estado: 403, codigo: 'origem-recusada' });
+  }
+  if (u.protocol !== 'https:' && !local) {
+    throw new Falha('Origem inválida.', { estado: 400, codigo: 'origem-recusada' });
+  }
+  /* DENTRO DO ÂMBITO DA APP, e não numa página do site. O manifesto declara
+     `scope: "/app/"`; num iPhone com a app no ecrã principal, uma volta para
+     fora desse âmbito abre o Safari e nunca mais regressa à app — e é a app
+     que tem o bilhete. Aterrar em `/app/` é o que faz o iOS devolver o
+     controlo a quem começou. */
+  return `${u.origin}/app/`;
+}
+
+/** Troca o código de autorização por um `id_token`. Server-to-server, com o segredo. */
+async function trocarCodigoGoogle(env, { codigo, redireccao, verificador }) {
+  const corpo = new URLSearchParams({
+    code: codigo,
+    client_id: env.GOOGLE_ENTRAR_ID,
+    client_secret: env.GOOGLE_ENTRAR_SEGREDO,
+    redirect_uri: redireccao,
+    grant_type: 'authorization_code',
+    code_verifier: verificador,
+  });
+  let r;
+  try {
+    r = await fetch(`${googleOAuth(env)}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: corpo.toString(),
+      /* Um pedido sem prazo prende a invocação até o Worker ser morto, e quem
+         está do outro lado fica a olhar para uma roda a girar. */
+      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? { signal: AbortSignal.timeout(8000) } : {}),
+    });
+  } catch (erro) {
+    console.error('google entrar: a troca do código nem chegou a sair', String(erro));
+    throw new Falha('A Google não respondeu. Tenta outra vez.',
+      { estado: 502, codigo: 'google-falhou' });
+  }
+  if (!r.ok) {
+    /* O ESTADO VAI PARA O REGISTO, o corpo não. Uma mensagem de erro de
+       terceiros pode trazer lá dentro o que lhe apetecer, e isto é escrito num
+       log que alguém lê. */
+    console.error('google entrar: a Google recusou a troca', r.status);
+    throw new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'google-falhou' });
+  }
+  let dados;
+  try { dados = await r.json(); } catch { dados = null; }
+  if (!dados || !dados.id_token) {
+    throw new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'google-falhou' });
+  }
+  return String(dados.id_token);
+}
+
+/**
+ * Abre o `id_token` e confere-o.
+ *
+ * NÃO SE VERIFICA A ASSINATURA, e é uma decisão e não um esquecimento: este
+ * token não vem pelo browser — vem por TLS, directamente do endereço de troca
+ * da Google, num pedido que leva o nosso segredo de cliente. O OpenID Connect
+ * Core §3.1.3.7 diz à letra que nesse caso a validação do servidor de TLS pode
+ * substituir a da assinatura. Ir buscar a chave pública era mais um subpedido
+ * por entrada (e o tecto é de 50 por invocação) para provar o que o TLS já
+ * provou.
+ *
+ * O que se confere é o que o TLS NÃO prova: que o token é para nós (`aud`),
+ * que não caducou (`exp`), e que responde a ESTA ida e não a outra (`nonce`).
+ * Sem o `nonce`, um token legítimo obtido noutro sítio servia aqui.
+ */
+function abrirIdToken(env, texto, nonce) {
+  const partes = String(texto || '').split('.');
+  if (partes.length !== 3) {
+    throw new Falha('A Google respondeu de forma estranha.', { estado: 502, codigo: 'google-falhou' });
+  }
+  let corpo;
+  try {
+    corpo = JSON.parse(new TextDecoder().decode(deBase64url(partes[1])));
+  } catch {
+    throw new Falha('A Google respondeu de forma estranha.', { estado: 502, codigo: 'google-falhou' });
+  }
+
+  const mau = (porque) => {
+    console.error('google entrar: id_token recusado —', porque);
+    return new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'google-falhou' });
+  };
+  if (!EMISSORES_GOOGLE.includes(String(corpo.iss))) throw mau('emissor');
+  if (String(corpo.aud) !== String(env.GOOGLE_ENTRAR_ID)) throw mau('destinatário');
+  if (!corpo.sub || typeof corpo.sub !== 'string') throw mau('sem sujeito');
+  /* Na dúvida, caducado — a mesma direcção de `expirado`. */
+  const exp = Number(corpo.exp);
+  if (!Number.isFinite(exp) || exp * 1000 < Date.now()) throw mau('prazo');
+  if (!corpo.nonce || !iguais(String(corpo.nonce), String(nonce))) throw mau('nonce');
+  return corpo;
+}
+
+/**
+ * Uma conta nova, anónima, como a que a app cria ao abrir pela primeira vez —
+ * mas em INSTRUÇÕES, para poder ir no mesmo `batch` que a identidade.
+ *
+ * E isso não é arrumação: se a conta fosse escrita primeiro e a identidade
+ * falhasse a seguir no índice único — duas entradas com o mesmo `sub` ao mesmo
+ * tempo, que é a mesma pessoa em dois aparelhos — ficava uma conta órfã, sem
+ * identidade e sem cartões, para sempre. No mesmo `batch`, o índice único
+ * deita as duas fora e não sobra nada.
+ */
+async function instrucoesDeClienteNovo(env) {
+  const clienteId = id();
+  let publico, tentativas = 0;
+  for (;;) {
+    publico = publicoNovo();
+    const existe = await env.DB.prepare('SELECT 1 FROM clientes WHERE publico = ?').bind(publico).first();
+    if (!existe) break;
+    if (++tentativas > 12) throw new Falha('Não foi possível criar o cartão', { estado: 503 });
+  }
+  return {
+    id: clienteId,
+    publico,
+    instrucao: env.DB.prepare(
+      'INSERT INTO clientes (id, publico, criado_em, visto_em) VALUES (?, ?, ?, ?)'
+    ).bind(clienteId, publico, agora(), agora()),
+  };
+}
+
+/**
+ * De quem é esta entrada — a regra de ligação, escrita uma vez para as quatro
+ * portas.
+ *
+ * A SESSÃO DE QUEM PEDIU VOLTA A SER PROCURADA AGORA, e não se acredita no que
+ * ela era há dez minutos: entre a ida e a volta a pessoa pode ter mandado
+ * expulsar os aparelhos, ou a conta pode ter entrado numa fusão e virado
+ * sombra. Se já não valer, é como se não houvesse — e sem prova nasce conta
+ * nova, que é o lado certo para falhar.
+ */
+async function resolverEntrada(env, { provedor, sujeito, email, sessaoResumo }) {
+  let dono = await donoDaIdentidade(env, provedor, sujeito);
+
+  let pedinte = null;
+  if (sessaoResumo) {
+    const s = await env.DB.prepare(
+      'SELECT sujeito, expira_em FROM sessoes WHERE resumo = ?'
+    ).bind(sessaoResumo).first();
+    if (s && !expirado(s.expira_em)) {
+      const [tipo, valor] = String(s.sujeito).split(':');
+      /* Uma sessão de BALCÃO não é uma conta de cliente, e uma identidade de
+         cliente nunca se cola a um operador. */
+      if (tipo === 'cliente') {
+        const sombra = await env.DB.prepare(
+          'SELECT 1 AS e FROM clientes WHERE id = ? AND fundida_em IS NOT NULL'
+        ).bind(valor).first();
+        if (!sombra) pedinte = valor;
+      }
+    }
+  }
+
+  /* Já conhecemos esta identidade: entra-se na conta dela, ponto. Se quem
+     pediu estava noutra conta, a app fica a saber — e é ela que oferece juntar
+     as duas, com a sessão antiga como prova do outro lado. Aqui não se junta
+     nada sozinho: juntar não tem volta. */
+  if (dono) {
+    await marcarIdentidadeUsada(env, provedor, sujeito);
+    return { clienteId: dono, recuperada: Boolean(pedinte) && pedinte !== dono, pista: null };
+  }
+
+  /* Identidade nova. Cola-se à conta que pediu, se ela provou ser dela — que é
+     o que uma sessão é. Sem prova, nasce conta. */
+  const nova = pedinte ? null : await instrucoesDeClienteNovo(env);
+  const alvo = pedinte || nova.id;
+  const instrucoes = instrucoesDeIdentidade(env, { clienteId: alvo, provedor, sujeito, email });
+  try {
+    await env.DB.batch(nova ? [nova.instrucao, ...instrucoes] : instrucoes);
+  } catch (erro) {
+    if (!/UNIQUE|constraint/i.test(String(erro))) throw erro;
+    /* Perdeu a corrida por microssegundos contra outra entrada com o mesmo
+       `sub` — ou seja, contra a mesma pessoa, noutro aparelho. A resposta
+       certa é entrar na conta que ficou com a identidade, e não um 500. É a
+       mesma lição do `/v1/cliente/entrar`. O `batch` é uma transacção: a conta
+       nova, se a havia, não chegou a existir. */
+    dono = await donoDaIdentidade(env, provedor, sujeito);
+    if (!dono) throw erro;
+    return { clienteId: dono, recuperada: Boolean(pedinte) && pedinte !== dono, pista: null };
+  }
+
+  /* UMA PISTA, E NÃO UMA FUSÃO. Quem já tinha conta pelo email e entra pela
+     Google com a MESMA morada cai numa conta nova e vazia — e isso está certo,
+     porque a morada é pista e não chave (é a mitigação do pré-registo). Mas o
+     que a pessoa vê é «perdi os cartões», e nós sabemos o suficiente para lhe
+     dizer o que se passa. Diz-se; não se junta. Juntar continua a exigir a
+     prova dos dois lados, que é o que a app vai pedir a seguir.
+
+     Não há aqui fuga nenhuma: a morada acabou de ser provada pela Google, a
+     quem ela pertence. */
+  let pista = null;
+  if (email) {
+    const outra = await env.DB.prepare(
+      `SELECT 1 AS e FROM identidades
+        WHERE provedor = 'email' AND sujeito = ? AND cliente_id != ? LIMIT 1`
+    ).bind(email, alvo).first();
+    if (outra) pista = 'mesma-morada';
+  }
+  return { clienteId: alvo, recuperada: false, pista };
+}
+
+/** Deixa escrito na ligação porque é que não deu, para a app poder dizê-lo. */
+async function anotarErroDaLigacao(env, ligacaoId, codigo) {
+  try {
+    /* NUNCA POR CIMA DE UMA CONCLUÍDA. Sem esta condição, uma segunda volta a
+       falhar escrevia «erro» sobre uma entrada que tinha corrido bem, e a
+       pessoa via uma falha depois de ter entrado. */
+    await env.DB.prepare(
+      'UPDATE ligacoes SET erro = ?, concluida_em = ? WHERE id = ? AND concluida_em IS NULL'
+    ).bind(codigo, agora(), ligacaoId).run();
+  } catch (erro) {
+    console.error('ligacoes: não deu para anotar o erro', String(erro));
+  }
+}
+
+/**
+ * Que portas de entrada é que este servidor tem abertas.
+ *
+ * Existe por causa de uma regra desta casa: um botão que só falha ao ser
+ * tocado é pior do que um botão que não está lá. A app pergunta isto quando
+ * abre o painel de guardar a conta, e desenha o que existe.
+ */
+rota('GET', '/v1/portas', async (env) => ({
+  email: Boolean(env.MAIL_TOKEN),
+  google: googleEntrarPronta(env),
+  /* A porta da Apple é a fase a seguir. Fica aqui a dizer que não, para a app
+     já poder contar com o campo. */
+  apple: false,
+}));
+
+/**
+ * A ida. Devolve o endereço da Google e o bilhete com que a app volta a
+ * perguntar.
+ */
+rota('POST', '/v1/cliente/google/comecar', async (env, pedido) => {
+  if (!googleEntrarPronta(env)) {
+    throw new Falha('A entrada pela Google não está ligada.', { estado: 404, codigo: 'google-desligada' });
+  }
+  /* É uma rota ABERTA que ESCREVE — a mesma família de `/registar`, e com o
+     mesmo travão: sem ele, um ciclo de três linhas esgotava as escritas
+     diárias do D1, que são por conta da Cloudflare e não por projecto. Conta
+     à parte dos registos, com outra marca, para uma coisa não castigar a
+     outra. */
+  await travarPorOrigem(env, pedido, {
+    marca: 'liga', tecto: LIGACOES_HORA, codigo: 'demasiadas-ligacoes',
+    mensagem: 'Demasiadas tentativas de entrada daqui. Tenta daqui a uma hora.',
+  });
+
+  const redireccao = redireccaoDeVolta(env, pedido);
+
+  /* A SESSÃO É OPCIONAL e é ela que decide tudo o que vem a seguir: com ela, a
+     identidade nova cola-se a esta conta; sem ela, nasce uma. Guarda-se o
+     RESUMO, para a volta poder voltar a perguntar se ainda vale. */
+  const s = await lerSessao(env, pedido);
+  const sessaoResumo = s && s.tipo === 'cliente' ? s.resumo : null;
+
+  const estado = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const bilhete = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const nonce = base64url(crypto.getRandomValues(new Uint8Array(16)));
+  const verificador = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const desafio = base64url(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verificador)));
+  const expira = new Date(Date.now() + LIGACAO_MINUTOS * 60000).toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO ligacoes
+       (id, provedor, estado_resumo, bilhete_resumo, verificador, nonce,
+        redireccao, sessao_resumo, criada_em, expira_em)
+     VALUES (?, 'google', ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id(), await resumo(estado), await resumo(bilhete), verificador, nonce,
+         redireccao, sessaoResumo, agora(), expira).run();
+
+  const url = new URL(`${googleContas(env)}/o/oauth2/v2/auth`);
+  url.searchParams.set('client_id', env.GOOGLE_ENTRAR_ID);
+  url.searchParams.set('redirect_uri', redireccao);
+  url.searchParams.set('response_type', 'code');
+  /* SÓ ISTO. Sem `profile`: o nome e a fotografia não fazem falta a um cartão
+     de carimbos, e a página de privacidade promete em seis sítios que não
+     pedimos o nome. Pedir um âmbito para não o usar era gastar a promessa por
+     nada — e o ecrã de consentimento lê-se em voz alta a quem lá chega.
+
+     (O que obriga a app a passar pela verificação da Google não é isto: é um
+     logótipo carregado na consola, ou um âmbito sensível. Estes dois não são
+     sensíveis e não há logótipo — de propósito.) */
+  url.searchParams.set('scope', 'openid email');
+  url.searchParams.set('state', estado);
+  url.searchParams.set('nonce', nonce);
+  url.searchParams.set('code_challenge', desafio);
+  url.searchParams.set('code_challenge_method', 'S256');
+  /* Faz a Google perguntar SEMPRE qual é a conta. Num telemóvel com duas
+     contas, entrar na errada é uma conta duplicada e uns carimbos perdidos —
+     e quem toca neste botão toca nele uma vez na vida. */
+  url.searchParams.set('prompt', 'select_account');
+  /* Não se pede `access_type=offline`: um `refresh_token` era uma credencial
+     de longa duração para uma coisa que se faz uma vez. */
+
+  return { url: url.toString(), bilhete, expiraEm: expira };
+});
+
+/**
+ * A volta. Chamada pela app, quando o browser regressa a `/app/?code=...`.
+ *
+ * O BILHETE É OBRIGATÓRIO AQUI, e é ele que fecha o buraco maior que este
+ * desenho teve. Sem ele, o ataque era este: eu peço a ida, fico com o bilhete,
+ * e mando-te o endereço — que é um endereço verdadeiro da Google, com o nosso
+ * `client_id`, indistinguível de um login legítimo. Tu entras, a nossa página
+ * conclui a ligação, e eu levanto a TUA sessão com o MEU bilhete. Levava a
+ * conta inteira: sessão de 180 dias e o segredo que cunha os códigos do balcão.
+ *
+ * Nem o `state` nem o PKCE nem o `nonce` defendem disto — são todos do lado de
+ * quem COMEÇA, e quem começa é o atacante. O que defende é exigir que quem
+ * conclui seja quem começou: o bilhete vive no armazenamento local da origem,
+ * e a app só o tem se estiver no mesmo browser que pediu a ida.
+ *
+ * O preço está escrito e é honesto: se a volta aterrar noutro contexto — um
+ * iPhone antigo a abrir a ligação no Safari em vez de dentro da app — não há
+ * bilhete, e então NÃO SE CONCLUI. A pessoa vê uma frase que o explica e um
+ * caminho para a frente, em vez de uma credencial a ser entregue ao sítio
+ * errado.
+ *
+ * E repare-se no que esta rota não devolve, mesmo assim: sessão nenhuma. Quem
+ * a levanta é a rota seguinte, com o mesmo bilhete.
+ */
+rota('POST', '/v1/cliente/google/volta', async (env, pedido) => {
+  if (!googleEntrarPronta(env)) {
+    throw new Falha('A entrada pela Google não está ligada.', { estado: 404, codigo: 'google-desligada' });
+  }
+  const corpo = await corpoJSON(pedido);
+  const estado = typeof corpo.estado === 'string' ? corpo.estado : '';
+  const bilhete = typeof corpo.bilhete === 'string' ? corpo.bilhete : '';
+  if (!estado) throw new Falha('Falta o estado.', { estado: 400, codigo: 'ligacao-desconhecida' });
+  if (!bilhete) {
+    throw new Falha('Esta janela não é a que começou a entrada.',
+      { estado: 403, codigo: 'bilhete-em-falta' });
+  }
+
+  const linha = await env.DB.prepare(
+    'SELECT * FROM ligacoes WHERE estado_resumo = ? AND provedor = ?'
+  ).bind(await resumo(estado), 'google').first();
+  if (!linha) throw new Falha('Esta entrada já não vale.', { estado: 400, codigo: 'ligacao-desconhecida' });
+  /* O bilhete tem de ser o DESTA ligação. Comparação em tempo constante, como
+     em todo o lado aqui. */
+  if (!iguais(await resumo(bilhete), String(linha.bilhete_resumo))) {
+    throw new Falha('Esta janela não é a que começou a entrada.',
+      { estado: 403, codigo: 'bilhete-errado' });
+  }
+  if (expirado(linha.expira_em)) {
+    throw new Falha('Demoraste de mais. Começa outra vez.', { estado: 410, codigo: 'ligacao-expirada' });
+  }
+
+  /* O `state` SERVE UMA VEZ, e marca-se ANTES de falar com a Google. Duas
+     voltas com o mesmo endereço — um recarregar da página chega — davam duas
+     trocas do mesmo código, e a segunda apanhava a Google a recusar um código
+     já gasto, sem se perceber porquê. A condição está dentro do UPDATE: quem
+     perde a corrida não muda nenhuma linha e fica a saber. */
+  const marcada = await env.DB.prepare(
+    'UPDATE ligacoes SET usada_em = ? WHERE id = ? AND usada_em IS NULL'
+  ).bind(agora(), linha.id).run();
+  if (!marcada.meta || marcada.meta.changes !== 1) {
+    throw new Falha('Esta entrada já foi usada.', { estado: 409, codigo: 'ligacao-usada' });
+  }
+
+  /* A pessoa carregou em «Cancelar» no ecrã da Google. É um caminho normal e
+     tem de chegar à app: ficar a sondar para sempre era o pior dos mundos. */
+  if (corpo.erro) {
+    await anotarErroDaLigacao(env, linha.id, 'google-recusou');
+    return { ok: false, codigo: 'google-recusou' };
+  }
+
+  const codigo = typeof corpo.codigo === 'string' ? corpo.codigo : '';
+  if (!codigo) {
+    await anotarErroDaLigacao(env, linha.id, 'google-falhou');
+    throw new Falha('Falta o código da Google.', { estado: 400, codigo: 'google-falhou' });
+  }
+
+  let reivindicacoes;
+  try {
+    const idToken = await trocarCodigoGoogle(env, {
+      codigo, redireccao: linha.redireccao, verificador: linha.verificador,
+    });
+    reivindicacoes = abrirIdToken(env, idToken, linha.nonce);
+  } catch (erro) {
+    await anotarErroDaLigacao(env, linha.id, 'google-falhou');
+    throw erro;
+  }
+
+  /* A MORADA SÓ CONTA SE A GOOGLE DISSER QUE A VERIFICOU. Sem isso é uma
+     morada que ninguém provou, e este produto não guarda moradas por provar —
+     nem sequer como pista, que uma pista falsa é pior do que nenhuma. */
+  const correio = normalizarEmail(reivindicacoes.email);
+  const email = reivindicacoes.email_verified === true && EMAIL_VALIDO.test(correio)
+    ? correio : null;
+
+  const { clienteId, recuperada, pista } = await resolverEntrada(env, {
+    provedor: 'google',
+    sujeito: String(reivindicacoes.sub),
+    email,
+    sessaoResumo: linha.sessao_resumo,
+  });
+
+  await env.DB.prepare(
+    `UPDATE ligacoes SET concluida_em = ?, cliente_id = ?, recuperada = ?, pista = ?
+      WHERE id = ?`
+  ).bind(agora(), clienteId, recuperada ? 1 : 0, pista, linha.id).run();
+
+  return { ok: true };
+});
+
+/**
+ * O bilhete. É aqui que a sessão nasce — e é por isso que a tabela `ligacoes`
+ * nunca guarda um testemunho: uma cópia dela não abre conta nenhuma.
+ */
+rota('POST', '/v1/cliente/google/estado', async (env, pedido) => {
+  const corpo = await corpoJSON(pedido);
+  const bilhete = typeof corpo.bilhete === 'string' ? corpo.bilhete : '';
+  if (!bilhete) throw new Falha('Falta o bilhete.', { estado: 400, codigo: 'sem-bilhete' });
+
+  const linha = await env.DB.prepare(
+    'SELECT * FROM ligacoes WHERE bilhete_resumo = ?'
+  ).bind(await resumo(bilhete)).first();
+  /* UM BILHETE DESCONHECIDO É «EXPIRADA», e não um erro. São a mesma coisa do
+     ponto de vista de quem espera — a entrada não se concluiu e não se vai
+     concluir — e assim não há aqui um oráculo a dizer quais é que existiram. */
+  if (!linha) return { situacao: 'expirada' };
+
+  if (linha.erro) return { situacao: 'erro', codigo: linha.erro };
+  if (!linha.concluida_em) {
+    return expirado(linha.expira_em) ? { situacao: 'expirada' } : { situacao: 'a-espera' };
+  }
+
+  /* A JANELA DE RECOLHA É CURTA DE PROPÓSITO. A ligação vive dez minutos
+     porque entrar na Google demora; depois de concluída, o que falta é a app
+     estender a mão, e isso são segundos.
+
+     E O BILHETE SERVE UMA VEZ. Cada recolha cunha uma sessão de 180 dias;
+     deixar três era transformar um login em três credenciais, e a única coisa
+     que isso comprava era uma resposta perdida pela rede — que se resolve
+     entrando outra vez, em dez segundos.
+
+     `Date.parse` na dúvida dá NaN, e NaN passa aqui por FECHADO — a mesma
+     direcção de `expirado`. */
+  const fim = Date.parse(String(linha.concluida_em));
+  if (!Number.isFinite(fim) || fim + RECOLHA_MINUTOS * 60000 < Date.now()) {
+    return { situacao: 'expirada' };
+  }
+
+  const contada = await env.DB.prepare(
+    'UPDATE ligacoes SET entregues = entregues + 1 WHERE id = ? AND entregues < ?'
+  ).bind(linha.id, RECOLHAS_MAX).run();
+  if (!contada.meta || contada.meta.changes !== 1) return { situacao: 'expirada' };
+
+  const encontrado = await env.DB.prepare('SELECT * FROM clientes WHERE id = ?')
+    .bind(linha.cliente_id).first();
+  /* A conta pode ter sido apagada no meio disto — é raro, mas a resposta certa
+     não é um erro interno.
+
+     E PODE TER ENTRADO NUMA FUSÃO nos segundos entre a volta e o levantamento:
+     nesse caso o que está aqui é uma SOMBRA, e cunhar-lhe uma sessão dava uma
+     sessão morta à nascença — o `exigirCliente` apaga-a ao primeiro pedido e a
+     app leva um 401 que ninguém consegue explicar. Atravessa-se, como em todo
+     o lado por onde uma sombra pode aparecer. */
+  const vivo = encontrado ? await resolverSombra(env, encontrado) : null;
+  if (!vivo) throw new Falha('Conta não encontrada', { estado: 404 });
+  /* O `resolverSombra` só devolve QUATRO colunas quando dá um salto — chega-lhe
+     para o que ele faz, e não chega para esta resposta, que precisa da morada e
+     da data. Quando saltou, vai-se buscar a linha inteira. */
+  const cliente = vivo.id === linha.cliente_id
+    ? encontrado
+    : await env.DB.prepare('SELECT * FROM clientes WHERE id = ?').bind(vivo.id).first();
+  if (!cliente) throw new Falha('Conta não encontrada', { estado: 404 });
+
+  /* A MESMA FORMA QUE `/v1/cliente/entrar`, à letra, para a app poder tratar
+     as duas portas com o mesmo caminho — e para a fase da Apple não inventar
+     uma terceira. */
+  return {
+    situacao: 'pronta',
+    cliente: {
+      id: cliente.id, publico: cliente.publico, email: cliente.email, criadoEm: cliente.criado_em,
+    },
+    segredo: await derivarSegredo(env, cliente.id, cliente.chave_versao),
+    sessao: await criarSessao(env, `cliente:${cliente.id}`),
+    horaDoServidor: agora(),
+    recuperada: Boolean(linha.recuperada),
+    /* 'mesma-morada' quando há outra conta com esta morada, pela porta do
+       email. Não se juntou nada; é para a app poder dizê-lo. */
+    pista: linha.pista || null,
+  };
+});
+
 rota('GET', '/v1/cliente/dados', async (env, pedido) => {
   /* CINCO CONSULTAS, e não cinco POR CARTÃO.
 
@@ -1790,8 +2405,24 @@ rota('GET', '/v1/cliente/dados', async (env, pedido) => {
        FROM identidades WHERE cliente_id = ? ORDER BY criada_em`
   ).bind(clienteId).all()).results;
 
+  /* E AS IDAS A UM PROVEDOR QUE ESTEJAM A MEIO. É uma linha técnica que vive
+     minutos e quase nunca existe quando alguém carrega no botão — mas a app
+     promete «tudo o que temos sobre ti», e uma promessa dessas não tem
+     excepções por conveniência. Vão as datas e o provedor; não vai o
+     verificador do PKCE nem os resumos, que não dizem nada a ninguém e são as
+     únicas coisas da linha que se parecem com uma chave. */
+  const entradasAMeio = (await env.DB.prepare(
+    `SELECT provedor, criada_em, expira_em, usada_em, concluida_em
+       FROM ligacoes WHERE cliente_id = ? OR sessao_resumo IN
+            (SELECT resumo FROM sessoes WHERE sujeito = ?)
+      ORDER BY criada_em`
+  ).bind(clienteId, `cliente:${clienteId}`).all()).results;
+
   const detalhados = await moldarCartoes(env, cartoes);
-  return { geradoEm: agora(), cliente, identidades, cartoes: detalhados, movimentos, premios };
+  return {
+    geradoEm: agora(), cliente, identidades, entradasAMeio,
+    cartoes: detalhados, movimentos, premios,
+  };
 });
 
 /**
@@ -1857,6 +2488,11 @@ async function apagarCliente(env, clienteId) {
     env.DB.prepare('DELETE FROM cartoes WHERE cliente_id = ?').bind(clienteId),
     env.DB.prepare('DELETE FROM sessoes WHERE sujeito = ?').bind(`cliente:${clienteId}`),
     env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`cliente:${clienteId}`),
+    /* E uma ida a um provedor de identidade que estivesse a meio. Não tem
+       chave estrangeira — a linha nasce antes de se saber de que conta é — por
+       isso ninguém a leva atrás. Deixá-la lá dava um bilhete que, ao ser
+       levantado, ia procurar uma conta que já não existe. */
+    env.DB.prepare('DELETE FROM ligacoes WHERE cliente_id = ?').bind(clienteId),
     /* REDE A MAIS, e fica dito para ninguém a tomar por necessária: o
        `PRAGMA foreign_keys` está a 1 no D1, local e remoto — conferido — por
        isso o ON DELETE CASCADE da declaração já leva estas linhas à frente.
@@ -1953,6 +2589,38 @@ rota('DELETE', '/v1/cliente/email', async (env, pedido) => {
     env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`cliente:${clienteId}`),
   ]);
   return { email: null };
+});
+
+/**
+ * Desligar a conta da Google.
+ *
+ * A MESMA OBRIGAÇÃO QUE O EMAIL, pela mesma razão: a entrada pela Google é
+ * consentimento (art. 6.º/1/a), e o art. 7.º/3 diz que retirar tem de ser tão
+ * fácil como dar. Dar é um toque; tirar tinha de ser um toque. Publicar a
+ * porta sem esta rota era publicar um consentimento sem saída.
+ *
+ * NÃO SE DESLIGA A ÚLTIMA PORTA SEM AVISO — mas o aviso é da app, não daqui.
+ * Aqui responde-se com quantas formas de entrar sobraram, para o painel poder
+ * dizer a verdade a seguir sem ter de ir perguntar outra vez.
+ *
+ * O `sub` fica livre: se a mesma pessoa voltar a entrar pela Google, a
+ * identidade nasce outra vez — noutra conta, se for esse o caso, porque a
+ * morada nunca decidiu nada e continua a não decidir.
+ */
+rota('DELETE', /^\/v1\/cliente\/identidades\/(google)$/, async (env, pedido, [provedor]) => {
+  const clienteId = await exigirCliente(env, pedido);
+  await env.DB.prepare('DELETE FROM identidades WHERE cliente_id = ? AND provedor = ?')
+    .bind(clienteId, provedor).run();
+  /* E as idas a meio, que doutra forma podiam concluir-se depois de a pessoa
+     ter carregado em desligar e voltar a colar a identidade. */
+  await env.DB.prepare(
+    'DELETE FROM ligacoes WHERE provedor = ? AND concluida_em IS NULL AND cliente_id IS NULL AND sessao_resumo IS NOT NULL AND sessao_resumo IN (SELECT resumo FROM sessoes WHERE sujeito = ?)'
+  ).bind(provedor, `cliente:${clienteId}`).run();
+
+  const restantes = (await env.DB.prepare(
+    'SELECT provedor, email, relay, rotulo, criada_em, usada_em FROM identidades WHERE cliente_id = ? ORDER BY criada_em'
+  ).bind(clienteId).all()).results;
+  return { identidades: restantes };
 });
 
 rota('DELETE', '/v1/cliente', async (env, pedido) => {
@@ -3497,6 +4165,10 @@ export default {
          guardar origens sem nenhuma razão para as guardar. */
       env.DB.prepare('DELETE FROM registos WHERE em < ?')
         .bind(new Date(Date.now() - 3600000).toISOString()),
+      /* As idas a um provedor de identidade que ficaram a meio. Uma ligação
+         por concluir não é dados de ninguém — é um `state` e um verificador —
+         mas guardá-la depois de caducada é guardar por guardar. */
+      env.DB.prepare('DELETE FROM ligacoes WHERE expira_em < ?').bind(agora()),
     ]);
     await limparContasParadas(env);
     await reconciliarWallet(env);
@@ -3560,7 +4232,23 @@ function mesesAtras(meses) {
 /** As contas sem sinal de vida desde `limite`. */
 async function contasParadas(env, limite, extra = '') {
   return (await env.DB.prepare(
-    `SELECT c.id, c.email, c.email_verificado, c.avisada_em
+    `SELECT c.id, c.email, c.email_verificado, c.avisada_em,
+            -- PARA ONDE SE AVISA. O espelho clientes.email só existe para
+            -- quem entrou pela porta do email: quem entra pela Google deixa-o
+            -- a NULL (ver instrucoesDeIdentidade), e o aviso de conta parada
+            -- olhava só para ele. Resultado: uma conta só-Google era apagada
+            -- aos dois anos EM SILÊNCIO, com a morada dela guardada na tabela
+            -- ao lado. A política de privacidade promete o aviso a quem tenha
+            -- deixado email, e uma morada que a Google confirmou é email.
+            -- O relay fica de fora de propósito: um relay da Apple pode ser
+            -- desligado por quem o criou, e um aviso enviado para uma parede
+            -- é pior do que nenhum, porque dá a marca por avisada.
+            COALESCE(
+              CASE WHEN c.email_verificado = 1 THEN c.email END,
+              (SELECT i.email FROM identidades i
+                WHERE i.cliente_id = c.id AND i.email IS NOT NULL AND i.relay = 0
+                ORDER BY i.criada_em LIMIT 1)
+            ) AS morada
        FROM clientes c
       WHERE COALESCE(c.visto_em, c.criado_em) < ?1
         -- AS SOMBRAS NÃO CONTAM. Uma sombra não tem cartões nem sinal de vida
@@ -3585,14 +4273,20 @@ async function limparContasParadas(env) {
     new Date(mesesAtras(INACTIVA_MESES)).getTime() + AVISO_DIAS * 86400000
   ).toISOString();
 
-  /* 1. Avisar. Só quem deixou email — a quem não deixou não há por onde falar,
-        e é o preço de uma conta sem morada nenhuma. O `avisada_em` impede que
-        o aviso saia outra vez todos os dias durante um mês. */
+  /* 1. Avisar. Só quem tem morada — escrita aqui ou vinda de um provedor que a
+        confirmou. A quem não tem não há por onde falar, e é o preço de uma
+        conta sem morada nenhuma. O `avisada_em` impede que o aviso saia outra
+        vez todos os dias durante um mês. */
   const aAvisar = await contasParadas(env, limiteAvisar,
-    'AND c.email IS NOT NULL AND c.email_verificado = 1 AND c.avisada_em IS NULL');
+    `AND c.avisada_em IS NULL
+     AND (
+       (c.email IS NOT NULL AND c.email_verificado = 1)
+       OR EXISTS (SELECT 1 FROM identidades i
+                   WHERE i.cliente_id = c.id AND i.email IS NOT NULL AND i.relay = 0)
+     )`);
   for (const conta of aAvisar) {
     const r = await enviarEmail(env, {
-      para: conta.email,
+      para: conta.morada,
       ...emailContaAApagar({ dias: AVISO_DIAS, meses: INACTIVA_MESES }),
     });
     /* Só se marca como avisada se o email saiu mesmo. Se a marca fosse posta

@@ -892,7 +892,44 @@ function criarDemo() {
     async eu() {
       const e = estado();
       const cliente = e.clientes[0] || null;
-      return { cliente, identidades: cliente && cliente.email
+      const identidades = [];
+      if (cliente && cliente.email) identidades.push({ provedor: 'email', email: cliente.email, relay: 0 });
+      if (cliente && cliente.google) identidades.push({ provedor: 'google', email: cliente.google, relay: 0 });
+      return { cliente, identidades };
+    },
+
+    async portas() {
+      return { email: true, google: true, apple: false, demo: true };
+    },
+
+    /* A GOOGLE, NA DEMONSTRAÇÃO, NÃO SAI DAQUI. A demonstração existe para
+       alguém experimentar a app inteira no próprio telemóvel, sem conta e sem
+       rede — mandá-la à Google a sério era pedir-lhe uma conta verdadeira para
+       ver uma coisa que não é verdadeira. Finge-se o caminho todo, e diz-se
+       que se está a fingir; o que não se faz é esconder o botão, que era
+       ensinar uma app que não é esta. */
+    async comecarGoogle() {
+      return { demo: true, url: null, bilhete: 'bilhete-de-demonstracao' };
+    },
+
+    async concluirGoogle() {
+      return { ok: true, demo: true };
+    },
+
+    async estadoGoogle() {
+      const e = estado();
+      const cliente = e.clientes[0] || null;
+      if (!cliente) return { situacao: 'expirada', demo: true };
+      cliente.google = cliente.google || 'a.tua.conta@gmail.com';
+      gravar(e);
+      return { situacao: 'pronta', cliente, recuperada: false, pista: null, demo: true };
+    },
+
+    async desligarGoogle() {
+      const e = estado();
+      const cliente = e.clientes[0];
+      if (cliente) { cliente.google = null; gravar(e); }
+      return { identidades: cliente && cliente.email
         ? [{ provedor: 'email', email: cliente.email, relay: 0 }] : [] };
     },
 
@@ -977,6 +1014,26 @@ export const api = MODO === 'remoto'
       /* Quem sou eu e por onde é que entrei. É esta lista que decide se tocar
          no perfil abre o perfil ou pede para entrar. */
       eu: () => remoto.pedir('/v1/cliente/eu'),
+      /* QUE PORTAS É QUE ESTE SERVIDOR TEM ABERTAS. Um botão que só falha ao
+         ser tocado é pior do que um botão que não está lá — é a mesma regra
+         dos botões das carteiras, e é por isso que isto se pergunta em vez de
+         se adivinhar. */
+      portas: () => remoto.pedir('/v1/portas'),
+      /* A ida à Google. Devolve o endereço para onde NAVEGAR e um bilhete que
+         fica neste browser: é o bilhete que prova, à volta, que quem conclui é
+         quem começou. Sem ele, quem me mandasse o endereço levava a minha
+         conta. */
+      comecarGoogle: () => remoto.pedir('/v1/cliente/google/comecar', { metodo: 'POST' }),
+      /* A volta. Não devolve credencial nenhuma — só diz que ficou feito. */
+      concluirGoogle: (estadoGoogle, codigo, bilhete, erro) =>
+        remoto.pedir('/v1/cliente/google/volta',
+          { metodo: 'POST', corpo: { estado: estadoGoogle, codigo, bilhete, erro } }),
+      /* E o levantamento, com o mesmo bilhete. É aqui que a sessão nasce. */
+      estadoGoogle: (bilhete) =>
+        remoto.pedir('/v1/cliente/google/estado', { metodo: 'POST', corpo: { bilhete } }),
+      /* Desligar a conta da Google. O art. 7.º/3 do RGPD: retirar tem de ser
+         tão fácil como dar. */
+      desligarGoogle: () => remoto.pedir('/v1/cliente/identidades/google', { metodo: 'DELETE' }),
       /* Juntar a conta deste telemóvel à conta em que se acabou de entrar. A
          prova são as DUAS sessões — a de agora vai no cabeçalho, a antiga no
          corpo. */

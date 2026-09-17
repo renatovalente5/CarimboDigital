@@ -60,6 +60,36 @@ DOMINIO = "carimbodigital.pt"
 GOOGLE_EMAIL = "carimbo-wallet@project-8cb31867-5da0-4e4e-9c3.iam.gserviceaccount.com"
 GOOGLE_EMISSOR = "3388000000023200429"
 
+# ENTRAR COM A GOOGLE — outra coisa, e outro projecto da consola. A carteira,
+# em cima, fala com a Wallet por uma conta de serviço; isto é o login, e fala
+# por OAuth em nome de quem entra.
+#
+#   GOOGLE_ENTRAR_ID       — o `client_id` do cliente OAuth «Aplicativo da
+#                            Web». NÃO é segredo: vai na barra de endereço do
+#                            browser em cada entrada, à vista de toda a gente.
+#   GOOGLE_ENTRAR_SEGREDO  — o `client_secret`. Esse é, e põe-se com:
+#                              npx wrangler secret put GOOGLE_ENTRAR_SEGREDO
+#
+# Enquanto os dois não existirem, `/v1/portas` diz `google: false` e a app não
+# mostra o botão — é a mesma manha da Apple Wallet, e é o que permite publicar
+# isto antes de a consola estar pronta.
+#
+# O projecto é `carimbo-digital-508917`, criado a 17 de Setembro de 2026, com o
+# ecrã de consentimento EM PRODUÇÃO (em «Testing» as entradas morriam ao fim de
+# sete dias) e âmbitos `openid` e `userinfo.email` — nada de `profile`, que
+# traria o nome que a página de privacidade promete não pedir. Sem logótipo
+# carregado, de propósito: um logótipo obriga a app a passar por verificação.
+#
+# Os endereços de volta registados lá são três, e têm de bater à letra:
+#   https://carimbodigital.pt/app/
+#   https://www.carimbodigital.pt/app/
+#   http://localhost:4321/app/
+#
+# É a app e não uma página do site, de propósito: o manifesto declara
+# `scope: "/app/"`, e num iPhone uma volta para fora desse âmbito abre o Safari
+# e nunca regressa à app instalada.
+GOOGLE_ENTRAR_ID = "834648750841-6te9ulculj64tojq5jsmq4ct7aproqg3.apps.googleusercontent.com"
+
 # A APPLE WALLET. Estes dois NÃO são segredo, e é por isso que estão aqui e não
 # num `wrangler secret`: vão dentro de cada `.pkpass` servido, em texto simples,
 # no `pass.json`. Qualquer pessoa que descarregue um passe os lê. Guardá-los

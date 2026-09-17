@@ -14,6 +14,12 @@ import { qrParaSVG } from '../js/qr.js';
 const estado = {
   cliente: null,
   cartoes: [],
+  /* AS FORMAS DE ENTRAR NESTA CONTA — email, Google. A app decidia tudo por
+     `cliente.email`, e isso deixou de chegar no dia em que houve uma segunda
+     porta: quem entra pela Google tem o `email` a NULL, de propósito. Vem do
+     `/v1/cliente/eu` e fica também em `localStorage`, porque o ecrã da sessão
+     terminada precisa dela quando já não há sessão para a ir buscar. */
+  identidades: [],
   ecra: 'carteira',
   cartaoAberto: null,
   /* Sobe a cada pintura. Serve para uma pintura lenta saber que já não é a
@@ -779,8 +785,23 @@ async function ecraPremios(principal) {
    Ecrã: perfil
    ========================================================================= */
 
-function ecraPerfil(principal) {
+async function ecraPerfil(principal) {
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Perfil' }));
+
+  /* AS FORMAS DE ENTRAR DECIDEM METADE DESTE ECRÃ, e antes ninguém as pedia:
+     tudo ramificava em `cliente.email`, que fica a NULL para quem entrou pela
+     Google. O perfil dizia «Guardar a conta» a quem tinha acabado de a
+     guardar, e escondia o «terminar sessão nos outros aparelhos» a quem tinha
+     por onde voltar. Pergunta-se aqui, uma vez, quando este ecrã se abre.
+
+     Se falhar, fica a lista da última vez — é melhor do que um ecrã que se
+     recusa a abrir, e é a mesma decisão que os cartões em cache. */
+  await carregarIdentidades();
+  const identidades = estado.identidades || [];
+  const comEmail = temIdentidade('email', identidades);
+  const comGoogle = temIdentidade('google', identidades);
+  const morada = moradaDaConta(identidades);
+  const temPorta = comEmail || comGoogle;
 
   principal.append(el('div', { class: 'folha cartao-identidade' },
     el('div', {},
@@ -789,20 +810,41 @@ function ecraPerfil(principal) {
     el('p', { class: 'miudo', texto: 'É este número que identifica todos os teus cartões. '
       + 'Se a câmara do balcão não ler o código, podem escrevê-lo à mão.' })));
 
+  /* Como é que esta conta está guardada, em uma linha. Antes dizia sempre
+     «Guardar a conta» a quem não tivesse email — incluindo a quem tivesse
+     entrado pela Google, que é exactamente ter a conta guardada. */
+  const comoEstaGuardada = () => {
+    if (comEmail && comGoogle) return { titulo: 'A conta está guardada', sub: `Google e ${morada}` };
+    if (comGoogle) return { titulo: 'A conta está guardada', sub: morada ? `Google · ${morada}` : 'Entras com a Google' };
+    if (comEmail) return { titulo: 'A tua morada de email', sub: morada };
+    return { titulo: 'Guardar a conta', sub: 'Para não perderes os cartões se mudares de telemóvel' };
+  };
+  const guardada = comoEstaGuardada();
+
   const conta = el('div', { class: 'lista' },
     el('button', { class: 'linha', aoClick: guardarConta },
       el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
-        el('b', { texto: estado.cliente.email ? 'A tua morada de email' : 'Guardar a conta' }),
-        el('span', { texto: estado.cliente.email || 'Para não perderes os cartões se mudares de telemóvel' })),
+        el('b', { texto: guardada.titulo }),
+        el('span', { texto: guardada.sub })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
+
+    /* DESLIGAR A GOOGLE. A entrada pela Google é consentimento, e o art. 7.º/3
+       obriga a que retirar seja tão fácil como dar. Só aparece a quem a tem
+       ligada — a quem não tem, é uma linha sem sentido. */
+    comGoogle ? el('button', { class: 'linha', aoClick: desligarGoogle },
+      el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
+      el('span', { class: 'linha-texto' },
+        el('b', { texto: 'Desligar a conta Google' }),
+        el('span', { texto: 'Sem apagar a conta nem os cartões' })),
+      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })) : null,
 
     /* TIRAR O EMAIL, E MAIS NADA. Dar era escrever a morada e um código de
        seis algarismos; tirar era apagar a conta e perder os cartões todos. O
        artigo 7.º/3 diz que retirar o consentimento tem de ser tão fácil como
        dá-lo, e isto não era a mesma facilidade: era o contrário. Só aparece a
        quem tem email guardado — a quem não tem, é uma linha sem sentido. */
-    estado.cliente.email ? el('button', { class: 'linha', aoClick: tirarEmail },
+    comEmail ? el('button', { class: 'linha', aoClick: tirarEmail },
       el('span', { class: 'linha-icone', html: icone('caixote', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { texto: 'Tirar o email' }),
@@ -845,11 +887,15 @@ function ecraPerfil(principal) {
      quem a chamasse — e uma rota sem quem a chame é metade de um protocolo.
      Não se mostra a quem não tem por onde voltar a entrar: sem forma de entrar
      guardada, expulsar os outros aparelhos é expulsar-se a si próprio da conta
-     para sempre, e o botão não avisa disso nenhuma. */
+     para sempre, e o botão não avisa disso nenhuma.
+
+     A PERGUNTA É «TENS PORTA?» e não «tens email». Era `cliente.email`, e com
+     isso quem entrasse pela Google — que tem por onde voltar — ficava sem o
+     botão de segurança, pela razão que a própria guarda escreve. */
   /* Aparece TAMBÉM na demonstração — ela existe para «experimentar a app
      inteira», e esconder-lhe uma funcionalidade fá-la mentir sobre o que a app
      é. O esboço do lado da API trata do resto. */
-  if (estado.cliente?.email) {
+  if (temPorta) {
     conta.append(el('button', { class: 'linha', aoClick: sairDosOutros },
       el('span', { class: 'linha-icone', html: icone('cadeado', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
@@ -906,7 +952,7 @@ function ecraPerfil(principal) {
           await api.limpar();
           await esquecerSegredo();
           apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
-        apagar('sessao-por-juntar');
+          apagar('sessao-por-juntar'); apagar('identidades'); apagar(CHAVE_ENTRADA);
           location.reload();
         },
       })));
@@ -1035,6 +1081,352 @@ function juntarContas({ sessaoAntiga, quantos }) {
       } }));
 }
 
+/* =========================================================================
+   Entrar com a Google
+
+   O caminho é: pedir a ida, guardar o BILHETE aqui, navegar para a Google, e
+   voltar a `/app/` com um código na barra de endereço. O bilhete é o que prova,
+   à volta, que quem conclui é quem começou — sem ele, quem me mandasse o
+   endereço da ida levava a minha conta inteira.
+
+   NAVEGA-SE, não se abre janela. O manifesto declara `scope: "/app/"`, e num
+   iPhone com a app no ecrã principal é a navegação para dentro do âmbito que
+   devolve o controlo à app instalada. Uma janela nova ficava no browser de
+   dentro, que é outro armazenamento, e o bilhete não estava lá.
+   ========================================================================= */
+
+/* Onde fica o bilhete entre a ida e a volta. Tem de sobreviver a sair da
+   página, por isso não pode ser uma variável. */
+const CHAVE_ENTRADA = 'entrada-google';
+/* Uma ida vale dez minutos do lado do servidor; aqui dá-se folga para o
+   relógio do telemóvel estar torto e para a pessoa demorar a escolher a conta. */
+const ENTRADA_VALE = 15 * 60 * 1000;
+
+/* A marca da Google, como ela a publica. Não se redesenha nem se troca por
+   texto: é a condição de uso do botão, e um «G» desenhado por nós seria uma
+   marca falsificada. Vai inteira no ficheiro — nunca carregada de lá, que a
+   página de privacidade promete não carregar nada de terceiros. */
+const MARCA_GOOGLE = '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true" focusable="false">'
+  + '<path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>'
+  + '<path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>'
+  + '<path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>'
+  + '<path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+
+/* Que portas é que o servidor tem abertas. Pergunta-se uma vez por arranque e
+   guarda-se aqui: um botão que só falha ao ser tocado é pior do que um botão
+   que não está lá, e adivinhar era exactamente isso. Na dúvida — servidor
+   velho, sem rede — responde-se que não há porta nenhuma nova. */
+let PORTAS = null;
+async function portasAbertas() {
+  if (PORTAS) return PORTAS;
+  try {
+    PORTAS = await api.portas();
+  } catch {
+    PORTAS = { email: true, google: false, apple: false };
+  }
+  return PORTAS;
+}
+
+/**
+ * As formas de entrar nesta conta.
+ *
+ * A app decidia tudo por `estado.cliente.email`, e isso deixa de servir no dia
+ * em que há uma segunda porta: quem entrar pela Google tem o `email` a NULL —
+ * é o próprio Worker que o deixa assim, porque a morada que a Google mostra é
+ * pista e não pode decidir de quem é a conta. Com a pergunta errada, o perfil
+ * dizia «Guardar a conta» a quem tinha acabado de a guardar, e escondia o
+ * «terminar sessão nos outros aparelhos» a quem tinha por onde voltar.
+ *
+ * FICA EM CACHE porque há um ecrã que precisa dela quando já não há sessão
+ * para a ir buscar: o da sessão terminada.
+ */
+async function carregarIdentidades() {
+  try {
+    const r = await api.eu();
+    estado.identidades = r && Array.isArray(r.identidades) ? r.identidades : [];
+    guardar('identidades', estado.identidades);
+  } catch {
+    estado.identidades = ler('identidades', []) || [];
+  }
+  return estado.identidades;
+}
+
+const temIdentidade = (provedor, lista = estado.identidades) =>
+  (lista || []).some((i) => i.provedor === provedor);
+
+/** A morada por onde se entra, se houver uma. A do email manda. */
+function moradaDaConta(lista = estado.identidades) {
+  const l = lista || [];
+  const email = l.find((i) => i.provedor === 'email');
+  if (email) return email.email;
+  const outra = l.find((i) => i.email && !i.relay);
+  return outra ? outra.email : null;
+}
+
+/** O botão, com as palavras que a Google deixa usar e a marca dela intacta. */
+function botaoGoogle(aoClick) {
+  return el('button', {
+    class: 'btn btn-google btn-bloco btn-grande', aoClick,
+    html: `${MARCA_GOOGLE}<span>Continuar com a Google</span>`,
+  });
+}
+
+/**
+ * A ida.
+ *
+ * O botão é desactivado à entrada e NÃO se volta a activar no caminho feliz:
+ * a página está prestes a sair de si própria, e um botão que volta a ficar
+ * vivo durante esse meio segundo dá duas idas e dois bilhetes, dos quais só um
+ * sobrevive.
+ */
+async function iniciarGoogle(ev) {
+  /* Antes do `await`. Depois de um, o `currentTarget` vale null — foi um
+     defeito desta casa e não se repete. */
+  const botao = ev.currentTarget;
+  botao.setAttribute('aria-disabled', 'sim');
+  try {
+    const r = await api.comecarGoogle();
+    /* Na demonstração não se sai do site: não há Google nenhuma do outro lado,
+       e mandar alguém a uma conta verdadeira para ver uma coisa que não é
+       verdadeira seria pior do que não mostrar o botão. */
+    if (r.demo || !r.url) {
+      const feito = await api.estadoGoogle(r.bilhete);
+      await assentarEntradaGoogle(feito, { demo: true });
+      return;
+    }
+    guardar(CHAVE_ENTRADA, { bilhete: r.bilhete, em: Date.now() });
+    location.assign(r.url);
+  } catch (e) {
+    botao.removeAttribute('aria-disabled');
+    avisar(e.message || 'Não deu para falar com a Google.', 'mau');
+  }
+}
+
+/**
+ * Assentar o que veio da entrada — na demonstração, onde tudo acontece sem
+ * sair da página. O caminho a sério passa pelo `voltarDaGoogle`, no arranque.
+ */
+async function assentarEntradaGoogle(r, { demo = false } = {}) {
+  if (!r || r.situacao !== 'pronta') {
+    avisar('Não deu para entrar com a Google. Tenta outra vez.', 'mau');
+    return;
+  }
+  if (r.segredo) await guardarSegredo(r.segredo);
+  if (r.sessao) guardar('sessao', r.sessao);
+  if (r.horaDoServidor) guardarDesvio(r.horaDoServidor);
+  if (r.cliente) {
+    estado.cliente = r.cliente;
+    guardar('cliente', r.cliente);
+  }
+  await carregarIdentidades();
+  fecharPainel();
+  avisar(demo
+    ? 'Nesta demonstração não há Google a sério — mas o caminho é este.'
+    : 'Conta guardada. Os cartões já não se perdem.', 'bom');
+  await irPara('perfil');
+}
+
+/**
+ * A volta, no arranque da app.
+ *
+ * Corre ANTES de tudo o resto e devolve o que o arranque tem de fazer a
+ * seguir. É de propósito que corre antes do `entrar()`: sem isso, a app
+ * registava uma conta anónima nova por baixo e a entrada aterrava nela.
+ */
+async function voltarDaGoogle() {
+  const p = new URLSearchParams(location.search);
+  const codigo = p.get('code');
+  const estadoGoogle = p.get('state');
+  const recusa = p.get('error');
+  if (!codigo && !estadoGoogle && !recusa) return null;
+
+  /* O endereço limpa-se JÁ. Um código de autorização não fica no histórico do
+     telemóvel nem é partilhado por engano, e recarregar a página não volta a
+     tentar uma coisa que só serve uma vez. É a mesma manha do `seguirConvite`. */
+  const limpo = new URL(location.href);
+  for (const k of ['code', 'state', 'error', 'scope', 'authuser', 'prompt', 'hd']) {
+    limpo.searchParams.delete(k);
+  }
+  history.replaceState(null, '', limpo.pathname + limpo.search + limpo.hash);
+
+  const guardado = ler(CHAVE_ENTRADA, null);
+  apagar(CHAVE_ENTRADA);
+
+  /* SEM BILHETE NÃO SE CONCLUI, e isto não é zelo: o bilhete é o que prova que
+     quem está aqui é quem começou. Sem ele, ou a volta aterrou noutro
+     armazenamento — um iPhone antigo que abriu a ligação no Safari em vez de
+     dentro da app — ou alguém mandou este endereço a esta pessoa. Nos dois
+     casos a resposta é a mesma: não se conclui nada. */
+  if (!guardado || !guardado.bilhete || Date.now() - (guardado.em || 0) > ENTRADA_VALE) {
+    ecraOutraJanela();
+    return { falhou: true };
+  }
+
+  const clienteLocal = ler('cliente', null);
+  const sessaoAntiga = ler('sessao', null);
+  const cartoesDaqui = (ler('cartoes', []) || []).length;
+
+  try {
+    const feito = await api.concluirGoogle(estadoGoogle, codigo, guardado.bilhete, recusa);
+    if (feito && feito.ok === false) {
+      ecraEntradaFalhou(feito.codigo === 'google-recusou'
+        ? 'Não chegaste a autorizar a entrada na Google. Não ficou nada guardado.'
+        : 'A Google não confirmou a entrada.');
+      return { falhou: true };
+    }
+    const r = await api.estadoGoogle(guardado.bilhete);
+    if (!r || r.situacao !== 'pronta') {
+      ecraEntradaFalhou(r && r.situacao === 'erro'
+        ? 'A Google não confirmou a entrada. Tenta outra vez.'
+        : 'Esta entrada já não vale. Tenta outra vez.');
+      return { falhou: true };
+    }
+
+    if (r.segredo) await guardarSegredo(r.segredo);
+    if (r.sessao) guardar('sessao', r.sessao);
+    if (r.horaDoServidor) guardarDesvio(r.horaDoServidor);
+    if (r.cliente) {
+      estado.cliente = r.cliente;
+      guardar('cliente', r.cliente);
+    }
+    /* Quem tinha visto as boas-vindas continua a tê-las vistas; quem chegou
+       aqui sem elas entrou de outra forma e não tem que as ver agora. */
+    guardar('visto-bv', 1);
+
+    /* OS CARTÕES DESTE TELEMÓVEL NÃO FICAM PARA TRÁS. É a mesma regra do
+       caminho do email: guarda-se a sessão antiga ANTES de a substituir,
+       porque é ela a prova de que aquela conta também é desta pessoa. */
+    const trocou = Boolean(r.cliente && clienteLocal && r.cliente.id !== clienteLocal.id);
+    return {
+      entrou: true,
+      juntar: trocou && cartoesDaqui > 0 && sessaoAntiga
+        ? { sessaoAntiga, quantos: cartoesDaqui } : null,
+      pista: r.pista || null,
+      recuperada: Boolean(r.recuperada),
+    };
+  } catch (e) {
+    ecraEntradaFalhou(e.rede
+      ? 'Ficaste sem rede a meio da entrada. Tenta outra vez.'
+      : (e.message || 'Não deu para concluir a entrada.'));
+    return { falhou: true };
+  }
+}
+
+/**
+ * O que se faz DEPOIS de a app estar pintada, quando se entrou pela Google.
+ *
+ * Corre no fim do arranque e não no meio dele: juntar contas abre um painel, e
+ * um painel sobre uma app por pintar não tem para onde voltar.
+ */
+async function terminarEntradaGoogle(volta) {
+  await carregarIdentidades();
+  if (volta.juntar) { juntarContas(volta.juntar); return; }
+  if (volta.pista === 'mesma-morada') { avisoDeMesmaMorada(); return; }
+  avisar(volta.recuperada
+    ? `Cartões recuperados: ${estado.cartoes.length}.`
+    : 'Conta guardada. Os cartões já não se perdem.', 'bom');
+}
+
+/**
+ * «Entrei com a Google e a carteira está vazia.»
+ *
+ * É o caso mais confuso desta fase, e é o comportamento CERTO: a morada de
+ * email nunca decide de quem é uma conta — é pista, não chave, e tratá-la como
+ * chave é o pré-registo que o modelo inteiro existe para impedir. Quem já
+ * tinha conta pelo email e entra pela Google com a mesma morada cai numa conta
+ * nova e vazia, e sem uma palavra lê isso como «perdi os cartões».
+ *
+ * Diz-se, e oferece-se o caminho: entrar também pelo email, que é a prova do
+ * outro lado, e juntar as duas.
+ */
+function avisoDeMesmaMorada() {
+  const painel = abrirPainel('Já há uma conta com essa morada');
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      'Entraste com a Google e esta conta está vazia — os teus cartões estão '
+      + 'noutra, a que já tinhas associado a mesma morada de email.' }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        'Não juntámos as duas sozinhos de propósito: uma morada igual não prova '
+        + 'que a conta é a mesma pessoa. Para as juntar, entra também com o '
+        + '<b>email</b> — aí ficam provadas as duas e os cartões vêm todos.' })),
+    el('button', {
+      class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Entrar com o email',
+      aoClick: () => { recuperarConta(); } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Agora não',
+      aoClick: fecharPainel }));
+}
+
+/** A volta aterrou onde não estava quem começou. Diz-se, e não se conclui. */
+function ecraOutraJanela() {
+  ecraEntradaFalhou('Esta janela não é a mesma onde começaste a entrar. '
+    + 'Por segurança, não concluímos nada. Volta à app do Carimbo Digital e '
+    + 'tenta outra vez a partir de lá.');
+}
+
+/** Um ecrã inteiro para uma entrada que não deu, com caminho para a frente. */
+function ecraEntradaFalhou(mensagem) {
+  $('#aplicacao').hidden = false;
+  $('#topo-titulo').textContent = '';
+  $('#barra').innerHTML = '';
+  const principal = $('#principal');
+  if (!principal) return;
+  principal.innerHTML = '';
+  principal.append(el('div', { class: 'vazio' },
+    el('div', { class: 'vazio-desenho', html: icone('cadeado', { tamanho: 96 }) }),
+    el('h3', { texto: 'A entrada não ficou feita' }),
+    el('p', { texto: mensagem }),
+    el('button', {
+      class: 'btn btn-cheio btn-grande', texto: 'Voltar à app',
+      aoClick: () => { location.assign(`${base()}/app/`); },
+    })));
+}
+
+/**
+ * Desligar a conta da Google.
+ *
+ * A MESMA OBRIGAÇÃO QUE O EMAIL. A entrada pela Google é consentimento, e o
+ * artigo 7.º/3 diz que retirar tem de ser tão fácil como dar. Dar é um toque.
+ *
+ * E diz-se o que se perde ANTES — e o que se perde depende de haver ou não
+ * outra porta, por isso a frase muda.
+ */
+function desligarGoogle() {
+  const temEmail = temIdentidade('email');
+  const painel = abrirPainel('Desligar a conta Google');
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      'Deixa de ser possível entrar nesta conta com a Google.' }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html: temEmail
+        ? '<b>Os cartões e os carimbos ficam todos</b>, e continuas a poder '
+          + 'entrar com o teu email. Podes voltar a ligar a Google quando '
+          + 'quiseres.'
+        : '<b>Os cartões e os carimbos ficam todos.</b> O que perdes é a forma '
+          + 'de os recuperar noutro telemóvel: esta é a tua única forma de '
+          + 'entrar, e sem ela, se perderes este aparelho, perdes os cartões.<br>'
+          + 'Podes voltar a ligá-la — ou deixar um email — quando quiseres.' })),
+    el('button', {
+      class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Desligar a Google',
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.setAttribute('aria-disabled', 'sim');
+        try {
+          const r = await api.desligarGoogle();
+          estado.identidades = (r && r.identidades) || [];
+          guardar('identidades', estado.identidades);
+          fecharPainel();
+          avisar('Conta Google desligada. Os cartões ficaram.', 'bom');
+          await irPara('perfil');
+        } catch (e) {
+          botao.removeAttribute('aria-disabled');
+          avisar(e.message || 'Não deu para desligar.', 'mau');
+        }
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
+}
+
 /**
  * O mesmo painel, dito ao contrário.
  *
@@ -1050,10 +1442,30 @@ async function guardarConta({ recuperar = false } = {}) {
   const painel = abrirPainel(recuperar ? 'Recuperar os cartões' : 'Guardar a conta');
   painel.append(
     el('p', { class: 'subtexto', texto: recuperar
-      ? 'Escreve a morada de email que já usaste. Enviamos um código de seis '
-        + 'algarismos e os cartões voltam para este telemóvel.'
-      : 'Deixa um email e enviamos um código de seis '
-        + 'algarismos. Se mudares de telemóvel, escreves o código e os cartões voltam todos.' }),
+      ? 'Entra com a Google, ou escreve a morada de email que já usaste. Os '
+        + 'cartões voltam para este telemóvel.'
+      : 'Duas formas, e chega uma: entrar com a Google, ou deixar um email. '
+        + 'Se mudares de telemóvel, entras outra vez e os cartões voltam todos.' }));
+
+  /* A PORTA DA GOOGLE SÓ APARECE SE EXISTIR. Pergunta-se ao servidor em vez de
+     se adivinhar, pela mesma razão por que os botões das carteiras se
+     perguntam: um botão que só falha ao ser tocado é pior do que um botão que
+     não está lá. E a pergunta é assíncrona, por isso o botão entra no painel
+     quando a resposta chega — sempre ACIMA do email, que é onde o painel o
+     espera. */
+  const lugarDaGoogle = el('div', {});
+  painel.append(lugarDaGoogle);
+  portasAbertas().then((portas) => {
+    if (!portas.google || !lugarDaGoogle.isConnected) return;
+    lugarDaGoogle.append(
+      botaoGoogle(iniciarGoogle),
+      el('p', { class: 'miudo', style: 'margin-top:8px', texto:
+        'A Google fica a saber que usas o Carimbo Digital. Não lhe pedimos o '
+        + 'teu nome nem a tua fotografia.' }),
+      el('div', { class: 'ou', role: 'separator' }, el('span', { texto: 'ou' })));
+  });
+
+  painel.append(
     el('label', { class: 'campo' },
       el('span', { texto: 'Email' }),
       el('input', { type: 'email', inputmode: 'email', autocomplete: 'email',
@@ -1154,6 +1566,9 @@ function pedirCodigo(email, demo = false) {
             estado.cliente = r.cliente;
             guardar('cliente', r.cliente);
             estado.cartoes = await api.cartoes(r.cliente.id);
+            /* A lista de portas mudou — acabou de nascer uma. Sem isto, o
+               perfil continuava a dizer «Guardar a conta». */
+            await carregarIdentidades();
           } else {
             estado.cliente = { ...estado.cliente, email };
             guardar('cliente', estado.cliente);
@@ -1261,6 +1676,13 @@ function apagarConta() {
         await esquecerSegredo();
         apagar('cliente'); apagar('sessao'); apagar('desvio'); apagar('visto-bv');
         apagar('sessao-por-juntar');
+        /* E AS DUAS CHAVES QUE A PORTA DA GOOGLE TROUXE. A lista de
+           identidades tem lá dentro a morada de email — que é o único dado
+           pessoal que esta app chega a guardar — e «sem volta» quer dizer que
+           não fica nada para trás. Foi a bateria que apanhou isto: o email
+           sobrevivia ao apagamento, numa chave que não existia quando aquele
+           teste foi escrito. */
+        apagar('identidades'); apagar(CHAVE_ENTRADA);
         location.reload();
       },
     }),
@@ -1708,8 +2130,9 @@ function boasVindas() {
 
   /* «Já tenho conta noutro telemóvel» dava um aviso e mais nada — e o aviso
      mandava a pessoa fazer no telemóvel antigo uma coisa que ela pode já ter
-     feito. Agora que a recuperação por email funciona de verdade, o botão
-     abre-a: escreve-se a morada, chega o código, e os cartões voltam. */
+     feito. Agora que a recuperação funciona de verdade, o botão abre-a — e
+     abre as duas portas de uma vez, porque é o mesmo painel: entrar com a
+     Google, ou escrever a morada e o código que chega ao email. */
   caixa.querySelector('#bv-saltar').addEventListener('click', async () => {
     if (MODO === 'demo') {
       avisar('Na demonstração cada telemóvel tem a sua conta.', 'neutro');
@@ -1805,17 +2228,28 @@ function ecraSessaoTerminada(cliente) {
   const principal = $('#principal');
   principal.innerHTML = '';
 
+  /* AS IDENTIDADES VÊM DA CACHE, e é a única fonte possível: a sessão morreu,
+     e perguntá-las ao servidor daria outro 401. É por isso que elas ficam
+     guardadas em `localStorage` sempre que são lidas. */
+  const identidades = ler('identidades', []) || [];
+  const comEmail = temIdentidade('email', identidades) || Boolean(cliente?.email);
+  const comGoogle = temIdentidade('google', identidades);
+  const porque = 'Pode ter sido por já ter passado muito tempo, ou porque terminaste a '
+    + 'sessão a partir de outro aparelho. ';
+
   principal.append(el('div', { class: 'vazio' },
     el('div', { class: 'vazio-desenho', html: icone('cadeado', { tamanho: 96 }) }),
     el('h3', { texto: 'A sessão terminou neste telemóvel' }),
-    el('p', { texto: cliente?.email
-      ? 'Pode ter sido por já ter passado muito tempo, ou porque terminaste a '
-        + 'sessão a partir de outro aparelho. Entra outra vez e os cartões voltam.'
-      : 'Pode ter sido por já ter passado muito tempo, ou porque terminaste a '
-        + 'sessão a partir de outro aparelho. Se guardaste a conta com um email, '
-        + 'entra com ele e os cartões voltam.' }),
+    el('p', { texto: comEmail || comGoogle
+      ? `${porque}Entra outra vez e os cartões voltam.`
+      : `${porque}Se guardaste a conta com um email ou com a Google, entra e os `
+        + 'cartões voltam.' }),
+    /* O botão da Google só aparece a quem entrou por lá — e quando ele existe,
+       é ele o botão principal, porque é o caminho que aquela pessoa conhece. */
+    comGoogle ? botaoGoogle((ev) => { RECARREGAR_DEPOIS = true; return iniciarGoogle(ev); }) : null,
     el('button', {
-      class: 'btn btn-cheio btn-grande',
+      class: comGoogle ? 'btn btn-contorno' : 'btn btn-cheio btn-grande',
+      style: comGoogle ? 'margin-top:8px' : '',
       texto: 'Entrar com o email',
       aoClick: () => { RECARREGAR_DEPOIS = true; recuperarConta(); },
     }),
@@ -1836,16 +2270,23 @@ function ecraSessaoTerminada(cliente) {
  * única coisa que aquele email fazia.
  */
 function tirarEmail() {
+  /* O QUE SE PERDE DEPENDE DE HAVER OUTRA PORTA. Dizer «perdes os cartões» a
+     quem tem a Google ligada é assustar por engano — e a frase existe
+     justamente para não haver enganos. */
+  const comGoogle = temIdentidade('google');
+  const morada = moradaDaConta() || estado.cliente.email || '';
   const painel = abrirPainel('Tirar o email');
   painel.append(
     el('p', { class: 'subtexto', html:
-      `Deixamos de ter <b>${seguro(estado.cliente.email || '')}</b> associado a esta conta.` }),
+      `Deixamos de ter <b>${seguro(morada)}</b> associado a esta conta.` }),
     el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
-      el('p', { class: 'miudo', html:
-        '<b>Os cartões e os carimbos ficam todos.</b> O que perdes é a forma de '
-        + 'os recuperar noutro telemóvel: sem email guardado, se perderes este '
-        + 'aparelho perdes os cartões.<br>Podes voltar a pôr um email quando '
-        + 'quiseres.' })),
+      el('p', { class: 'miudo', html: comGoogle
+        ? '<b>Os cartões e os carimbos ficam todos</b>, e continuas a poder '
+          + 'entrar com a Google. Podes voltar a pôr um email quando quiseres.'
+        : '<b>Os cartões e os carimbos ficam todos.</b> O que perdes é a forma de '
+          + 'os recuperar noutro telemóvel: sem email guardado, se perderes este '
+          + 'aparelho perdes os cartões.<br>Podes voltar a pôr um email quando '
+          + 'quiseres.' })),
     el('button', {
       class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Tirar o email',
       aoClick: async (ev) => {
@@ -1855,6 +2296,7 @@ function tirarEmail() {
           await api.tirarEmail();
           estado.cliente = { ...estado.cliente, email: null };
           guardar('cliente', estado.cliente);
+          await carregarIdentidades();
           fecharPainel();
           avisar('Email retirado. Os cartões ficaram.', 'bom');
           irPara('perfil');
@@ -1886,13 +2328,15 @@ function comecarDeNovo() {
     el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
       el('p', { class: 'miudo', html:
         '<b>Os cartões antigos não se apagam</b> — ficam onde estão. Mas só '
-        + 'voltam a este telemóvel se entrares com o email que lhes associaste. '
-        + 'Se nunca guardaste a conta com um email, não há caminho de volta.' })),
+        + 'voltam a este telemóvel se voltares a entrar na conta deles: com a '
+        + 'Google, ou com o email que lhes associaste. Se nunca guardaste a '
+        + 'conta de nenhuma das duas formas, não há caminho de volta.' })),
     el('button', {
       class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Começar de novo',
       aoClick: async () => {
         apagar('cliente'); apagar('sessao'); apagar('cartoes');
         apagar('desvio'); apagar('sessao-por-juntar');
+        apagar('identidades'); apagar(CHAVE_ENTRADA);
         await esquecerSegredo();
         location.reload();
       } }),
@@ -1952,6 +2396,13 @@ async function entrar() {
     estado.cartoes = guardados;
     estado.velho = true;
   }
+
+  /* AS FORMAS DE ENTRAR, à mesma altura dos cartões. Vai em paralelo e não em
+     série: é mais um pedido no arranque, e ao balcão o que interessa é o
+     cartão aparecer. Falhar não estraga nada — fica a lista da última vez, que
+     é o que o ecrã da sessão terminada lê. */
+  estado.identidades = ler('identidades', []) || [];
+  carregarIdentidades().catch(() => {});
 
   aplicarTema();
   $('#botao-tema').addEventListener('click', () => {
@@ -2014,10 +2465,18 @@ async function arrancar() {
     topo.dataset.rolado = window.scrollY > 4 ? 'sim' : 'nao';
   }, { passive: true });
 
-  if (ler('visto-bv')) {
+  /* A VOLTA DA GOOGLE VEM PRIMEIRO, e antes do `entrar()`. Sem isso, a app
+     registava uma conta anónima nova por baixo e a entrada aterrava nela — que
+     é a forma mais cara de alguém perder os cartões no gesto que lhos ia
+     guardar. Quando falha, o ecrã já está pintado e não há mais nada a fazer. */
+  const volta = await voltarDaGoogle();
+  if (volta && volta.falhou) return;
+
+  if (ler('visto-bv') || (volta && volta.entrou)) {
     try { await entrar(); }
     catch (e) { console.error(e); ecraSemLigacao(e); return; }
     await seguirConvite();
+    if (volta && volta.entrou) await terminarEntradaGoogle(volta);
     /* O manifesto declara um atalho «Mostrar o meu código» que aponta para
        `?acao=codigo` — uma pressão longa no ícone da app, no Android. Ninguém
        lia o parâmetro: o atalho abria a carteira como qualquer outro toque. */
