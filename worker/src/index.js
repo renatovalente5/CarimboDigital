@@ -202,6 +202,30 @@ function iguais(a, b) {
    Sessões
    ========================================================================= */
 
+/**
+ * Já passou o prazo? E o que fazer quando o prazo é ilegível.
+ *
+ * FALHAVA ABERTO, nos três sítios onde se pergunta isto — a sessão, o código
+ * de entrada do cliente e o do balcão. `new Date('')` e `new Date('lixo')` dão
+ * `Invalid Date`, e QUALQUER comparação com `Invalid Date` é falsa: o
+ * `expira_em < agora` dava `false` e a linha passava por válida. Um prazo que
+ * não se consegue ler tornava a credencial ETERNA, que é exactamente o
+ * contrário do que ele existe para fazer.
+ *
+ * Descobriu-se por acidente, a preparar um teste contra a produção: uma
+ * inserção minha escreveu o prazo vazio e a sessão de balcão foi aceite na
+ * mesma. O produto escreve sempre um ISO bem formado, por isso não havia nada
+ * partido no ar — mas uma guarda que só funciona enquanto os dados estão bons
+ * não é uma guarda.
+ *
+ * Agora, na dúvida, está expirado. É a direcção certa para falhar: o pior que
+ * acontece a quem tenha uma linha estragada é ter de pedir outro código.
+ */
+function expirado(quando) {
+  const t = Date.parse(String(quando ?? ''));
+  return !Number.isFinite(t) || t < Date.now();
+}
+
 async function criarSessao(env, sujeito) {
   const testemunho = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const expira = new Date(Date.now() + SESSAO_DIAS * 86400000).toISOString();
@@ -219,7 +243,7 @@ async function lerSessao(env, pedido) {
     'SELECT sujeito, expira_em FROM sessoes WHERE resumo = ?'
   ).bind(await resumo(testemunho)).first();
   if (!linha) return null;
-  if (new Date(linha.expira_em) < new Date()) return null;
+  if (expirado(linha.expira_em)) return null;
   const [tipo, valor] = linha.sujeito.split(':');
   /* O `resumo` vai junto para quem precise de distinguir ESTA sessão das
      outras da mesma conta — é o que permite expulsar os outros aparelhos sem
@@ -938,7 +962,7 @@ async function consumirEntrada(env, email, codigo) {
     'SELECT * FROM entradas WHERE resumo = ?'
   ).bind(await resumo(`${correio}|${limpo}`)).first();
 
-  if (!linha || linha.usada_em || new Date(linha.expira_em) < new Date()) {
+  if (!linha || linha.usada_em || expirado(linha.expira_em)) {
     /* Conta-se a tentativa falhada contra o código que existe para este
        email, não contra o resumo que falhou — senão bastava mudar o palpite
        para nunca gastar tentativas. */
@@ -1464,7 +1488,7 @@ rota('POST', '/v1/cliente/fundir', async (env, pedido) => {
   const linha = await env.DB.prepare(
     'SELECT sujeito, expira_em FROM sessoes WHERE resumo = ?'
   ).bind(await resumo(sessaoOrigem)).first();
-  if (!linha || new Date(linha.expira_em) < new Date()) {
+  if (!linha || expirado(linha.expira_em)) {
     throw new Falha('Essa sessão já não vale.', { estado: 401, codigo: 'fusao-origem-invalida' });
   }
   const [tipo, origem] = linha.sujeito.split(':');

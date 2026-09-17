@@ -3314,6 +3314,53 @@ grupo('Fundir: o que NÃO pode acontecer');
   sql(`DELETE FROM identidades WHERE sujeito LIKE 'prova-%@exemplo.pt'`);
 }
 
+grupo('Um prazo ilegível não é um prazo eterno');
+{
+  /* FALHAVA ABERTO, e descobriu-se por acidente: a preparar um teste contra a
+     produção, uma inserção minha escreveu o `expira_em` vazio e a sessão de
+     balcão foi aceite na mesma. A razão é que `new Date('')` é `Invalid Date`
+     e QUALQUER comparação com ele é falsa — o `expira_em < agora` dava `false`
+     e a linha passava por válida. Um prazo que não se lê tornava a credencial
+     ETERNA, que é o contrário do que ele existe para fazer.
+
+     O produto escreve sempre um ISO bem formado, por isso não havia nada
+     partido no ar. Mas uma guarda que só funciona enquanto os dados estão bons
+     não é uma guarda — e as três formas abaixo são as que um dedo trocado numa
+     migração, um `datetime()` do SQLite ou um valor em falta produzem. */
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const cid = c.dados.cliente.id;
+
+  for (const [nome, valor] of [
+    ['vazio', ''],
+    ['texto que não é data', 'para sempre'],
+    ['data impossível', '2026-13-45T99:99:99Z'],
+  ]) {
+    const testemunho = `prazo-${randomBytes(6).toString('hex')}`;
+    const r = createHash('sha256').update(testemunho).digest('hex');
+    sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+         VALUES ('${r}', 'cliente:${cid}', datetime('now'), '${valor}')`);
+    const usou = await pedir('/v1/cliente/eu', { sessao: testemunho });
+    certo(usou.estado === 401,
+      `uma sessão com prazo ${nome} é recusada — na dúvida, está expirada`,
+      `${usou.estado}`);
+    sql(`DELETE FROM sessoes WHERE resumo = '${r}'`);
+  }
+
+  /* E a testemunha: um prazo BOM continua a valer. Sem ela, esta secção
+     passava na mesma se a guarda tivesse passado a recusar tudo. */
+  const bom = `prazo-bom-${randomBytes(6).toString('hex')}`;
+  const rb = createHash('sha256').update(bom).digest('hex');
+  sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+       VALUES ('${rb}', 'cliente:${cid}', datetime('now'),
+               '${new Date(Date.now() + 86400000).toISOString()}')`);
+  const valida = await pedir('/v1/cliente/eu', { sessao: bom });
+  certo(valida.estado === 200,
+    'e uma com prazo bom continua a abrir (senão isto não provava nada)',
+    String(valida.estado));
+
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

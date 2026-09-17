@@ -112,13 +112,13 @@ APPLE_EQUIPA = "6M2QCLR98V"
 # dia mudar lá, muda aqui. NÃO é segredo: vai dentro de cada passe, em texto
 # simples, como o resto.
 #
-# O TELEFONE ESTÁ POR PREENCHER, e o §2.3 pede-o pelo nome. Enquanto estiver
-# vazio o passe sai à mesma (um passe sem telefone é menos mau do que um
-# cliente sem cartão) mas o Worker escreve um aviso no registo a cada passe
-# emitido. Pôr um número aqui fecha a questão.
+# O telefone vai em formato internacional e espaçado como se lê em voz alta:
+# quem o vê está a olhar para o ecrã de um telemóvel e vai tocar nele. Não é
+# número de valor acrescentado — é o normal, e é isso que o §2.3 quer dizer com
+# «contact information to which any end-user questions should be directed».
 APOIO_NOME = "Carimbo Digital — Renato Lima Valente"
 APOIO_MORADA = "Rua José Moreira 99, 4.º esq., 3700-155 São João da Madeira"
-APOIO_TELEFONE = ""
+APOIO_TELEFONE = "+351 925 110 570"
 APOIO_EMAIL = "geral@carimbodigital.pt"
 
 [[d1_databases]]
