@@ -1319,6 +1319,31 @@ async function ecraPrograma(principal) {
           + '&s=' + encodeURIComponent(estado.negocio.slug || ''), '_blank'),
       }))));
 
+  /* QUEM CARIMBA. Um café com três turnos tem três pessoas a atender, e o
+     histórico de cada cartão já guardava o nome de quem carimbou desde o
+     primeiro dia — só que o nome era sempre o mesmo, porque só havia um
+     operador possível. */
+  const quem = el('section', { class: 'seccao' },
+    el('h2', { class: 'seccao-titulo', texto: 'Quem carimba' }),
+    el('div', { class: 'lista', id: 'lista-operadores' },
+      el('div', { class: 'linha' },
+        el('span', { class: 'linha-texto' }, el('b', { texto: 'A ver…' })))));
+  principal.append(quem);
+  /* A LISTA VEM DEPOIS, e o ecrã não espera por ela. Este ecrã é o das
+     definições do cartão: fazê-lo esperar por um pedido que nada tem que ver
+     com o cartão era pôr o dono a olhar para um ecrã branco por causa de uma
+     secção que está no fim. */
+  pintarOperadores(quem).catch((e) => {
+    const caixa = quem.querySelector('#lista-operadores');
+    if (caixa) {
+      caixa.innerHTML = '';
+      caixa.append(el('div', { class: 'linha' },
+        el('span', { class: 'linha-texto' },
+          el('b', { texto: 'Não deu para carregar quem carimba' }),
+          el('span', { texto: e.message || 'Tenta outra vez daqui a pouco.' }))));
+    }
+  });
+
   /* UM BALCÃO PERDIDO NÃO SE PODIA EXPULSAR, e o cenário é banal: o telemóvel
      fica no táxi, ou alguém sai zangado com a app instalada. A sessão dura 180
      dias E desliza a cada utilização — o que resolve «ficar sempre ligado» e
@@ -1369,6 +1394,219 @@ function expulsarBalcoes() {
         } catch (e) {
           botao.removeAttribute('aria-disabled');
           avisar(e.message || 'Não deu para terminar.', 'mau');
+        }
+      } }),
+    el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
+      aoClick: fecharPainel }));
+}
+
+/* =========================================================================
+   Quem carimba
+
+   O histórico de cada cartão guarda o NOME de quem carimbou, e não o número
+   de ninguém — de propósito, para o histórico sobreviver a quem sai do café.
+   É essa decisão que manda em tudo o que está aqui: dois nomes iguais são
+   recusados, quem sai não se apaga (desactiva-se), e o ecrã explica porquê
+   quando recusa, em vez de dizer só que não.
+   ========================================================================= */
+
+/** Há quanto tempo, em português de balcão. */
+function desdeQuando(quando) {
+  if (!quando) return 'ainda não entrou';
+  const dias = Math.floor((Date.now() - new Date(quando).getTime()) / 86400000);
+  if (dias <= 0) return 'esteve cá hoje';
+  if (dias === 1) return 'esteve cá ontem';
+  if (dias < 30) return `há ${dias} dias`;
+  const meses = Math.floor(dias / 30);
+  return meses === 1 ? 'há um mês' : `há ${meses} meses`;
+}
+
+async function pintarOperadores(seccao) {
+  const r = await api.operadores();
+  const caixa = seccao.querySelector('#lista-operadores');
+  if (!caixa) return;
+  const souDono = r.sou === 'dono';
+  caixa.innerHTML = '';
+
+  for (const o of r.operadores) {
+    const souEu = o.id === r.eu;
+    /* O DONO NÃO SE TIRA A SI, e o botão não aparece — em vez de aparecer e
+       dar um erro depois de tocado. A regra está no servidor na mesma; isto é
+       só não oferecer o que não se pode fazer. */
+    const podeMexer = souDono && !souEu;
+    caixa.append(el('div', { class: 'linha' },
+      el('span', { class: 'linha-icone', html: icone(o.papel === 'dono' ? 'cadeado' : 'pessoas', { tamanho: 20 }) }),
+      el('span', { class: 'linha-texto' },
+        el('b', { texto: o.nome + (souEu ? ' (tu)' : '') }),
+        el('span', { texto: [
+          o.papel === 'dono' ? 'Dono' : 'Balcão',
+          desdeQuando(o.visto),
+          /* A morada só chega cá quando quem está a ver é o dono — é ele que
+             precisa dela para tirar quem saiu. Aos outros nem vem da API. */
+          o.email || null,
+        ].filter(Boolean).join(' · ') })),
+      podeMexer
+        ? el('span', { class: 'linha-fim' },
+          el('button', { class: 'btn btn-fantasma btn-pequeno', texto: 'Mudar',
+            'aria-label': `Mudar ${o.nome}`,
+            aoClick: () => painelDeOperador(o, seccao, r) }))
+        : el('span', { class: 'linha-fim' })));
+  }
+
+  if (!souDono) {
+    caixa.append(el('div', { class: 'linha' },
+      el('span', { class: 'linha-texto' },
+        el('span', { texto: 'Juntar ou tirar quem carimba é do dono do balcão.' }))));
+    return;
+  }
+
+  const cheio = r.operadores.length >= r.tecto;
+  seccao.append(el('button', {
+    class: 'btn btn-suave btn-bloco', id: 'juntar-operador', style: 'margin-top:12px',
+    'aria-disabled': cheio ? 'true' : null,
+    html: icone('mais', { tamanho: 18 }) + '<span>Juntar quem carimba</span>',
+    aoClick: () => { if (!cheio) painelDeOperador(null, seccao, r); },
+  }));
+  seccao.append(el('p', { class: 'miudo', style: 'margin-top:8px', texto: cheio
+    ? `Já são ${r.tecto}, que é o máximo. Tira alguém antes de juntar outro.`
+    : 'Cada pessoa entra com o email dela e o nome dela fica no histórico de '
+      + 'cada cartão — é assim que se sabe quem atendeu.' }));
+}
+
+/** Volta a pintar a secção depois de uma mudança, sem recarregar o ecrã. */
+async function recarregarOperadores(seccao) {
+  for (const velho of [...seccao.querySelectorAll('button, p.miudo')]) velho.remove();
+  const caixa = seccao.querySelector('#lista-operadores');
+  if (caixa) caixa.innerHTML = '';
+  await pintarOperadores(seccao);
+}
+
+/**
+ * Juntar alguém, ou mexer em quem já cá está.
+ *
+ * O MESMO PAINEL PARA AS DUAS COISAS, porque são a mesma coisa vista de dois
+ * lados — e porque um painel de «juntar» e outro de «editar» divergem sempre,
+ * e a divergência aparece no campo do nome, que é o que tem a regra difícil.
+ */
+function painelDeOperador(o, seccao, estadoLista) {
+  const novo = !o;
+  const painel = abrirPainel(novo ? 'Juntar quem carimba' : o.nome);
+
+  painel.append(el('p', { class: 'subtexto', texto: novo
+    ? 'Ele entra no balcão com o email dele — não há palavra-passe nenhuma '
+      + 'para combinar, nem PIN para escrever à frente dos clientes.'
+    : 'O nome é o que fica no histórico de cada cartão que esta pessoa '
+      + 'carimbar.' }));
+
+  const campoNome = el('input', { id: 'op-nome', type: 'text',
+    maxlength: '40', autocomplete: 'off', value: novo ? '' : o.nome,
+    placeholder: 'Marta da tarde' });
+  painel.append(el('label', { class: 'campo' },
+    el('span', { texto: 'Nome' }), campoNome));
+
+  let campoEmail = null;
+  if (novo) {
+    campoEmail = el('input', { id: 'op-email', type: 'email',
+      inputmode: 'email', autocomplete: 'off', placeholder: 'marta@exemplo.pt' });
+    painel.append(el('label', { class: 'campo' },
+      el('span', { texto: 'Email' }), campoEmail));
+    painel.append(el('p', { class: 'miudo', style: 'margin-bottom:16px', texto:
+      'Mandamos-lhe um email a dizer como entrar. Não vai lá código nenhum: o '
+      + 'código chega quando ele o pedir, e vale quinze minutos.' }));
+  }
+
+  const aviso = el('p', { class: 'aviso-mau', hidden: true, role: 'alert' });
+  painel.append(aviso);
+  const dizer = (m) => { aviso.textContent = m; aviso.hidden = false; };
+
+  painel.append(el('button', {
+    class: 'btn btn-cheio btn-bloco btn-grande',
+    texto: novo ? 'Juntar' : 'Guardar',
+    aoClick: async (ev) => {
+      const botao = ev.currentTarget;
+      if (botao.getAttribute('aria-disabled') === 'true') return;
+      botao.setAttribute('aria-disabled', 'true');
+      aviso.hidden = true;
+      try {
+        if (novo) {
+          const r = await api.juntarOperador({
+            nome: campoNome.value, email: campoEmail.value });
+          fecharPainel();
+          await recarregarOperadores(seccao);
+          /* SE O EMAIL NÃO SAIU, DIZ-SE. A pessoa existe na mesma e o dono
+             pode avisá-la de viva voz — que é o que acontece num café. Calar
+             isto era deixar o dono à espera de um email que não vem. */
+          avisar(r.avisado
+            ? 'Juntámos. Foi-lhe um email a dizer como entrar.'
+            : 'Juntámos, mas o email não saiu. Diz-lhe para abrir o balcão e '
+              + 'entrar com a morada dele.', r.avisado ? 'bom' : 'neutro');
+        } else {
+          await api.mudarOperador(o.id, { nome: campoNome.value });
+          fecharPainel();
+          await recarregarOperadores(seccao);
+          avisar('Nome mudado.', 'bom');
+        }
+      } catch (e) {
+        botao.removeAttribute('aria-disabled');
+        dizer(e.message || 'Não deu para gravar.');
+      }
+    } }));
+
+  if (!novo) {
+    /* PROMOVER A DONO. Dois sócios existem, e um café onde só uma pessoa
+       consegue arrumar o balcão fica preso no dia em que ela falta. */
+    if (o.papel !== 'dono') {
+      painel.append(el('button', {
+        class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Fazer dono também',
+        aoClick: async (ev) => {
+          const botao = ev.currentTarget;
+          botao.setAttribute('aria-disabled', 'true');
+          try {
+            await api.mudarOperador(o.id, { papel: 'dono' });
+            fecharPainel();
+            await recarregarOperadores(seccao);
+            avisar(`${o.nome} passa a poder arrumar o balcão.`, 'bom');
+          } catch (e) {
+            botao.removeAttribute('aria-disabled');
+            dizer(e.message || 'Não deu para mudar.');
+          }
+        } }));
+    }
+    painel.append(el('button', {
+      class: 'btn btn-perigo btn-bloco', style: 'margin-top:8px',
+      texto: 'Tirar do balcão',
+      aoClick: () => confirmarTirarOperador(o, seccao, estadoLista) }));
+  }
+
+  painel.append(el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno',
+    texto: 'Cancelar', aoClick: fecharPainel }));
+  campoNome.focus();
+}
+
+function confirmarTirarOperador(o, seccao) {
+  const painel = abrirPainel(`Tirar ${o.nome}?`);
+  painel.append(
+    el('p', { class: 'subtexto', texto:
+      'Deixa de poder entrar neste balcão, e a sessão dele fecha-se já — mesmo '
+      + 'que tenha o telemóvel aberto neste momento.' }),
+    el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
+      el('p', { class: 'miudo', html:
+        'Os carimbos que ele deu <b>ficam no histórico</b>, com o nome dele. É '
+        + 'o que permite saber quem atendeu, e não se apaga por alguém ter '
+        + 'saído do café.' })),
+    el('button', {
+      class: 'btn btn-perigo btn-bloco btn-grande', texto: `Tirar ${o.nome}`,
+      aoClick: async (ev) => {
+        const botao = ev.currentTarget;
+        botao.setAttribute('aria-disabled', 'true');
+        try {
+          await api.tirarOperador(o.id);
+          fecharPainel();
+          await recarregarOperadores(seccao);
+          avisar(`${o.nome} já não carimba neste balcão.`, 'bom');
+        } catch (e) {
+          botao.removeAttribute('aria-disabled');
+          avisar(e.message || 'Não deu para tirar.', 'mau');
         }
       } }),
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',

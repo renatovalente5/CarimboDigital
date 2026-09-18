@@ -30,6 +30,23 @@ function certo(condicao, descricao, detalhe = '') {
 
 function grupo(nome) { console.log(`\n${nome}`); }
 
+/**
+ * Uma sessão de balcão para um operador qualquer, sem passar pelo correio.
+ *
+ * Mete-se o código na tabela das entradas, como o email faria, e troca-se.
+ * É o mesmo caminho que a pessoa percorre — só sem o carteiro pelo meio.
+ */
+async function sessaoDeOperador(operadorId, correio) {
+  const codigo = String(100000 + Math.floor(Math.random() * 899999));
+  const resumo = createHash('sha256').update(`${correio}|${codigo}`).digest('hex');
+  const expira = new Date(Date.now() + 600000).toISOString();
+  sql(`DELETE FROM entradas WHERE email = '${correio}'`);
+  sql(`INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em)
+       VALUES ('${resumo}', 'operador:${operadorId}', '${correio}', datetime('now'), '${expira}')`);
+  const r = await pedir('/v1/balcao/sessao', { metodo: 'POST', corpo: { email: correio, codigo } });
+  return r.dados.sessao;
+}
+
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -4337,6 +4354,147 @@ grupo('Avisar quando o cartão fica cheio');
     'e apagar a conta leva os aparelhos — mandar um aviso a quem pediu para desaparecer seria o pior fim');
 
   await fetch(`${GOOGLE}/__limpar`, { method: 'POST' });
+}
+
+grupo('Quem está ao balcão');
+{
+  /* Um café com três turnos tem três pessoas a carimbar, e o dono quer saber
+     quem atendeu. O que aqui se persegue não é «a lista aparece» — é o que
+     esta funcionalidade tem de caro:
+
+     · dois nomes iguais e activos matam o histórico, que guarda o NOME;
+     · quem carimba não pode tirar o dono do próprio café;
+     · e tirar alguém tem de FECHAR A PORTA no mesmo gesto, senão a sessão que
+       ficou viva é a pessoa a continuar a carimbar depois de sair. */
+
+  /* O estado de que este grupo depende é dele. O `o1` do semear é o dono. */
+  sql(`DELETE FROM operadores WHERE negocio_id = 'n1' AND id != 'o1'`);
+  sql(`UPDATE operadores SET papel = 'dono', ativo = 1, nome = 'Balcão' WHERE id = 'o1'`);
+
+  const lista = await pedir('/v1/balcao/operadores', { sessao: sessaoBalcao });
+  certo(lista.estado === 200 && lista.dados.operadores.length === 1,
+    'o balcão começa com uma pessoa — quem o fundou',
+    JSON.stringify(lista.dados).slice(0, 140));
+  certo(lista.dados.sou === 'dono' && lista.dados.operadores[0].papel === 'dono',
+    'e ela é o dono');
+  certo(lista.dados.operadores[0].email === 'muda-me@exemplo.pt',
+    'ao dono mostra-se a morada — é por ela que ele tira quem saiu');
+
+  /* --- juntar --------------------------------------------------------- */
+  const juntar = (corpo) => pedir('/v1/balcao/operadores',
+    { metodo: 'POST', sessao: sessaoBalcao, corpo });
+
+  const nova = await juntar({ nome: 'Marta', email: 'marta@exemplo.pt' });
+  certo(nova.estado === 200 && nova.dados.operador.papel === 'balcao',
+    'juntar um colega dá um operador de balcão, não um dono',
+    JSON.stringify(nova.dados).slice(0, 140));
+  certo(nova.dados.operador.visto === null,
+    'e ele nasce por entrar — «ainda não entrou» é diferente de «anda cá todos os dias»');
+  certo(nova.dados.avisado === false,
+    'sem canal de correio nestes testes, o convite não sai — e diz-se, em vez de fingir');
+  certo(linhas(`SELECT COUNT(*) AS n FROM operadores WHERE negocio_id = 'n1' AND ativo = 1`)[0].n === 2,
+    'e a linha ficou mesmo na base');
+
+  const semNome = await juntar({ nome: '   ', email: 'x@exemplo.pt' });
+  certo(semNome.estado === 400 && semNome.dados.codigo === 'sem-nome',
+    'sem nome não entra — o histórico ficaria com um espaço em branco a carimbar');
+  const semEmail = await juntar({ nome: 'Rui', email: 'rui' });
+  certo(semEmail.estado === 400 && semEmail.dados.codigo === 'email-mau',
+    'e sem morada válida também não: é por ela que ele entra');
+
+  /* --- o nome repetido, que é o que isto existe para impedir ----------- */
+  const igual = await juntar({ nome: 'marta  ', email: 'outra@exemplo.pt' });
+  certo(igual.estado === 409 && igual.dados.codigo === 'nome-repetido',
+    'dois «Marta» activos são recusados — sem maiúsculas e sem espaços, que é como se lê',
+    JSON.stringify(igual.dados).slice(0, 120));
+  certo(String(igual.dados.erro).includes('histórico'),
+    'e diz PORQUÊ, em vez de mandar a pessoa adivinhar', String(igual.dados.erro));
+
+  const mesmaMorada = await juntar({ nome: 'Outra pessoa', email: 'marta@exemplo.pt' });
+  certo(mesmaMorada.estado === 409 && mesmaMorada.dados.codigo === 'email-repetido',
+    'e a mesma morada duas vezes também — entrar é pela morada');
+
+  /* --- só o dono mexe -------------------------------------------------- */
+  const sessaoMarta = await sessaoDeOperador(nova.dados.operador.id, 'marta@exemplo.pt');
+  const martaVe = await pedir('/v1/balcao/operadores', { sessao: sessaoMarta });
+  certo(martaVe.estado === 200 && martaVe.dados.operadores.length === 2,
+    'quem carimba VÊ com quem trabalha — não é segredo dentro do balcão');
+  certo(martaVe.dados.operadores.every((o) => o.email === undefined),
+    'mas não vê as moradas dos colegas — não faz falta para carimbar',
+    JSON.stringify(martaVe.dados.operadores));
+
+  const martaJunta = await pedir('/v1/balcao/operadores',
+    { metodo: 'POST', sessao: sessaoMarta, corpo: { nome: 'Zé', email: 'ze@exemplo.pt' } });
+  certo(martaJunta.estado === 403 && martaJunta.dados.codigo === 'so-o-dono',
+    'e não junta ninguém — senão o primeiro colega enche o balcão');
+  const martaTira = await pedir('/v1/balcao/operadores/o1',
+    { metodo: 'DELETE', sessao: sessaoMarta });
+  certo(martaTira.estado === 403 && martaTira.dados.codigo === 'so-o-dono',
+    'nem tira o dono do próprio café, que era o pior que podia fazer');
+
+  /* --- o dono não se tira a si ---------------------------------------- */
+  const euNao = await pedir('/v1/balcao/operadores/o1',
+    { metodo: 'DELETE', sessao: sessaoBalcao });
+  certo(euNao.estado === 409 && euNao.dados.codigo === 'eu-nao',
+    'o dono não se tira a si próprio — ficava de fora do balcão dele');
+  const ultimoDono = await pedir(`/v1/balcao/operadores/o1`,
+    { metodo: 'PATCH', sessao: sessaoBalcao, corpo: { papel: 'balcao' } });
+  certo(ultimoDono.estado === 409 && ultimoDono.dados.codigo === 'ultimo-dono',
+    'nem se despromove sendo o último — um balcão sem dono não se volta a arrumar');
+
+  /* --- mudar o nome ---------------------------------------------------- */
+  const renomear = await pedir(`/v1/balcao/operadores/${nova.dados.operador.id}`,
+    { metodo: 'PATCH', sessao: sessaoBalcao, corpo: { nome: 'Marta da tarde' } });
+  certo(renomear.estado === 200 && renomear.dados.operador.nome === 'Marta da tarde',
+    'o dono muda o nome de quem lá está — é o que resolve os dois «Marta»');
+  const nomeDoDono = await pedir(`/v1/balcao/operadores/${nova.dados.operador.id}`,
+    { metodo: 'PATCH', sessao: sessaoBalcao, corpo: { nome: 'balcão' } });
+  certo(nomeDoDono.estado === 409 && nomeDoDono.dados.codigo === 'nome-repetido',
+    'e não lhe pode dar o nome de outro que lá esteja');
+
+  /* --- promover, e só então tirar o dono ------------------------------- */
+  const promover = await pedir(`/v1/balcao/operadores/${nova.dados.operador.id}`,
+    { metodo: 'PATCH', sessao: sessaoBalcao, corpo: { papel: 'dono' } });
+  certo(promover.estado === 200 && promover.dados.operador.papel === 'dono',
+    'um café pode ter dois donos — são dois sócios, e isso existe');
+
+  /* --- tirar fecha a porta --------------------------------------------- */
+  /* A Marta é agora dona e tem sessão. O `o1` tira-a, e a sessão dela tem de
+     morrer NO MESMO GESTO: uma sessão viva depois de alguém sair do balcão é
+     a pessoa a continuar a carimbar. */
+  const antesDeSair = await pedir('/v1/balcao/resumo', { sessao: sessaoMarta });
+  certo(antesDeSair.estado === 200, 'a sessão dela funcionava (o teste é válido)');
+
+  const tirou = await pedir(`/v1/balcao/operadores/${nova.dados.operador.id}`,
+    { metodo: 'DELETE', sessao: sessaoBalcao });
+  certo(tirou.estado === 200, 'o dono tira quem saiu', JSON.stringify(tirou.dados));
+  certo(linhas(`SELECT ativo FROM operadores WHERE id = '${nova.dados.operador.id}'`)[0].ativo === 0,
+    'e a linha fica DESACTIVADA, não apagada — o histórico guarda o nome, e a linha guarda o resto');
+  const depoisDeSair = await pedir('/v1/balcao/resumo', { sessao: sessaoMarta });
+  certo(depoisDeSair.estado !== 200,
+    'e a sessão dela morre no mesmo gesto — senão continuava a carimbar depois de sair',
+    String(depoisDeSair.estado));
+
+  /* --- e o nome fica livre outra vez ----------------------------------- */
+  const outraMarta = await juntar({ nome: 'Marta da tarde', email: 'marta2@exemplo.pt' });
+  certo(outraMarta.estado === 200,
+    'quem sai liberta o nome — o índice é parcial de propósito',
+    JSON.stringify(outraMarta.dados).slice(0, 120));
+  const mesmaMoradaOutraVez = await juntar({ nome: 'Marta de novo', email: 'marta@exemplo.pt' });
+  certo(mesmaMoradaOutraVez.estado === 200,
+    'e liberta a morada — quem saiu pode voltar');
+
+  /* --- o tecto ---------------------------------------------------------- */
+  sql(`DELETE FROM operadores WHERE negocio_id = 'n1' AND id != 'o1'`);
+  for (let i = 0; i < 9; i++) {
+    await juntar({ nome: `Turno ${i}`, email: `turno${i}@exemplo.pt` });
+  }
+  const cheio = await juntar({ nome: 'Um a mais', email: 'amais@exemplo.pt' });
+  certo(cheio.estado === 409 && cheio.dados.codigo === 'cheio',
+    'ao décimo o balcão está cheio — um balcão não é uma lista de correio',
+    `${cheio.estado} ${cheio.dados.codigo}`);
+
+  sql(`DELETE FROM operadores WHERE negocio_id = 'n1' AND id != 'o1'`);
 }
 
 /* --------------------------------------------------------------------- */

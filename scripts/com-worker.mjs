@@ -489,16 +489,62 @@ export async function comWorker(tarefa, { porta = 8787, tecto = 90000, limpo = f
     }
     await esperar(400);
   }
+  let saida;
   try {
-    return await tarefa(API);
+    saida = await tarefa(API);
   } catch (erro) {
     /* Se a tarefa rebentou, o que interessa é o que o Worker disse — um
        ECONNRESET do lado do teste é o sintoma, e a causa está no registo. */
     console.error(`\nO Worker, nos últimos instantes:\n${registo.slice(-2500)}`);
-    throw erro;
-  } finally {
     matar();
+    throw erro;
   }
+
+  /* =======================================================================
+     UM ERRO POR ATENDER NO WORKER REPROVA A CORRIDA
+
+     A app já tinha isto: a bateria de browser afirma «nada rebentou por
+     baixo», e foi ela que apanhou o defeito mais caro desta casa. O Worker
+     não tinha nada parecido — e o que se perdia é precisamente a classe de
+     erro que ninguém vê:
+
+     · dentro de um `ctx.waitUntil()`, que corre DEPOIS de a resposta ter
+       saído: o teste vê 200, a pessoa vê 200, e a tarefa morre sozinha;
+     · num 500, que chega ao teste como `{"erro":"Erro interno"}` e mais nada
+       — de propósito, que um erro interno não se conta a quem bate à porta.
+       Do lado de cá isso deixava um `ReferenceError` numa rota e um erro de
+       base de dados a lerem-se exactamente igual.
+
+     Encontrou um à primeira corrida: o `espelharClassesDoNegocio` fazia
+     `const [primeira] = ps` numa lista que está vazia enquanto ninguém tiver
+     posto um cartão daquele negócio na Carteira — ou seja, sempre, no
+     princípio. Oito erros por atender, e zero testes a falhar.
+
+     PROCURA-SE «Uncaught», e não «error». As linhas que o próprio código
+     escreve com `console.error` são deliberadas — «wallet: não deu para
+     actualizar a classe» é um caminho previsto e tratado. O que nunca é
+     deliberado é um erro que ninguém apanhou.
+     ======================================================================= */
+  const semCores = registo.replace(/\u001b\[[0-9;]*m/g, '');
+  const rebentou = semCores.split('\n')
+    .filter((l) => /Uncaught|UnhandledPromiseRejection/.test(l))
+    .map((l) => l.replace(/^\s*[^A-Za-z]*\[ERROR\]\s*/, '').trim());
+  matar();
+
+  if (rebentou.length) {
+    const unicos = [...new Set(rebentou)];
+    console.error(`\n✗ O Worker atirou ${rebentou.length} erro(s) por atender:`);
+    for (const l of unicos.slice(0, 8)) console.error(`  · ${l.slice(0, 180)}`);
+    /* A PILHA, que é o que falta para os encontrar. O wrangler escreve-a nas
+       linhas a seguir, indentadas. */
+    const pilha = semCores.split('\n')
+      .filter((l) => /^\s+at /.test(l)).slice(0, 6);
+    for (const l of pilha) console.error(`    ${l.trim().slice(0, 180)}`);
+    console.error('\n  Um erro por atender num `waitUntil` não falha pedido nenhum '
+      + 'e não aparece\n  em teste nenhum — é por isso que reprova aqui.\n');
+    return 1;
+  }
+  return saida;
 }
 
 /* Correr directamente: `node scripts/com-worker.mjs worker/testes.mjs` */

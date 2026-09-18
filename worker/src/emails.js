@@ -506,3 +506,80 @@ export function emailCodigoBalcao({ codigo, minutos = 15, negocio, entidade } = 
     ].join('\n'),
   };
 }
+
+/**
+ * «Puseram-te no balcão do X.»
+ *
+ * NÃO LEVA CÓDIGO NENHUM, e isso é de propósito. Um código dentro de um email
+ * de convite é um código que fica na caixa de correio de alguém à espera de
+ * ser usado por quem lá chegar; e este email pode ficar por abrir uma semana.
+ * O que ele traz é o caminho — abre o balcão, escreve esta morada, e o código
+ * chega nesse momento, a valer quinze minutos. Uma volta a mais, e uma coisa
+ * a menos para correr mal.
+ *
+ * Também não traz botão. O balcão vive num endereço que se escreve à mão uma
+ * vez e fica no ecrã principal do telemóvel; um botão num email leva-o a abrir
+ * dentro do cliente de correio, que é precisamente onde ele não deve viver.
+ */
+export function emailConviteOperador({ negocio, quem, entidade } = {}) {
+  const onde = negocio ? seguro(negocio) : 'um balcão';
+  const porQuem = quem ? ` ${seguro(quem)}` : ' alguém';
+
+  const corpo = [
+    h1('Já podes carimbar'),
+    espaco(14),
+    p(`${porQuem} juntou-te ao balcão de <strong class="forte" `
+      + `style="color:${TINTA}">${onde}</strong> no Carimbo Digital. `
+      + 'A partir de agora podes carimbar os cartões dos clientes com o teu '
+      + 'próprio telemóvel.'),
+    espaco(20),
+    p(`<strong class="forte" style="color:${TINTA}">Abre ${SITIO}/balcao/</strong> `
+      + 'e entra com esta morada de email. Chega-te um código nesse momento.'),
+    espaco(18),
+    p('Depois de entrares, guarda a página no ecrã principal: passa a abrir '
+      + 'como uma aplicação e não tens de voltar a escrever o endereço.'),
+    espaco(24),
+    risca(),
+    espaco(18),
+    miudo('Cada carimbo que deres fica com o teu nome no histórico do cartão — '
+      + 'é assim que o balcão sabe quem atendeu.'),
+    espaco(10),
+    miudo('Não te pedimos palavra-passe nenhuma: entra-se sempre com um código '
+      + 'que chega a esta morada.'),
+    espaco(10),
+    miudo('Se isto não te diz nada, ignora este email. Sem o código, ninguém '
+      + 'entra em balcão nenhum.'),
+  ].join('\n');
+
+  return {
+    assunto: `Já podes carimbar no balcão de ${negocio || 'um negócio'}`,
+    html: molde({
+      titulo: 'Já podes carimbar',
+      preheader: `Abre ${SITIO}/balcao/ e entra com esta morada de email.`,
+      corpo,
+      entidade,
+      porque: 'Este email foi enviado porque esta morada foi junta ao balcão de '
+        + 'um negócio no Carimbo Digital. Não enviamos publicidade.',
+    }),
+    texto: [
+      'Já podes carimbar',
+      '',
+      `${quem || 'Alguém'} juntou-te ao balcão de ${negocio || 'um negócio'} no`,
+      'Carimbo Digital. A partir de agora podes carimbar os cartões dos',
+      'clientes com o teu próprio telemóvel.',
+      '',
+      `Abre ${SITIO}/balcao/ e entra com esta morada de email. Chega-te um`,
+      'código nesse momento.',
+      '',
+      'Depois de entrares, guarda a página no ecrã principal: passa a abrir',
+      'como uma aplicação e não tens de voltar a escrever o endereço.',
+      '',
+      'Cada carimbo que deres fica com o teu nome no histórico do cartão.',
+      '',
+      'Se isto não te diz nada, ignora este email.',
+      '',
+      '—',
+      `Carimbo Digital · ${SITIO}`,
+    ].join('\n'),
+  };
+}

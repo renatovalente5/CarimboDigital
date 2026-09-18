@@ -760,6 +760,77 @@ function criarDemo() {
 
     async sairDosOutrosBalcoes() { return { feito: true, demo: true }; },
 
+    /* QUEM CARIMBA, na demonstração. As regras que interessam ensinar são as
+       recusas — dois nomes iguais, a mesma morada duas vezes, tirar-se a si
+       próprio —, por isso são essas que aqui estão a valer. O que não
+       acontece é sair email nenhum: `avisado: false`, e o balcão di-lo. */
+    async operadores() {
+      const e = estado();
+      if (!e.operadores) {
+        e.operadores = [{ id: 'o-demo', nome: 'Balcão', email: 'tu@exemplo.pt',
+                          papel: 'dono', desde: agora(), visto: agora() }];
+        gravar(e);
+      }
+      return { eu: 'o-demo', sou: 'dono', tecto: 10, operadores: e.operadores };
+    },
+
+    async juntarOperador({ nome, email } = {}) {
+      const e = estado();
+      const limpo = String(nome || '').trim().slice(0, 40);
+      const correio = String(email || '').trim().toLowerCase();
+      if (!limpo) throw new Error('Falta o nome.');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correio)) throw new Error('Esse email não parece válido.');
+      e.operadores = e.operadores || [];
+      if (e.operadores.length >= 10) throw new Error('Um balcão tem no máximo 10 pessoas.');
+      if (e.operadores.some((o) => o.nome.trim().toLowerCase() === limpo.toLowerCase())) {
+        throw new Error(`Já há um «${limpo}» neste balcão. O histórico guarda o nome `
+          + 'de quem carimbou — dá-lhe um que o distinga.');
+      }
+      if (e.operadores.some((o) => o.email === correio)) {
+        throw new Error('Essa morada já está neste balcão.');
+      }
+      const novo = { id: `op-${Math.random().toString(36).slice(2, 9)}`, nome: limpo,
+                     email: correio, papel: 'balcao', desde: agora(), visto: null };
+      e.operadores.push(novo);
+      gravar(e);
+      return { operador: novo, avisado: false, demo: true };
+    },
+
+    async mudarOperador(operadorId, dados = {}) {
+      const e = estado();
+      const o = (e.operadores || []).find((x) => x.id === operadorId);
+      if (!o) throw new Error('Essa pessoa já não está neste balcão.');
+      if (dados.nome !== undefined) {
+        const limpo = String(dados.nome || '').trim().slice(0, 40);
+        if (!limpo) throw new Error('Falta o nome.');
+        if (e.operadores.some((x) => x.id !== o.id
+            && x.nome.trim().toLowerCase() === limpo.toLowerCase())) {
+          throw new Error(`Já há um «${limpo}» neste balcão.`);
+        }
+        o.nome = limpo;
+      }
+      if (dados.papel !== undefined) {
+        const papel = dados.papel === 'dono' ? 'dono' : 'balcao';
+        if (o.papel === 'dono' && papel !== 'dono'
+            && e.operadores.filter((x) => x.papel === 'dono').length <= 1) {
+          throw new Error('Este é o último dono do balcão. Faz outro dono primeiro.');
+        }
+        o.papel = papel;
+      }
+      gravar(e);
+      return { operador: o, demo: true };
+    },
+
+    async tirarOperador(operadorId) {
+      const e = estado();
+      if (operadorId === 'o-demo') {
+        throw new Error('Não te podes tirar a ti. Faz outro dono primeiro.');
+      }
+      e.operadores = (e.operadores || []).filter((o) => o.id !== operadorId);
+      gravar(e);
+      return { feito: true, demo: true };
+    },
+
     async tirarAlcunha(cartaoId) {
       const e = estado();
       const c = e.cartoes.find((x) => x.id === cartaoId);
@@ -999,6 +1070,15 @@ export const api = MODO === 'remoto'
       historicoDoCartao: (cartaoId) =>
         remoto.pedir(`/v1/balcao/cartoes/${cartaoId}/historico`),
       sairDosOutrosBalcoes: () => remoto.pedir('/v1/balcao/sair-dos-outros', { metodo: 'POST' }),
+      /* QUEM CARIMBA. O nome de cada um fica no histórico de cada cartão que
+         ele carimbar — é essa decisão que explica as recusas do outro lado. */
+      operadores: () => remoto.pedir('/v1/balcao/operadores'),
+      juntarOperador: (dados) =>
+        remoto.pedir('/v1/balcao/operadores', { metodo: 'POST', corpo: dados }),
+      mudarOperador: (operadorId, dados) =>
+        remoto.pedir(`/v1/balcao/operadores/${operadorId}`, { metodo: 'PATCH', corpo: dados }),
+      tirarOperador: (operadorId) =>
+        remoto.pedir(`/v1/balcao/operadores/${operadorId}`, { metodo: 'DELETE' }),
       /* Do lado do cliente: ver a alcunha é no cartão; tirá-la é aqui. */
       tirarAlcunha: (cartaoId) =>
         remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/alcunha`, { metodo: 'DELETE' }),

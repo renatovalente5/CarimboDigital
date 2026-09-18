@@ -179,7 +179,10 @@ CREATE TABLE IF NOT EXISTS operadores (
   email       TEXT,
   papel       TEXT NOT NULL DEFAULT 'balcao',   -- dono | balcao
   ativo       INTEGER NOT NULL DEFAULT 1,
-  criado_em   TEXT NOT NULL
+  criado_em   TEXT NOT NULL,
+  -- Última entrada. NULL = convidado e ainda não entrou, e o balcão di-lo: é a
+  -- diferença entre um convite por usar e um colega que já cá esteve.
+  visto_em    TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_operadores_negocio ON operadores(negocio_id);
 CREATE INDEX IF NOT EXISTS ix_operadores_email ON operadores(email);
@@ -187,6 +190,13 @@ CREATE INDEX IF NOT EXISTS ix_operadores_email ON operadores(email);
 -- activos com a mesma morada davam um balcão inalcançável.
 CREATE UNIQUE INDEX IF NOT EXISTS ix_operadores_email_unico
   ON operadores(email) WHERE email IS NOT NULL AND ativo = 1;
+-- E um NOME activo por balcão. O histórico guarda o nome de quem carimbou, e
+-- não o identificador — para sobreviver a quem sai do café. Com dois «João»
+-- activos, o histórico deixa de responder à pergunta que ter vários operadores
+-- existe para responder. Sem maiúsculas e sem espaços à volta, que é como uma
+-- pessoa lê dois nomes iguais.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_operadores_nome_unico
+  ON operadores(negocio_id, lower(trim(nome))) WHERE ativo = 1;
 
 -- --- sessões ------------------------------------------------------------
 -- Guarda-se o resumo do testemunho, nunca o testemunho. Quem leve uma cópia

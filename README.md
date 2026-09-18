@@ -80,6 +80,13 @@ node scripts/auditar.mjs                                 # ligações, prefixos,
 
 O CI corre-os todos. Se algum falhar, não se publica.
 
+As duas baterias reprovam também o que NINGUÉM PEDIU que elas vissem: a do
+browser afirma «nada rebentou por baixo» a cada módulo, e a do Worker reprova
+a corrida se ele atirar um erro por atender. É a classe de defeito que não
+aparece em teste nenhum — um erro dentro de um `ctx.waitUntil()` corre depois
+de a resposta ter saído, e o pedido dá 200 na mesma. A guarda encontrou um à
+primeira corrida.
+
 Os dois últimos merecem uma nota, porque fazem perguntas diferentes. O auditor
 lê o que foi construído; a bateria **conduz** — carrega nos botões com o rato,
 escreve nos campos e vê o que aparece. Ler o código apanhou 90 defeitos e
@@ -182,6 +189,28 @@ formulário com o campo já preenchido. Vai no **fragmento** e não na query
 string de propósito: o que está depois do `#` não entra no cabeçalho `Referer`
 nem nos registos de servidor nenhum, e o balcão limpa-o da barra de endereço
 mal o lê.
+
+### Quem carimba
+
+Um café com três turnos tem três pessoas a atender, e junta-se cada uma em
+**Balcão › O cartão › Quem carimba**. Cada uma entra com **o email dela** — não
+há PIN nem palavra-passe partilhada, que ao balcão é sempre um papelinho ao
+lado da caixa.
+
+Tudo o que é estranho nesta parte sai de uma decisão antiga: **o histórico de
+cada cartão guarda o NOME de quem carimbou, e não o identificador.** É o que o
+faz sobreviver a quem sai do café — e é por isso que:
+
+- **dois nomes iguais e activos são recusados.** Com dois «João», o histórico
+  deixa de responder à pergunta que isto existe para responder. Diz-se porquê,
+  e «João da tarde» resolve;
+- **quem sai desactiva-se, não se apaga**, e o índice do nome é parcial: sair
+  liberta o nome para quem vier a seguir;
+- **tirar alguém fecha-lhe a sessão no mesmo gesto** e queima os códigos por
+  usar — senão continuava a carimbar depois de sair.
+
+Só o dono junta e tira, não se pode tirar a si próprio nem despromover-se
+sendo o último, e cabem dez pessoas por balcão.
 
 > **Isto era um segredo do Worker, o `CODIGO_FUNDADOR`** — um código igual para
 > toda a gente, com usos infinitos, sem validade, sem registo de quem o usou, e

@@ -297,12 +297,30 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   > O MCC ficou **4816**. A consola chama-lhe «Computer Network Services» na
   > lista e «Internet Cafes» depois de gravar — é o mesmo código, é o standard
   > para serviços online, e o rótulo é da Google.
-- **Vários operadores por balcão.** POR FAZER, e **sem PIN** — a ideia do PIN
-  foi posta de lado a 17 de Setembro de 2026, por quem manda: o dono do balcão
-  entra uma vez com o email e fica ligado, e o cliente nunca escreve PIN
-  nenhum. O que falta é o balcão poder ter mais do que um email, para um café
-  com três turnos saber quem carimbou. O `movimentos.operador` já existe e o
-  histórico por cartão já está no ar.
+- ~~Vários operadores por balcão~~ — **feito a 18 de Setembro de 2026**, e
+  **sem PIN**: a ideia do PIN foi posta de lado a 17 de Setembro por quem
+  manda. Cada pessoa entra com o email dela, como o dono já entrava; um PIN ao
+  balcão é uma palavra-passe partilhada escrita num papelinho ao lado da caixa.
+
+  > **A tabela já aguentava isto desde o primeiro dia** — `operadores` tem
+  > `negocio_id`, tem `papel` e tem `ativo`. O que faltava era o Worker deixar
+  > juntar um segundo e o balcão ter onde o fazer.
+  >
+  > **Tudo o resto sai de uma decisão antiga:** o histórico de cada cartão
+  > guarda o **nome** de quem carimbou, e não o identificador — para o
+  > histórico sobreviver a quem sai do café. Daí vem que dois nomes iguais e
+  > activos sejam recusados (com dois «João», o histórico deixa de responder à
+  > pergunta que isto existe para responder), que quem sai se desactive em vez
+  > de se apagar, e que o índice do nome seja parcial: sair liberta o nome.
+  >
+  > As guardas: só o dono junta e tira; o dono não se tira a si próprio nem se
+  > despromove sendo o último; tirar alguém **fecha a sessão dele no mesmo
+  > gesto** e queima os códigos por usar; e o tecto é de dez, que é muito para
+  > um café e pouco para servir de lista de correio.
+  >
+  > O convite que sai por email **não leva código nenhum**: leva o caminho. Um
+  > código dentro de um email de convite fica na caixa de correio à espera de
+  > quem lá chegar, e este email pode ficar por abrir uma semana.
 - ~~Notificações~~ — **feitas a 18 de Setembro de 2026.** Um aviso só:
   **quando o cartão fica cheio**. É o momento em que o carimbo é dado no
   aparelho do balcão com a pessoa já a guardar o telemóvel, e do lado dela não
@@ -357,6 +375,25 @@ fechou no mesmo dia, assim que as portas existiram todas: não é um ecrã novo,
 
 A fase 7 (telefone) está **fora, decidido**. O que sobra está em §7 do plano do
 login, e nada disso bloqueia ninguém.
+
+### O que as duas baterias passaram a apanhar
+
+A 18 de Setembro de 2026 entraram duas guardas que não estavam a ser pedidas
+por ninguém, e cada uma encontrou um defeito **na primeira corrida**:
+
+- **Cada `api.x()` da app existe no `api.js`** (no auditor). Quando as portas
+  da Google e da Apple ficaram numa rota só, o `concluirGoogle` passou a
+  `concluirEntrada` e duas chamadas ficaram para trás — dentro de um `try` que
+  transformava o `TypeError` numa frase educada. A volta do OAuth ficou morta e
+  com ar de viva, e passou pelo `node --check`, pelo auditor e pelos 583 testes
+  da API.
+- **Um erro por atender no Worker reprova a corrida** (no banco de ensaios). O
+  `espelharClassesDoNegocio` desestruturava uma lista vazia dentro de um
+  `ctx.waitUntil()` — que corre DEPOIS de a resposta sair. Pedido a 200, testes
+  verdes, e oito erros por atender a cada corrida.
+
+As duas são da mesma família: defeitos que passam por todas as verificações
+porque ninguém está a olhar para onde eles aparecem.
 
 ## 9. Riscos
 

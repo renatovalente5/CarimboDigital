@@ -23,7 +23,8 @@
                            é segredo e está no wrangler.toml.
    ========================================================================= */
 
-import { emailCodigoCliente, emailCodigoBalcao, emailContaAApagar } from './emails.js';
+import { emailCodigoCliente, emailCodigoBalcao, emailContaAApagar,
+         emailConviteOperador } from './emails.js';
 import {
   assinarRS256, classeDePrograma, objetoDeCartao, ligacaoDeGravacao, actualizacaoDeSaldo,
   actualizacaoDeClasse,
@@ -3202,6 +3203,11 @@ rota('POST', '/v1/balcao/sessao', async (env, pedido) => {
   const linha = await consumirEntrada(env, email, codigo);
   const [tipo, valor] = linha.alvo.split(':');
   if (tipo !== 'operador') throw new Falha('Código inválido', { estado: 400 });
+  /* QUANDO É QUE ESTA PESSOA CÁ ESTEVE. Sem isto, a lista do balcão mostra
+     nomes e mais nada, e o dono não tem como distinguir um colega que anda cá
+     todos os dias de uma morada que ficou de um convite nunca usado. */
+  await env.DB.prepare('UPDATE operadores SET visto_em = ? WHERE id = ?')
+    .bind(agora(), valor).run();
   return { sessao: await criarSessao(env, `operador:${valor}`) };
 });
 
@@ -3553,6 +3559,14 @@ async function espelharClassesDoNegocio(env, negocioId, pedido, ctx) {
   const ps = (await env.DB.prepare(
     'SELECT id FROM programas WHERE negocio_id = ? AND wallet_classe IS NOT NULL'
   ).bind(negocioId).all()).results;
+  /* NENHUMA CLASSE É O CASO NORMAL, e não uma excepção: um negócio só tem
+     classe na Google depois de alguém pôr um cartão dele na Carteira. Sem esta
+     linha, o `const [primeira] = ps` que está em baixo apanhava `undefined` e
+     o `primeira.id` atirava DENTRO do `waitUntil` — depois de a resposta já ter
+     saído, portanto sem ninguém notar. Ficava um erro por atender no registo a
+     cada gravação de um negócio novo, e é assim que o registo deixa de servir
+     para encontrar o erro seguinte. */
+  if (!ps.length) return;
   const origem = origemDaAPI(pedido);
   /* A PRIMEIRA SOZINHA, AS OUTRAS JUNTAS.
 
@@ -4349,6 +4363,214 @@ rota('POST', '/v1/balcao/sair-dos-outros', async (env, pedido) => {
 
   await env.DB.batch(instrucoes);
   return { feito: true, operadores: operadores.length };
+});
+
+/* =========================================================================
+   Quem está ao balcão
+
+   Um café com três turnos tem três pessoas a carimbar, e o dono quer saber
+   quem atendeu. O `movimentos.operador` já guardava o nome desde o primeiro
+   dia e o histórico por cartão já está no ar; o que faltava era poder haver
+   um segundo nome.
+
+   TRÊS DECISÕES, e a primeira já estava tomada por quem manda:
+
+   · SEM PIN. O colega entra uma vez com o email dele e fica ligado, como o
+     dono. Um PIN ao balcão é uma palavra-passe partilhada escrita num
+     papelinho ao lado da caixa, que é pior do que não ter nada.
+
+   · O HISTÓRICO GUARDA O NOME, não o identificador. Por isso um operador que
+     sai não se apaga — desactiva-se —, e por isso dois nomes iguais e activos
+     no mesmo balcão são recusados: «João» e «João» no histórico não respondem
+     à pergunta que isto existe para responder.
+
+   · SÓ O DONO MEXE. Quem carimba carimba; juntar e tirar colegas é do dono,
+     senão o primeiro colega pode tirar o dono do próprio café.
+   ========================================================================= */
+
+/* Dez é muito para um café e pouco para servir de lista de correio. */
+const OPERADORES_MAX = 10;
+
+/** O dono, ou um erro que diz porquê. */
+async function exigirDono(env, pedido) {
+  const op = await exigirOperador(env, pedido);
+  if (op.papel !== 'dono') {
+    throw new Falha('Só o dono do balcão pode mexer em quem cá trabalha.',
+      { estado: 403, codigo: 'so-o-dono' });
+  }
+  return op;
+}
+
+/**
+ * Molda um operador para o ecrã.
+ *
+ * O EMAIL SÓ VAI PARA O DONO. Para ele é preciso — é por ele que se tira um
+ * colega que saiu. Para os outros é a morada pessoal de um colega, e mostrá-la
+ * a toda a gente que passa pelo balcão é recolher o que não faz falta.
+ */
+const moldarOperador = (o, { comEmail }) => ({
+  id: o.id,
+  nome: o.nome,
+  papel: o.papel,
+  ...(comEmail ? { email: o.email || null } : {}),
+  desde: o.criado_em,
+  visto: o.visto_em || null,
+});
+
+rota('GET', '/v1/balcao/operadores', async (env, pedido) => {
+  const eu = await exigirOperador(env, pedido);
+  const linhas = (await env.DB.prepare(
+    `SELECT id, nome, email, papel, criado_em, visto_em
+       FROM operadores WHERE negocio_id = ? AND ativo = 1
+      ORDER BY CASE papel WHEN 'dono' THEN 0 ELSE 1 END, criado_em`
+  ).bind(eu.negocio_id).all()).results;
+  return {
+    eu: eu.id,
+    sou: eu.papel,
+    tecto: OPERADORES_MAX,
+    operadores: linhas.map((o) => moldarOperador(o, { comEmail: eu.papel === 'dono' })),
+  };
+});
+
+rota('POST', '/v1/balcao/operadores', async (env, pedido) => {
+  const dono = await exigirDono(env, pedido);
+  const d = await corpoJSON(pedido);
+  const nome = String(d.nome || '').trim().slice(0, 40);
+  const correio = normalizarEmail(d.email);
+  if (!nome) throw new Falha('Falta o nome.', { estado: 400, codigo: 'sem-nome' });
+  if (!EMAIL_VALIDO.test(correio)) {
+    throw new Falha('Esse email não parece válido.', { estado: 400, codigo: 'email-mau' });
+  }
+
+  const quantos = (await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM operadores WHERE negocio_id = ? AND ativo = 1'
+  ).bind(dono.negocio_id).first()).n;
+  if (quantos >= OPERADORES_MAX) {
+    throw new Falha(`Um balcão tem no máximo ${OPERADORES_MAX} pessoas.`,
+      { estado: 409, codigo: 'cheio' });
+  }
+
+  /* AS DUAS COLISÕES DIZEM-SE ANTES DE ACONTECER, e não como um erro de base
+     de dados. Os índices continuam lá — são eles que fecham a corrida entre
+     dois pedidos ao mesmo tempo —, mas quem está a escrever um nome merece
+     uma frase que explique, e não um «erro interno». */
+  const jaComEsseEmail = await env.DB.prepare(
+    'SELECT negocio_id FROM operadores WHERE email = ? AND ativo = 1'
+  ).bind(correio).first();
+  if (jaComEsseEmail) {
+    throw new Falha(jaComEsseEmail.negocio_id === dono.negocio_id
+      ? 'Essa morada já está neste balcão.'
+      : 'Essa morada já está noutro balcão. Uma morada, um balcão.',
+    { estado: 409, codigo: 'email-repetido' });
+  }
+  const jaComEsseNome = await env.DB.prepare(
+    'SELECT id FROM operadores WHERE negocio_id = ? AND ativo = 1 AND lower(trim(nome)) = ?'
+  ).bind(dono.negocio_id, nome.toLowerCase()).first();
+  if (jaComEsseNome) {
+    throw new Falha(`Já há um «${nome}» neste balcão. O histórico guarda o nome `
+      + 'de quem carimbou — dá-lhe um que o distinga.',
+    { estado: 409, codigo: 'nome-repetido' });
+  }
+
+  const novoId = id();
+  await env.DB.prepare(
+    `INSERT INTO operadores (id, negocio_id, nome, email, papel, criado_em)
+     VALUES (?, ?, ?, ?, 'balcao', ?)`
+  ).bind(novoId, dono.negocio_id, nome, correio, agora()).run();
+
+  /* O CONVITE SAI DEPOIS DE A LINHA ESTAR GRAVADA, e o que ele traz não é um
+     código: é o caminho. Se o correio falhar, o operador existe na mesma e o
+     dono pode dizer-lhe de viva voz — que é o que acontece num café. */
+  const negocio = await env.DB.prepare(
+    'SELECT nome FROM negocios WHERE id = ?').bind(dono.negocio_id).first();
+  const r = await enviarEmail(env, {
+    para: correio,
+    ...emailConviteOperador({ negocio: negocio && negocio.nome, quem: dono.nome }),
+  });
+
+  return {
+    operador: moldarOperador({
+      id: novoId, nome, email: correio, papel: 'balcao',
+      criado_em: agora(), visto_em: null,
+    }, { comEmail: true }),
+    avisado: r.enviado,
+  };
+});
+
+rota('PATCH', /^\/v1\/balcao\/operadores\/([\w-]+)$/, async (env, pedido, [alvoId]) => {
+  const dono = await exigirDono(env, pedido);
+  const d = await corpoJSON(pedido);
+  const alvo = await env.DB.prepare(
+    'SELECT * FROM operadores WHERE id = ? AND negocio_id = ? AND ativo = 1'
+  ).bind(alvoId, dono.negocio_id).first();
+  if (!alvo) throw new Falha('Essa pessoa já não está neste balcão.', { estado: 404 });
+
+  const mudancas = [], valores = [];
+  if (d.nome !== undefined) {
+    const nome = String(d.nome || '').trim().slice(0, 40);
+    if (!nome) throw new Falha('Falta o nome.', { estado: 400, codigo: 'sem-nome' });
+    const outro = await env.DB.prepare(
+      `SELECT id FROM operadores
+        WHERE negocio_id = ? AND ativo = 1 AND id != ? AND lower(trim(nome)) = ?`
+    ).bind(dono.negocio_id, alvo.id, nome.toLowerCase()).first();
+    if (outro) {
+      throw new Falha(`Já há um «${nome}» neste balcão.`,
+        { estado: 409, codigo: 'nome-repetido' });
+    }
+    mudancas.push('nome = ?'); valores.push(nome);
+  }
+  if (d.papel !== undefined) {
+    const papel = d.papel === 'dono' ? 'dono' : 'balcao';
+    /* NÃO SE DESPROMOVE O ÚLTIMO DONO. Um balcão sem dono é um balcão que
+       ninguém consegue voltar a arrumar, e ninguém nota até precisar. */
+    if (alvo.papel === 'dono' && papel !== 'dono') {
+      const donos = (await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM operadores
+          WHERE negocio_id = ? AND ativo = 1 AND papel = 'dono'`
+      ).bind(dono.negocio_id).first()).n;
+      if (donos <= 1) {
+        throw new Falha('Este é o último dono do balcão. Faz outro dono primeiro.',
+          { estado: 409, codigo: 'ultimo-dono' });
+      }
+    }
+    mudancas.push('papel = ?'); valores.push(papel);
+  }
+  if (!mudancas.length) throw new Falha('Não há nada para mudar.', { estado: 400 });
+
+  await env.DB.prepare(`UPDATE operadores SET ${mudancas.join(', ')} WHERE id = ?`)
+    .bind(...valores, alvo.id).run();
+  const depois = await env.DB.prepare(
+    'SELECT id, nome, email, papel, criado_em, visto_em FROM operadores WHERE id = ?'
+  ).bind(alvo.id).first();
+  return { operador: moldarOperador(depois, { comEmail: true }) };
+});
+
+rota('DELETE', /^\/v1\/balcao\/operadores\/([\w-]+)$/, async (env, pedido, [alvoId]) => {
+  const dono = await exigirDono(env, pedido);
+  if (alvoId === dono.id) {
+    /* Tirar-se a si próprio é a forma mais rápida de um dono ficar de fora do
+       seu próprio café. Se for mesmo para sair, primeiro faz-se outro dono. */
+    throw new Falha('Não te podes tirar a ti. Faz outro dono primeiro.',
+      { estado: 409, codigo: 'eu-nao' });
+  }
+  const alvo = await env.DB.prepare(
+    'SELECT id, papel FROM operadores WHERE id = ? AND negocio_id = ? AND ativo = 1'
+  ).bind(alvoId, dono.negocio_id).first();
+  if (!alvo) throw new Falha('Essa pessoa já não está neste balcão.', { estado: 404 });
+
+  /* DESACTIVA-SE, NÃO SE APAGA. O histórico de cada cartão guarda o NOME de
+     quem carimbou e não este identificador — apagar a linha não apagaria o
+     histórico —, mas a linha é o que sobra a dizer que aquela morada já teve
+     acesso aqui. E o índice do nome é parcial: sair liberta o nome. */
+  await env.DB.batch([
+    env.DB.prepare('UPDATE operadores SET ativo = 0 WHERE id = ?').bind(alvo.id),
+    /* E FECHA-SE A PORTA NO MESMO GESTO. Uma sessão viva depois de alguém ser
+       tirado do balcão é a pessoa a continuar a carimbar; e um código de
+       entrada por usar é uma segunda chave deixada para trás. */
+    env.DB.prepare('DELETE FROM sessoes WHERE sujeito = ?').bind(`operador:${alvo.id}`),
+    env.DB.prepare('DELETE FROM entradas WHERE alvo = ?').bind(`operador:${alvo.id}`),
+  ]);
+  return { feito: true };
 });
 
 rota('GET', '/v1/balcao/clientes', async (env, pedido) => {
