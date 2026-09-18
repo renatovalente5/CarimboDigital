@@ -239,7 +239,11 @@
 }
 .rodape-grelha { display: grid; gap: var(--e-7); }
 @media (min-width: 720px) { .rodape-grelha { grid-template-columns: 1.4fr 1fr 1fr; } }
-.rodape h4 {
+/* O selector é de classe e não de etiqueta: estes títulos eram `h4` a seguir
+   a um `h2`, o que salta um nível — o único erro de HTML que o site tinha, nas
+   cinco páginas, e um leitor de ecrã anunciava «nível 4» onde não há nível 3.
+   Passaram a `h2` e o aspecto é o mesmo. */
+.rodape-titulo {
   margin-bottom: var(--e-3);
   font-size: .75rem; font-weight: 700; letter-spacing: .07em;
   text-transform: uppercase; color: var(--tinta-3);

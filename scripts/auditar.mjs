@@ -313,9 +313,31 @@ console.log('\nIndexação');
       falhar(`${app}: devia ter noindex — é uma aplicação, não uma página`); mal++;
     }
   }
+  /* O CARTAZ TAMBÉM. É uma página de impressão, com o QR de um negócio lá
+     dentro; indexá-la é pôr o cartaz de um café a competir com o site. */
+  const cartaz = readFileSync(join(SAIDA, 'balcao', 'cartaz.html'), 'utf8');
+  if (!cartaz.includes('name="robots" content="noindex"')) {
+    falhar('balcao/cartaz.html: devia ter noindex — é uma folha de impressão'); mal++;
+  }
+
+  /* E A GUARDA INVERTEU-SE. Ela EXIGIA `Disallow: /app/`, e estava a tornar
+     obrigatória uma contradição: uma página proibida de ser lida nunca chega
+     a mostrar o `noindex` que lá tem, e pode entrar no índice nua, sem título
+     — que é pior do que não aparecer. Ver o comentário no `gerar.mjs`.
+ 
+     Fica aqui a reprovar o regresso, porque a intenção de voltar a pôr um
+     `Disallow` é boa e é o que qualquer pessoa faria a olhar para isto. */
   const robots = readFileSync(join(SAIDA, 'robots.txt'), 'utf8');
-  if (!robots.includes('Disallow: /app/')) { falhar('robots.txt não exclui /app/'); mal++; }
-  if (!mal) bem('as duas aplicações estão fora dos motores de busca');
+  for (const caminho of ['/app/', '/balcao/']) {
+    if (robots.includes(`Disallow: ${caminho}`)) {
+      falhar(`robots.txt proíbe ${caminho} — e isso IMPEDE o Google de ler o `
+        + `noindex que lá está. Quem não pode ser lido não pode ser excluído: `
+        + `o endereço entra no índice sem título nem descrição. O noindex faz `
+        + `o trabalho todo sozinho.`);
+      mal++;
+    }
+  }
+  if (!mal) bem('as duas aplicações e o cartaz estão fora dos motores de busca, pelo noindex');
 }
 
 /* --- 11. o domínio ------------------------------------------------------

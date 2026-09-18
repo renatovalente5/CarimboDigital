@@ -856,16 +856,36 @@ export async function correr(palco, certo) {
       `${app}: tem noindex`, String(c.robots));
   }
   for (const p of PAGINAS) {
-    certo(cabecas[p.rota].robots === null,
-      `${p.rota}: NÃO tem noindex — é uma página para ser encontrada`,
-      String(cabecas[p.rota].robots));
+    /* NÃO É «não tem meta robots»: é «tem uma que NÃO diz noindex».
+ 
+       A afirmação era `robots === null` — nenhuma etiqueta — e passava por
+       acidente, porque o gerador não escrevia nenhuma. Agora escreve
+       `max-image-preview:large`, que autoriza a Google a mostrar a imagem
+       social em grande ao lado do resultado, e `max-snippet:-1`, que tira o
+       limite ao excerto. Não sobem a posição: fazem o resultado ocupar mais
+       altura do que o do concorrente ao lado. */
+    const r = String(cabecas[p.rota].robots || '');
+    certo(r !== '' && !/noindex/.test(r),
+      `${p.rota}: tem directivas de robots e nenhuma delas é noindex — é uma `
+      + 'página para ser encontrada', r || '(não tem etiqueta nenhuma)');
+    certo(/max-image-preview:\s*large/.test(r),
+      `${p.rota}: autoriza a pré-visualização grande da imagem`, r);
   }
 
+  /* A AFIRMAÇÃO INVERTEU-SE, e é a mesma história que está no auditor.
+ 
+     Exigia-se aqui que o robots.txt proibisse /app/ e /balcao/. As duas têm
+     `noindex`, que é a forma correcta de dizer «não indexes isto» — e um
+     `Disallow` diz outra coisa, «não LEIAS isto». Juntas anulam-se: o Google
+     nunca chega a ver o noindex, e o endereço pode entrar no índice NU, sem
+     título nem descrição, a competir com a página inicial numa pesquisa pelo
+     nome da marca. E /app/ é o endereço mais ligado do site inteiro. */
   const robots = ficheirosCrus['robots.txt'].texto;
-  certo(/Disallow:\s*\S*\/app\//.test(robots),
-    'robots.txt: fecha a porta a /app/', robots.slice(0, 120));
-  certo(/Disallow:\s*\S*\/balcao\//.test(robots),
-    'robots.txt: fecha a porta a /balcao/', robots.slice(0, 120));
+  for (const caminho of ['/app/', '/balcao/']) {
+    certo(!new RegExp(`Disallow:\\s*\\S*${caminho}`).test(robots),
+      `robots.txt: NÃO proíbe ${caminho} — proibir o rastreio impediria o `
+      + 'Google de ler o noindex que lá está', robots.slice(0, 120));
+  }
   certo(robots.includes(`https://${config.dominio}/sitemap.xml`),
     'robots.txt: aponta o sitemap', robots.slice(0, 200));
 

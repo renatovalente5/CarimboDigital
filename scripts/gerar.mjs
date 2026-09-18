@@ -136,12 +136,52 @@ function prazosDoWorker() {
 }
 const PRAZOS = prazosDoWorker();
 
+/* =========================================================================
+   Duas funções pequenas que impedem defeitos silenciosos
+
+   Nenhuma delas resolve um problema de hoje. As duas resolvem o problema da
+   próxima página que se escrever — e vão escrever-se nove.
+   ========================================================================= */
+
+/* O QUE VAI PARA DENTRO DE UM ATRIBUTO TEM DE SER ESCAPADO.
+ 
+   O título e o resumo de cada página entram em `<title>` e em quatro
+   atributos `content="..."`, crus. Um título com «&» produz HTML inválido; um
+   resumo com aspas — e um resumo em português apanha aspas com facilidade —
+   FECHA O ATRIBUTO A MEIO, e a meta description sai truncada sem um erro em
+   lado nenhum. É esse o texto que a Google mostra por baixo do resultado. */
+const escapar = (s) => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/* `naoIndexar: nao` PUNHA NOINDEX.
+ 
+   Os valores do cabeçalho de cada página ficam como TEXTO, e testava-se a
+   verdade do texto — e em JavaScript toda a cadeia não vazia é verdadeira.
+   `naoIndexar: nao`, `naoIndexar: 0` e `semSitemap: falso` faziam exactamente
+   o contrário do que lá está escrito, e não se via a ler o ficheiro: o
+   ficheiro diz «não».
+ 
+   Um valor que não se reconheça mata a construção. Adivinhar aqui é escolher
+   entre publicar o que não se queria e esconder o que se queria publicar. */
+const sim = (valor, onde) => {
+  if (valor === undefined || valor === '') return false;
+  const v = String(valor).trim().toLowerCase();
+  if (['sim', 'true', '1'].includes(v)) return true;
+  if (['nao', 'não', 'false', '0'].includes(v)) return false;
+  console.error(`✗ ${onde}: «${valor}» não é sim nem não.`);
+  process.exit(1);
+};
+
 const SUBSTITUICOES = {
   '{{BASE}}': BASE,
   '{{VERSAO}}': VERSAO,
-  '{{NOME}}': config.nome,
+  /* Escapados pela mesma razão que o título e o resumo: os três vão parar a
+     atributos, e o nome e a descrição vêm de um ficheiro de configuração que
+     alguém há-de editar um dia. */
+  '{{NOME}}': escapar(config.nome),
   '{{DOMINIO}}': config.dominio,
-  '{{DESCRICAO}}': config.descricao,
+  '{{DESCRICAO}}': escapar(config.descricao),
   '{{CONTACTO}}': config.contacto,
   '{{COR}}': config.cor,
   '{{ANO}}': String(new Date().getFullYear()),
@@ -247,14 +287,29 @@ for (const app of ['app', 'balcao']) {
 function dadosEstruturados(rota) {
   const sitio = `https://${config.dominio}`;
   const entidade = config.entidade || {};
+  /* As duas grafias saem do próprio domínio, e não de uma cadeia escrita à
+     mão: `carimbodigital.pt` dá «carimbodigital» e «carimbodigital.pt». */
+  const grafias = [config.dominio.split('.')[0], config.dominio];
 
   const organizacao = {
     '@type': 'Organization',
     '@id': `${sitio}/#entidade`,
     name: config.nome,
-    url: sitio,
+    /* A GRAFIA JUNTA, DECLARADA. Quem escreve «carimbodigital» na barra de
+       pesquisa recebe hoje «A apresentar resultados para carimbo digital» — o
+       Google autocorrige, porque ainda não registou a palavra colada como
+       nome próprio em Portugal; a única sugestão que dá é o domínio .com.br de
+       uma empresa brasileira homónima. O `alternateName` é o campo desenhado
+       exactamente para isto. Não desliga o autocorrector sozinho, mas é a
+       declaração mais directa e mais barata de que isto se escreve assim. */
+    alternateName: grafias,
+    /* Com barra final, igual ao canónico. Dois endereços para a mesma coisa
+       são duas coisas, para quem lê isto como máquina. */
+    url: `${sitio}/`,
     email: entidade.email || config.contacto,
     logo: `${sitio}/icones/512.png`,
+    description: config.descricao,
+    areaServed: { '@type': 'Country', name: 'Portugal' },
     /* Sem NIF e sem morada, de propósito. A lei obriga a identificação a
        constar do site, e ela consta — nas páginas legais, em texto, que é
        onde alguém a vai procurar. Pô-la também aqui era entregá-la em
@@ -264,11 +319,31 @@ function dadosEstruturados(rota) {
 
   /* Só na página inicial: repetir a ficha do produto em todas as páginas não
      acrescenta nada e dilui qual delas é a página do produto. */
+  /* O NÓ DO SÍTIO, e só na página inicial.
+ 
+     É o tipo que a documentação da Google manda usar para o nome de um site, e
+     ela ignora-o fora da raiz do domínio. Não existia: o grafo tinha a
+     organização e a aplicação, e nenhuma das duas diz «este sítio chama-se
+     assim». É por aqui que o nome da marca aparece por cima do resultado, em
+     vez do domínio nu. */
+  const sitioWeb = rota === '' ? [{
+    '@type': 'WebSite',
+    '@id': `${sitio}/#site`,
+    name: config.nome,
+    alternateName: grafias,
+    url: `${sitio}/`,
+    inLanguage: 'pt-PT',
+    publisher: { '@id': `${sitio}/#entidade` },
+  }] : [];
+
   const aplicacao = rota === '' ? [{
     '@type': 'WebApplication',
     '@id': `${sitio}/#app`,
     name: config.nome,
-    url: `${sitio}/app/`,
+    /* A RAIZ, E NÃO `/app/`. Dizia-se aqui «a entidade principal deste sítio
+       vive em /app/» e, na página seguinte, «não indexes /app/». As duas
+       coisas não podem ser verdade ao mesmo tempo. */
+    url: `${sitio}/`,
     description: config.descricao,
     applicationCategory: 'LifestyleApplication',
     operatingSystem: 'Web',
@@ -277,7 +352,8 @@ function dadosEstruturados(rota) {
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
   }] : [];
 
-  return { '@context': 'https://schema.org', '@graph': [organizacao, ...aplicacao] };
+  return { '@context': 'https://schema.org',
+           '@graph': [organizacao, ...sitioWeb, ...aplicacao] };
 }
 
 /* --- páginas do site ----------------------------------------------------- */
@@ -291,23 +367,42 @@ for (const ficheiro of paginas) {
   const cru = readFileSync(ficheiro, 'utf8');
   const meta = {};
   let corpo = cru;
-  const cabecalho = cru.match(/^---\n([\s\S]*?)\n---\n/);
+  /* `\r?\n`, E NÃO `\n`. Um ficheiro gravado com fins de linha do Windows não
+     casava — e não dava erro nenhum: o bloco `---` caía no corpo como TEXTO
+     VISÍVEL, e a página ficava com o título de recurso, que passava
+     folgadamente em todas as guardas. Publicava-se uma página com o cabeçalho
+     à vista e com o título de outra. */
+  const cabecalho = cru.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
   if (cabecalho) {
-    for (const linha of cabecalho[1].split('\n')) {
+    for (const linha of cabecalho[1].split(/\r?\n/)) {
       const i = linha.indexOf(':');
       if (i > 0) meta[linha.slice(0, i).trim()] = linha.slice(i + 1).trim();
     }
     corpo = cru.slice(cabecalho[0].length);
   }
   const nome = relative(join(FONTE, 'paginas'), ficheiro).replace(/\.html$/, '');
+
+  /* SEM RECURSO SILENCIOSO. `meta.titulo || config.nome` significava que dez
+     páginas sem cabeçalho ficavam com o mesmo título e a mesma descrição — e
+     títulos iguais são a receita para a Google escolher uma e ignorar as
+     outras. Com quatro páginas nunca aconteceu; com vinte, acontece à
+     primeira distracção. Morre aqui, com o nome do ficheiro. */
+  for (const campo of ['titulo', 'resumo']) {
+    if (!meta[campo] || !String(meta[campo]).trim()) {
+      console.error(`✗ ${relative(FONTE, ficheiro)}: falta «${campo}» no cabeçalho.`);
+      process.exit(1);
+    }
+  }
+  meta.naoIndexar = sim(meta.naoIndexar, `${relative(FONTE, ficheiro)}: naoIndexar`);
+  meta.semSitemap = sim(meta.semSitemap, `${relative(FONTE, ficheiro)}: semSitemap`);
   const rota = nome === 'inicio' ? '' : `/${nome}`;
   const destino = nome === 'inicio' ? join(SAIDA, 'index.html') : join(SAIDA, nome, 'index.html');
 
   const html = preencher(MOLDE)
     .split('{{CABECALHO}}').join(parcial('cabecalho.html'))
     .split('{{RODAPE}}').join(parcial('rodape.html'))
-    .split('{{TITULO}}').join(meta.titulo || config.nome)
-    .split('{{RESUMO}}').join(meta.resumo || config.descricao)
+    .split('{{TITULO}}').join(escapar(meta.titulo))
+    .split('{{RESUMO}}').join(escapar(meta.resumo))
     /* Uma página que não quer ser indexada também não tem canónico: o da
        404 apontava para /404/, um endereço que responde 404. Dizer aos
        motores «a versão oficial desta página é aquela» quando aquela não
@@ -315,8 +410,17 @@ for (const ficheiro of paginas) {
     .split('{{CANONICO_TAG}}').join(meta.naoIndexar
       ? '' : `<link rel="canonical" href="https://${config.dominio}${rota}/">`)
     .split('{{CANONICO}}').join(`https://${config.dominio}${rota}/`)
+    /* NAS PÁGINAS INDEXÁVEIS TAMBÉM SE DIZ ALGUMA COISA, e não é nada.
+ 
+       `max-image-preview:large` autoriza a Google a mostrar a imagem social
+       em grande ao lado do resultado — a `og:image` de 1200×630 já existe —,
+       e `max-snippet:-1` tira o limite ao excerto. Não melhora a posição:
+       faz o resultado ocupar mais altura do que o do concorrente ao lado,
+       que numa pesquisa pelo nome da marca é o que se quer. */
     .split('{{ROBOTS}}').join(meta.naoIndexar
-      ? '\n<meta name="robots" content="noindex">' : '')
+      ? '\n<meta name="robots" content="noindex">'
+      : '\n<meta name="robots" content="index, follow, max-snippet:-1,'
+        + ' max-image-preview:large, max-video-preview:-1">')
     /* Uma página que não quer ser indexada também não precisa de se
        descrever a quem não a vai indexar. */
     .split('{{DADOS_ESTRUTURADOS}}').join(meta.naoIndexar ? ''
@@ -561,8 +665,27 @@ if (existsSync(join(FONTE, 'imagens'))) {
 /* --- ficheiros de raiz --------------------------------------------------- */
 if (existsSync(CNAME)) cpSync(CNAME, join(SAIDA, 'CNAME'));
 
+/* SEM `Disallow`, e é de propósito.
+ 
+   As duas aplicações têm `<meta name="robots" content="noindex">`, que é a
+   forma correcta de dizer «não indexes isto». O `Disallow` do robots.txt diz
+   outra coisa: «não LEIAS isto». As duas juntas anulam-se — a documentação da
+   Google é literal: «Para que a regra noindex seja eficaz, a página não pode
+   estar bloqueada por um ficheiro robots.txt… o rastreador nunca verá a regra
+   noindex, e a página pode ainda aparecer nos resultados.»
+ 
+   E aparecia com jeito: `/app/` é o endereço mais ligado do site inteiro —
+   botão no cabeçalho das cinco páginas, botão no rodapé, dois no corpo da
+   página inicial — e é para lá que aponta o QR do cartaz. Bastava alguém
+   partilhar o link no Facebook para o endereço entrar no índice NU, sem
+   título e sem descrição, com o clássico «Não existe informação disponível
+   para esta página» — a competir com a própria página inicial numa pesquisa
+   pelo nome da marca.
+ 
+   Orçamento de rastreio não é argumento: a Google só o discute a partir de
+   10 000 endereços, e aqui há cinco páginas. */
 escrever(join(SAIDA, 'robots.txt'),
-  `User-agent: *\nAllow: /\nDisallow: /app/\nDisallow: /balcao/\n\n`
+  `User-agent: *\nAllow: /\n\n`
   + `Sitemap: https://${config.dominio}/sitemap.xml\n`);
 
 escrever(join(SAIDA, 'sitemap.xml'),

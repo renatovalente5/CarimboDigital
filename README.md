@@ -10,6 +10,10 @@ balcão aponta a câmara, o carimbo aparece nos dois telemóveis.
 **No ar:** https://carimbodigital.pt
 **API:** `https://carimbodigital-api.renato-lima-valente-dcb.workers.dev`
 
+**Planos:** [PLANO.md](PLANO.md) (o produto) · [PLANO-LOGIN.md](PLANO-LOGIN.md)
+(a autenticação, fechado) · [SEO.md](SEO.md) (como é que isto aparece no
+Google, e o que é que aparecer significa).
+
 ---
 
 ## O que é

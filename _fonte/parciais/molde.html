@@ -13,9 +13,20 @@
 <meta property="og:description" content="{{RESUMO}}">
 <meta property="og:url" content="{{CANONICO}}">
 <meta property="og:image" content="https://{{DOMINIO}}/icones/social.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{TITULO}}">
 <meta property="og:locale" content="pt_PT">
+<!-- É o que o WhatsApp, o Slack e o LinkedIn imprimem por cima do título —
+     e mais um sítio onde o nome da marca se escreve por extenso. -->
+<meta property="og:site_name" content="{{NOME}}">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="{{BASE}}/favicon.svg" type="image/svg+xml">
+<!-- O SVG não consta da lista de formatos que a Google aceita para o ícone da
+     pesquisa (BMP, GIF, ICO, PNG, JPEG, PPM, TIFF). O apple-touch-icon abaixo
+     provavelmente salvava — mas depender de um salva-vidas para a única coisa
+     gráfica que a marca tem na SERP é desnecessário quando o PNG já existe. -->
+<link rel="icon" href="{{BASE}}/icones/192.png" sizes="192x192" type="image/png">
 <link rel="apple-touch-icon" href="{{BASE}}/icones/apple-touch-icon.png">
 <link rel="stylesheet" href="{{BASE}}/estilos/nucleo.css?v={{VERSAO}}">
 <!-- O cartão (e os carimbos) são a mesma peça que a app usa. -->
