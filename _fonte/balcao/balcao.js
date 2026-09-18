@@ -1323,7 +1323,7 @@ async function ecraPrograma(principal) {
      histórico de cada cartão já guardava o nome de quem carimbou desde o
      primeiro dia — só que o nome era sempre o mesmo, porque só havia um
      operador possível. */
-  const quem = el('section', { class: 'seccao' },
+  const quem = el('section', { class: 'seccao', id: 'seccao-quem-carimba' },
     el('h2', { class: 'seccao-titulo', texto: 'Quem carimba' }),
     el('div', { class: 'lista', id: 'lista-operadores' },
       el('div', { class: 'linha' },

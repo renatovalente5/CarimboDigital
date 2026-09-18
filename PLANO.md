@@ -392,7 +392,18 @@ por ninguém, e cada uma encontrou um defeito **na primeira corrida**:
   `ctx.waitUntil()` — que corre DEPOIS de a resposta sair. Pedido a 200, testes
   verdes, e oito erros por atender a cada corrida.
 
-As duas são da mesma família: defeitos que passam por todas as verificações
+E uma terceira, no gerador de fotografias: **cada ecrã diz o que tem de estar
+lá**, e não só em que endereço está. O guião do balcão carregava num
+`#entrar-demo` que nunca existiu — o botão é `#porta-espreitar` — e o
+`?.click()` de uma coisa que não existe não se queixa. Quatro fotografias do
+balcão eram o ecrã de ENTRADA com o nome dos ecrãs de dentro, e a conferência
+passava porque `/balcao/` é o mesmo endereço antes e depois de entrar. Ao lado,
+as fotografias da app corriam contra a produção com uma conta acabada de criar:
+eram todas «Ainda não tens cartões», e cada corrida deixava meia dúzia de contas
+vazias na base. Passaram para a demonstração, que tem cartões e não sai do
+browser.
+
+As três são da mesma família: defeitos que passam por todas as verificações
 porque ninguém está a olhar para onde eles aparecem.
 
 ## 9. Riscos

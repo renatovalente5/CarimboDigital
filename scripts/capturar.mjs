@@ -28,6 +28,16 @@ const DESTINO = join(AQUI, '..', '_dev', 'capturas');
 const PREFIXO = existsSync(join(AQUI, '..', 'CNAME')) ? '' : '/CarimboDigital';
 const BASE = process.argv[2] || `http://localhost:4321${PREFIXO}`;
 
+/* TUDO EM `?demo=1`, e isso foi uma correcção e não uma preferência.
+
+   Fora da demonstração, a app regista uma conta NOVA a cada captura — e uma
+   conta nova tem a carteira vazia. As fotografias da app do cliente eram, há
+   vários meses, o ecrã «Ainda não tens cartões» com o nome dos ecrãs de
+   dentro: a conferência só olhava para o `location.pathname`, e esse estava
+   sempre certo. De caminho, cada corrida deixava meia dúzia de contas vazias
+   na base de produção. A demonstração tem os três cartões semeados e não sai
+   do browser. */
+
 
 
 /* --- os ecrãs a fotografar ----------------------------------------------- */
@@ -40,6 +50,20 @@ const LIMPAR = `
   for (const k of await caches.keys()) await caches.delete(k);
 `;
 
+/* ESPERAR POR UM ELEMENTO, e não por um número de milissegundos.
+
+   Um `setTimeout(1100)` é uma aposta: passa na máquina de quem o escreveu e
+   falha no CI, ou passa nove vezes em dez e sai uma captura do ecrã anterior
+   com o nome do ecrã seguinte. E uma captura da página errada é pior do que
+   captura nenhuma — parece que o produto está avariado. */
+const ATE = (seletor, tecto = 8000) => `
+  for (let i = 0; i < ${Math.ceil(tecto / 100)}; i++) {
+    if (document.querySelector(${JSON.stringify(seletor)})) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await new Promise((r) => setTimeout(r, 250));
+`;
+
 const ABRIR_APP = `
   const b = document.querySelector('#bv-seguinte');
   if (b) { for (let i = 0; i < 3; i++) { b.click(); await new Promise(r=>setTimeout(r,260)); } }
@@ -47,86 +71,124 @@ const ABRIR_APP = `
 `;
 
 const ECRAS = [
-  { nome: '1-site', url: '/', largura: 1280, altura: 900 },
-  { nome: '2-site-telemovel', url: '/', largura: 402, altura: 874 },
-  { nome: '3-negocios', url: '/negocios/', largura: 1280, altura: 900 },
+  { nome: '1-site', espera: '.site-capa, main', url: '/', largura: 1280, altura: 900 },
+  { nome: '2-site-telemovel', espera: '.site-capa, main', url: '/', largura: 402, altura: 874 },
+  { nome: '3-negocios', espera: 'main', url: '/negocios/', largura: 1280, altura: 900 },
 
-  { nome: '4-abertura', url: '/app/', largura: 402, altura: 874, limpar: true },
-  { nome: '5-carteira', url: '/app/', largura: 402, altura: 874, limpar: true, guiao: ABRIR_APP },
+  { nome: '4-abertura', espera: '#boas-vindas', url: '/app/?demo=1', largura: 402, altura: 874, limpar: true },
+  { nome: '5-carteira', espera: '#principal .pilha > .cartao', url: '/app/?demo=1', largura: 402, altura: 874, limpar: true, guiao: ABRIR_APP },
   {
-    nome: '6-codigo', url: '/app/', largura: 402, altura: 874,
+    nome: '6-codigo', espera: '#principal .identidade-numero, #principal canvas, #principal svg', url: '/app/?demo=1', largura: 402, altura: 874,
     guiao: `${ABRIR_APP}
             document.querySelectorAll('.barra-item')[2].click();
             await new Promise(r=>setTimeout(r,900));`,
   },
   {
-    nome: '7-cartao', url: '/app/', largura: 402, altura: 1180,
+    nome: '7-cartao', espera: '#principal .cartao-grande', url: '/app/?demo=1', largura: 402, altura: 1180,
     guiao: `${ABRIR_APP}
-            const c = [...document.querySelectorAll('#principal .cartao')]
+            const c = [...document.querySelectorAll('#principal .pilha > .cartao')]
                         .find(x => x.textContent.includes('Café Torrado'));
-            if (c) { c.click(); await new Promise(r=>setTimeout(r,1100)); }`,
+            c.click();
+            ${ATE('#principal .cartao-grande')}`,
   },
   {
-    nome: '8-descobrir', url: '/app/', largura: 402, altura: 874,
+    nome: '8-descobrir', espera: '#principal .lista .linha, #principal .cartao', url: '/app/?demo=1', largura: 402, altura: 874,
     guiao: `${ABRIR_APP}
             document.querySelectorAll('.barra-item')[1].click();
             await new Promise(r=>setTimeout(r,900));`,
   },
   {
-    nome: '9-premios', url: '/app/', largura: 402, altura: 874,
+    nome: '9-premios', espera: '#principal .pilha, #principal .lista, #principal .vazio', url: '/app/?demo=1', largura: 402, altura: 874,
     guiao: `${ABRIR_APP}
             document.querySelectorAll('.barra-item')[3].click();
             await new Promise(r=>setTimeout(r,900));`,
   },
 
-  { nome: '10-balcao-entrada', url: '/balcao/', largura: 402, altura: 874, limpar: true },
+  { nome: '10-balcao-entrada', espera: '#porta-espreitar', url: '/balcao/', largura: 402, altura: 874, limpar: true },
+  /* O BALCÃO ABRE-SE EM `?demo=1`, e não com um clique no botão de espreitar:
+     esse botão faz `location.href = '?demo=1'`, ou seja NAVEGA — e o guião
+     morria a meio com «Inspected target navigated or closed». Era o que
+     estava escrito aqui antes com outro nome: um `#entrar-demo` que nunca
+     existiu, e um `?.click()` que não se queixa de nada. */
   {
-    nome: '11-balcao-carimbado', url: '/balcao/', largura: 402, altura: 874, limpar: true,
+    nome: '11-balcao-carimbado', espera: '#principal .visor, #principal .resultado',
+    url: '/balcao/?demo=1', largura: 402, altura: 874, limpar: true,
     /* O balcão sozinho não tem clientes — quem os cria é a app do cliente.
        Para a captura, cria-se um pela mesma camada de dados. */
     guiao: `const { api } = await import('../js/api.js');
             const r = await api.registarCliente();
             await api.semear(r.cliente.id);
-            document.querySelector('#entrar-demo')?.click();
+            document.querySelector('#entrada-acoes .btn-cheio').click();
             await new Promise(res=>setTimeout(res,1700));
             document.querySelector('#botao-manual').click();
             await new Promise(res=>setTimeout(res,340));
             document.querySelector('#campo-numero').value = r.cliente.publico;
             document.querySelector('.painel-folha .btn-cheio').click();
-            await new Promise(res=>setTimeout(res,1300));`,
+            await new Promise(res=>setTimeout(res,1600));`,
   },
   {
-    nome: '12-balcao-hoje', url: '/balcao/', largura: 402, altura: 1000,
-    guiao: `document.querySelector('#entrar-demo')?.click();
-            await new Promise(res=>setTimeout(res,1500));
+    nome: '12-balcao-hoje', espera: '#principal .numeros',
+    url: '/balcao/?demo=1', largura: 402, altura: 1000,
+    guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
+            await new Promise(res=>setTimeout(res,1600));
             document.querySelectorAll('.barra-item')[1].click();
-            await new Promise(res=>setTimeout(res,900));`,
+            ${ATE('#principal .numeros')}`,
   },
   {
-    nome: '13-balcao-cartao', url: '/balcao/', largura: 402, altura: 1240,
-    guiao: `document.querySelector('#entrar-demo')?.click();
-            await new Promise(res=>setTimeout(res,1500));
+    nome: '13-balcao-cartao', espera: '#previa',
+    url: '/balcao/?demo=1', largura: 402, altura: 1240,
+    guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
+            await new Promise(res=>setTimeout(res,1600));
             document.querySelectorAll('.barra-item')[3].click();
-            await new Promise(res=>setTimeout(res,900));`,
+            ${ATE('#previa')}`,
+  },
+
+  /* Quem carimba. A secção é a última do ecrã do cartão, por isso a captura
+     tem de lá ir ter — e esperar pela lista, que chega depois do resto. */
+  {
+    /* SEM `limpar`, como a 12 e a 13: a sessão do balcão vem da captura 11, e
+       limpá-la aqui devolvia o ecrã de entrada com o nome deste ecrã. */
+    nome: '14-quem-carimba', espera: '#lista-operadores .linha',
+    /* A secção é a última de um ecrã de dois mil píxeis: recorta-se. */
+    recorte: '#seccao-quem-carimba', folga: 20,
+    url: '/balcao/?demo=1', largura: 402, altura: 2200,
+    guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
+            await new Promise((r)=>setTimeout(r,1600));
+            document.querySelectorAll('.barra-item')[3].click();
+            /* ESPERA-SE PELA LISTA, e não por um número de milissegundos: ela
+               vem de um pedido próprio, DEPOIS de o ecrã estar pintado, e o
+               \`scrollIntoView\` chegava primeiro — a captura saía no topo do
+               ecrã, com a secção lá em baixo fora do enquadramento. */
+            for (let i = 0; i < 60; i++) {
+              if (document.querySelector('#lista-operadores .linha b')) break;
+              await new Promise((r)=>setTimeout(r,100));
+            }
+            /* A BARRA DE BAIXO É FIXA, e a captura para lá do enquadramento
+               desenha-a por cima do recorte, a meio da secção. Esconde-se para
+               esta fotografia: o que ela documenta é a secção, e a barra está
+               nas outras todas. (Sem crases neste comentário: ele vive dentro
+               de um template literal, e uma crase fecha-o.) */
+            document.querySelector('#barra').style.visibility = 'hidden';
+            await new Promise((r)=>setTimeout(r,400));`,
   },
 
   /* O ecrã de quem mudou de telemóvel. Não estava aqui porque, até agora, o
      botão das boas-vindas não abria nada em demonstração. */
   {
-    nome: '14-mudei-de-telemovel', url: '/app/', largura: 402, altura: 1000, limpar: true,
+    nome: '15-mudei-de-telemovel', espera: '#painel', url: '/app/?demo=1', largura: 402, altura: 1000, limpar: true,
     guiao: `document.querySelector('#bv-saltar').click();
-            await new Promise(r=>setTimeout(r,1800));`,
+            ${ATE('#painel .btn-google, #painel #campo-email')}`,
   },
   /* E o mesmo painel pelo outro lado: guardar em vez de recuperar. NÃO se
      carrega em porta nenhuma aqui — fora da demonstração, tocar na Google sai
      do site e a captura acaba noutro ecrã com o nome deste. */
   {
-    nome: '15-guardar-a-conta', url: '/app/', largura: 402, altura: 1100, limpar: true,
+    nome: '16-guardar-a-conta', espera: '#painel', url: '/app/?demo=1', largura: 402, altura: 1100, limpar: true,
     guiao: `${ABRIR_APP}
             document.querySelectorAll('.barra-item')[4].click();
-            await new Promise(r=>setTimeout(r,900));
+            ${ATE('#principal .lista .linha')}
             document.querySelector('#principal .lista .linha').click();
-            await new Promise(r=>setTimeout(r,1600));`,
+            ${ATE('#painel .btn-google, #painel #campo-email')}`,
   },
 ];
 
@@ -172,19 +234,61 @@ for (const ecra of ECRAS) {
   }
 
   /* Confirma-se onde é que se está antes de disparar. Uma captura da página
-     errada é pior do que nenhuma — parece que o produto está avariado. */
+     errada é pior do que nenhuma — parece que o produto está avariado.
+
+     E NÃO CHEGA O ENDEREÇO. O guião do balcão carregava em `#entrar-demo`, que
+     nunca existiu — o botão chama-se `#porta-espreitar` —, e o `?.click()` de
+     uma coisa que não existe não se queixa. Três capturas do balcão eram o
+     ECRÃ DE ENTRADA com o nome do ecrã de dentro, e ninguém notou porque o
+     endereço estava certo: `/balcao/` é o mesmo antes e depois de entrar.
+     Por isso o `espera` de cada ecrã diz TAMBÉM o que tem de estar lá. */
   const onde = await enviar('Runtime.evaluate', {
     expression: 'location.pathname', returnByValue: true,
   }, sessionId).catch(() => null);
   const caminho = onde?.result?.value || '';
   const esperado = new URL(BASE + ecra.url).pathname;
-  const certo = caminho === esperado;
+  let certo = caminho === esperado;
+  let porque = certo ? '' : `está em ${caminho}, esperava ${esperado}`;
+
+  if (certo && ecra.espera) {
+    const viu = await enviar('Runtime.evaluate', {
+      expression: `Boolean(document.querySelector(${JSON.stringify(ecra.espera)}))`,
+      returnByValue: true,
+    }, sessionId).catch(() => null);
+    if (!viu?.result?.value) { certo = false; porque = `não há «${ecra.espera}» no ecrã`; }
+  }
   if (!certo) maus++;
 
-  const { data } = await enviar('Page.captureScreenshot', { format: 'png' }, sessionId);
+  /* RECORTAR, em vez de rolar. Este script fotografa sempre a partir do topo
+     do documento — é por isso que os ecrãs compridos usam uma `altura` maior em
+     vez de um `scrollIntoView`, que não faz diferença nenhuma à captura. Para
+     documentar uma SECÇÃO que vive no fim de um ecrã comprido, nenhuma das
+     duas serve: ou sai o topo, ou sai uma tira de 2000 píxeis com a secção
+     escondida lá em baixo. Mede-se a secção e pede-se só aquele rectângulo. */
+  let clip;
+  if (ecra.recorte) {
+    const caixa = await enviar('Runtime.evaluate', {
+      expression: `(() => {
+        const n = document.querySelector(${JSON.stringify(ecra.recorte)});
+        if (!n) return null;
+        const r = n.getBoundingClientRect();
+        const folga = ${ecra.folga ?? 16};
+        return { x: Math.max(0, r.x - folga), y: Math.max(0, r.y + scrollY - folga),
+                 width: Math.min(innerWidth, r.width + folga * 2),
+                 height: r.height + folga * 2 };
+      })()`, returnByValue: true,
+    }, sessionId).catch(() => null);
+    const c = caixa?.result?.value;
+    if (c) clip = { ...c, scale: 2 };
+    else { maus++; certo = false; porque = `não há «${ecra.recorte}» para recortar`; }
+  }
+
+  const { data } = await enviar('Page.captureScreenshot',
+    clip ? { format: 'png', clip, captureBeyondViewport: true } : { format: 'png' },
+    sessionId);
   writeFileSync(join(DESTINO, `${ecra.nome}.png`), Buffer.from(data, 'base64'));
   console.log(`  ${certo ? ' ' : '✗'} ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}`
-    + (certo ? '' : `  (está em ${caminho}, esperava ${esperado})`));
+    + (certo ? '' : `  (${porque})`));
 }
 
 await enviar('Target.closeTarget', { targetId }).catch(() => {});

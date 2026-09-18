@@ -310,7 +310,13 @@ function criarDemo() {
           })),
         })),
         clientes: [], cartoes: [], movimentos: [], premios: [], usados: {},
-        operadores: [{ id: 'o-demo', negocioId: 'n-torrado', nome: 'Balcão', papel: 'dono' }],
+        /* O operador que a demonstração já tinha, agora com o que a secção do
+           «Quem carimba» mostra: a morada por onde ele entra e a última vez
+           que cá esteve. Sem elas, o dono da demonstração aparecia a dizer
+           «ainda não entrou» com a sessão aberta à frente dele. */
+        operadores: [{ id: 'o-demo', negocioId: 'n-torrado', nome: 'Balcão',
+                       papel: 'dono', email: 'tu@exemplo.pt',
+                       desde: agora(), visto: agora() }],
       };
       guardar(CHAVE, e);
     }
@@ -766,11 +772,17 @@ function criarDemo() {
        acontece é sair email nenhum: `avisado: false`, e o balcão di-lo. */
     async operadores() {
       const e = estado();
-      if (!e.operadores) {
-        e.operadores = [{ id: 'o-demo', nome: 'Balcão', email: 'tu@exemplo.pt',
-                          papel: 'dono', desde: agora(), visto: agora() }];
-        gravar(e);
-      }
+      /* UM ESTADO GUARDADO DE ANTES não tem os campos novos — e quem tem a
+         demonstração aberta há semanas tem exactamente isso. Completa-se o que
+         faltar, sem tocar no que lá está: um `visto` a NULL é uma resposta
+         («ainda não entrou») e não uma falta. */
+      e.operadores = (e.operadores || []).map((o) => ({
+        ...o,
+        email: o.email || 'tu@exemplo.pt',
+        desde: o.desde || agora(),
+        visto: 'visto' in o ? o.visto : agora(),
+      }));
+      gravar(e);
       return { eu: 'o-demo', sou: 'dono', tecto: 10, operadores: e.operadores };
     },
 
