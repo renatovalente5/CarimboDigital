@@ -379,13 +379,18 @@ export async function correr(palco, certo) {
     String(await palco.texto('#topo-titulo')));
 
   /* Quem carimba tem de saber o que está a carimbar antes de carregar: um
-     negócio com dois programas dá dois cartões diferentes ao mesmo cliente. */
-  certo(await palco.texto('.programa-atual .programa-texto b') === programa.nome,
-    `carimbar: o ecrã diz qual é o programa («${programa.nome}»)`,
+     negócio com dois programas dá dois cartões diferentes ao mesmo cliente.
+
+     E TEM DE SABER ONDE ESTÁ. Este ecrã dizia o nome do programa e mais nada;
+     quem tem dois negócios, ou quem deixou o telemóvel do sócio aberto, não
+     tinha no ecrã onde carimba a indicação de em que loja é que carimbava. E
+     carimbar no balcão errado não dá erro nenhum: dá um carimbo. */
+  certo(await palco.texto('.programa-atual .programa-texto b') === negocio.nome,
+    `carimbar: o ecrã diz em que NEGÓCIO se está a carimbar («${negocio.nome}»)`,
     String(await palco.texto('.programa-atual .programa-texto b')));
   certo(await palco.texto('.programa-atual .programa-texto span')
-    === `${programa.objetivo} carimbos · ${programa.premio}`,
-    'carimbar: e diz quantos carimbos são e o que se ganha',
+    === `${programa.nome} · ${programa.objetivo} carimbos · ${programa.premio}`,
+    'carimbar: e por baixo o programa, quantos carimbos são e o que se ganha',
     String(await palco.texto('.programa-atual .programa-texto span')));
 
   certo(await palco.visivel(MANUAL),

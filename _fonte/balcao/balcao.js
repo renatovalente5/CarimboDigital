@@ -155,13 +155,21 @@ let leitor = null;
 async function ecraCarimbar(principal) {
   const p = estado.programa;
 
+  /* O NOME DO NEGÓCIO VEM PRIMEIRO, e é a resposta a uma pergunta que foi
+     feita em voz alta: «não sei se estou com o balcão errado».
+
+     Este ecrã dizia «Carimbar» no topo e o nome do PROGRAMA na etiqueta —
+     «Cartão do café» — e mais nada. Quem tem dois negócios, ou quem deixou o
+     telemóvel do sócio aberto, não tinha em lado nenhum do ecrã onde carimba
+     a indicação de em que loja é que estava a carimbar. E carimbar no balcão
+     errado não dá erro: dá um carimbo, no cartão errado. */
   principal.append(el('div', { class: 'programa-atual' },
     el('span', { class: 'programa-selo', html: icone(p.selo, { tipo: 'cheio', tamanho: 20 }) }),
     el('span', { class: 'programa-texto' },
-      el('b', { texto: p.nome }),
-      el('span', { texto: p.tipo === 'pontos'
-        ? `Pontos · prémios a partir de ${(p.marcos || [{ pontos: p.objetivo }])[0].pontos}`
-        : `${p.objetivo} carimbos · ${p.premio}` }))));
+      el('b', { texto: estado.negocio.nome }),
+      el('span', { texto: p.nome + ' · ' + (p.tipo === 'pontos'
+        ? `prémios a partir de ${(p.marcos || [{ pontos: p.objetivo }])[0].pontos} pontos`
+        : `${p.objetivo} carimbos · ${p.premio}`) }))));
 
   const visor = el('div', { class: 'visor' },
     el('video', { class: 'visor-video', id: 'video', playsinline: true, muted: true }),

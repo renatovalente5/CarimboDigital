@@ -481,6 +481,12 @@ se está a haver uma mistura entre o ambiente de testes e o de produção». Est
   que a API usa. Ficam varridas, e **a limpeza diária passou a varrê-las
   sozinha** — porque a próxima mão apressada vai ser igual à anterior.
 
+- **E o ecrã de carimbar passou a dizer em que loja é que se está.** Dizia
+  «Carimbar» no topo e o nome do PROGRAMA na etiqueta, e mais nada: quem tem
+  dois negócios, ou quem deixou o telemóvel do sócio aberto, não tinha no ecrã
+  onde carimba forma nenhuma de o saber. Agora o nome do negócio vem primeiro,
+  e o programa desce para a linha de baixo.
+
 Depois disto a base tem: um negócio, um programa, dois cartões, duas contas.
 
 > E um aviso que não é defeito nenhum: o programa do Titi tem **arrefecimento
