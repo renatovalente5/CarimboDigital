@@ -376,6 +376,59 @@ export async function correr(palco, certo) {
     + 'enquadramento — nenhum fica escondido à espera de um gesto que não existe',
     JSON.stringify(espalhados));
 
+  /* --- 8c. PERTO DE MIM -------------------------------------------------- */
+  /* A pergunta que um mapa de concelhos não responde: numa cidade, todos os
+     alfinetes caem no mesmo polígono. Responde-se ordenando a lista — e o que
+     aqui se persegue é que a posição NÃO SAIA DO TELEMÓVEL. */
+  await palco.posicao(40.6405, -8.6538);            /* a ria de Aveiro */
+  certo(await palco.ver('#perto-de-mim'),
+    'com mais do que um estabelecimento no mapa, há um «perto de mim»');
+
+  const antesDeOrdenar = await palco.js(`
+    return [...document.querySelectorAll('#principal .pilha .cartao-nome')]
+      .map((n) => n.textContent)`);
+  await palco.espiarPedidos();
+  await palco.clicar('#perto-de-mim');
+  await palco.esperar('#principal .cartao-distancia', 8000);
+  await dormir(palco, 500);
+
+  const depoisDeOrdenar = await palco.js(`
+    return [...document.querySelectorAll('#principal .pilha .cartao-nome')]
+      .map((n) => n.textContent)`);
+  certo(depoisDeOrdenar[0] === 'Barbearia Navalha',
+    'estando na ria de Aveiro, o primeiro da lista é a barbearia de Aveiro',
+    depoisDeOrdenar.join(' | '));
+  certo(antesDeOrdenar.join('|') !== depoisDeOrdenar.join('|'),
+    'e a ordem mudou mesmo — não é a mesma lista com números ao lado',
+    `${antesDeOrdenar[0]} -> ${depoisDeOrdenar[0]}`);
+  certo(depoisDeOrdenar.length === antesDeOrdenar.length,
+    'e não se perdeu nem se duplicou nenhum estabelecimento pelo caminho',
+    `${antesDeOrdenar.length} -> ${depoisDeOrdenar.length}`);
+
+  const distancias = await palco.js(`
+    return [...document.querySelectorAll('#principal .cartao-distancia')]
+      .map((n) => n.textContent.trim())`);
+  certo(distancias.length >= 2 && /^· a \d/.test(distancias[0]),
+    'cada cartão diz a que distância fica — uma lista reordenada sem dizer '
+    + 'porquê parece uma lista baralhada', JSON.stringify(distancias));
+
+  /* A AFIRMAÇÃO QUE INTERESSA: a posição não saiu daqui. */
+  const pedidos = await palco.pedidos();
+  const comCoordenadas = pedidos.filter((u) =>
+    /40\.6|8\.65|lat|lon|coord/i.test(u));
+  certo(comCoordenadas.length === 0,
+    'e a posição NÃO SAIU DO TELEMÓVEL: nenhum pedido a leva, nem no endereço '
+    + 'nem no corpo', JSON.stringify(pedidos).slice(0, 200));
+  const noArmazenamento = await palco.js(`
+    return Object.entries(localStorage).filter(([, v]) => /40\.6\d|-8\.65\d/.test(v)).map(([k]) => k)`);
+  certo(noArmazenamento.length === 0,
+    'nem fica guardada no armazenamento do telemóvel',
+    JSON.stringify(noArmazenamento));
+
+  certo(await palco.js(`
+    return !document.querySelector('#mapa-descobrir .mapa-eu')?.hidden`) === true,
+    'e o mapa passa a mostrar onde a pessoa está');
+
   /* --- 9. DOIS CAFÉS DA MESMA VILA SEPARAM-SE ---------------------------- */
   /* O mapa não tem ruas, e por isso o que ele tem de garantir é que dois
      sítios diferentes acabam por ser dois alfinetes diferentes. Ovar tem dois

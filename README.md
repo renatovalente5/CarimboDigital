@@ -223,6 +223,12 @@ Para regenerar o desenho (só se a Carta Administrativa mudar):
 node scripts/mapa-portugal.mjs
 ```
 
+**«Ver os mais perto de mim»** ordena a lista por distância. A posição é lida
+pelo telemóvel, usada para a conta ali mesmo, e **não sai de lá**: não vai num
+endereço, não é guardada, não chega ao servidor — e a bateria afirma-o, a
+espiar o `fetch` e o armazenamento depois de carregar no botão. Quem não tem
+coordenada fica no fim da lista, e não no princípio.
+
 O mapa não come a roda do rato: aproximar pede `ctrl`/`⌘` mais roda, ou uma
 pinça. Um mapa no meio de uma página que rola e que apanha a roda simples é
 uma armadilha. As setas do teclado arrastam-no, o mais e o menos aproximam, o

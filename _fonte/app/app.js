@@ -10,7 +10,8 @@ import {
 import { api, MODO, DEMO_FORCADO, CRACHA_APPLE, gerarCodigo, JANELA, guardarSegredo,
          temSegredo, esquecerSegredo, guardarDesvio } from '../js/api.js';
 import { qrParaSVG } from '../js/qr.js';
-import { carregarPortugal, criarMapa, comoChegar } from '../js/mapa.js';
+import { carregarPortugal, criarMapa, comoChegar, distanciaKm,
+         distanciaEmPalavras } from '../js/mapa.js';
 
 const estado = {
   cliente: null,
@@ -663,86 +664,176 @@ async function ecraDescobrir(principal) {
   const comPonto = negocios.filter((n) =>
     typeof n.latitude === 'number' && typeof n.longitude === 'number');
   const caixaDoMapa = el('div', { id: 'mapa-descobrir' });
+  /* O mapa devolve-se a si próprio para o «perto de mim» lhe poder dizer onde
+     está a pessoa. Chega quando chegar; o botão trata da ausência. */
+  let guardarMapa = () => {};
   if (comPonto.length) {
     principal.append(caixaDoMapa);
-    pintarMapaDoDescobrir(caixaDoMapa, comPonto);
+    pintarMapaDoDescobrir(caixaDoMapa, comPonto).then((m) => guardarMapa(m));
   }
 
   const meus = new Set(estado.cartoes.map((c) => c.programa.id));
   const lista = el('div', { class: 'pilha' });
 
-  for (const n of negocios) {
-    for (const p of n.programas) {
-      const tenho = meus.has(p.id);
-      const cartao = el('div', { class: 'cartao cartao-descobrir' },
-        el('div', { class: 'cartao-corpo' },
-          el('div', { class: 'cartao-topo' },
-            el('div', { class: 'cartao-marca' },
-              el('div', { class: 'cartao-nome', texto: n.nome }),
-              /* O ponto do meio só existe se houver as duas coisas. Um negócio
-                 sem categoria — e há-os, o campo é opcional no balcão — punha
-                 «null · Ovar» no ecrã de quem está a descobrir sítios. O
-                 template literal transforma o `null` em texto sem se queixar,
-                 e é assim que ele chega aos olhos de alguém. */
-              el('div', { class: 'cartao-tipo',
-                texto: [n.categoria, n.localidade].filter(Boolean).join(' · ') })),
-            el('div', { class: 'cartao-selo-tipo', html: icone(p.selo, { tipo: 'cheio', tamanho: 22 }) })),
-          el('div', { class: 'cartao-rodape' },
-            el('div', {},
-              el('div', { class: 'cartao-rotulo', texto: p.tipo === 'pontos'
-                ? 'Programa de pontos' : `${p.objetivo} carimbos` }),
-              el('div', { class: 'cartao-premio', texto: p.premio }),
-              /* COMO CHEGAR. O nosso mapa diz «é neste concelho, aqui»; a
-                 pergunta a seguir é «como é que lá chego», e essa responde-se
-                 com a app de mapas que a pessoa já tem e já sabe usar. É uma
-                 ligação: não sai pedido nenhum enquanto ninguém lhe tocar, e o
-                 que abre é o telemóvel dela — nós não ficamos a saber. */
-              (typeof n.latitude === 'number' && typeof n.longitude === 'number')
-                ? el('a', {
-                  class: 'cartao-chegar', target: '_blank', rel: 'noopener',
-                  href: comoChegar({ lat: n.latitude, lon: n.longitude, nome: n.nome }),
-                  'aria-label': `Como chegar a ${n.nome}`,
-                  aoClick: (ev) => ev.stopPropagation(),
-                }, el('span', { html: icone('mapa', { tamanho: 14 }) }),
-                el('span', { texto: 'Como chegar' }))
-                : null),
-            el('button', {
-              class: 'cartao-selo', type: 'button',
-              'aria-label': tenho ? `Já tens o cartão de ${n.nome}` : `Juntar o cartão de ${n.nome}`,
-              html: tenho ? icone('visto', { tamanho: 13 }) + '<span>Já tens</span>'
-                          : icone('mais', { tamanho: 13 }) + '<span>Juntar</span>',
-              aoClick: async (ev) => {
-                const botao = ev.currentTarget;
-                ev.stopPropagation();
-                if (tenho) { irPara('carteira'); return; }
-                /* Sem este try, um erro aqui — programa desactivado, rede
-                   em baixo, sessão expirada — matava a promessa em silêncio:
-                   o botão continuava a dizer «Juntar», nada acontecia, e a
-                   única pista era uma excepção na consola que ninguém abre. */
-                botao.disabled = true;
-                try {
-                  await api.aderir(estado.cliente.id, p.id);
-                  estado.cartoes = await api.cartoes(estado.cliente.id);
-                } catch (e) {
-                  botao.disabled = false;
-                  avisar(e.message || 'Não deu para juntar este cartão.', 'mau');
-                  return;
-                }
-                vibrar(14);
-                avisar(`Cartão de ${n.nome} adicionado.`, 'bom');
-                irPara('carteira');
-              },
-            }))));
-      /* O alfinete do mapa leva a este cartão, e é por ID que o encontra —
-         nunca pela posição na lista. Um negócio com dois programas dá dois
-         cartões, e indexar pela posição punha o alfinete a abrir o vizinho.
-         Foi esse o defeito que noutro projecto desta casa passou semanas com
-         sessenta e seis testes a passar por cima dele. */
-      cartao.dataset.negocio = n.id;
-      pintarCartao(cartao, n.cor);
-      lista.append(cartao);
+  /* O CARTÃO DE UM PROGRAMA, à parte, porque a lista passou a poder ser
+     repintada: quem carregar em «Perto de mim» volta a vê-la, pela mesma
+     ordem dos alfinetes do mapa. Construir os cartões dentro do ciclo que os
+     ordena era garantir que as duas coisas se afastavam. */
+  function cartaoDoPrograma(n, p) {
+    const tenho = meus.has(p.id);
+    const cartao = el('div', { class: 'cartao cartao-descobrir' },
+      el('div', { class: 'cartao-corpo' },
+        el('div', { class: 'cartao-topo' },
+          el('div', { class: 'cartao-marca' },
+            el('div', { class: 'cartao-nome', texto: n.nome }),
+            /* O ponto do meio só existe se houver as duas coisas. Um negócio
+               sem categoria — e há-os, o campo é opcional no balcão — punha
+               «null · Ovar» no ecrã de quem está a descobrir sítios. O
+               template literal transforma o `null` em texto sem se queixar,
+               e é assim que ele chega aos olhos de alguém. */
+            el('div', { class: 'cartao-tipo',
+              texto: [n.categoria, n.localidade].filter(Boolean).join(' · ') })),
+          el('div', { class: 'cartao-selo-tipo', html: icone(p.selo, { tipo: 'cheio', tamanho: 22 }) })),
+        el('div', { class: 'cartao-rodape' },
+          el('div', {},
+            el('div', { class: 'cartao-rotulo', texto: p.tipo === 'pontos'
+              ? 'Programa de pontos' : `${p.objetivo} carimbos` }),
+            el('div', { class: 'cartao-premio', texto: p.premio }),
+            /* COMO CHEGAR. O nosso mapa diz «é neste concelho, aqui»; a
+               pergunta a seguir é «como é que lá chego», e essa responde-se
+               com a app de mapas que a pessoa já tem e já sabe usar. É uma
+               ligação: não sai pedido nenhum enquanto ninguém lhe tocar, e o
+               que abre é o telemóvel dela — nós não ficamos a saber. */
+            (typeof n.latitude === 'number' && typeof n.longitude === 'number')
+              ? el('a', {
+                class: 'cartao-chegar', target: '_blank', rel: 'noopener',
+                href: comoChegar({ lat: n.latitude, lon: n.longitude, nome: n.nome }),
+                'aria-label': `Como chegar a ${n.nome}`,
+                aoClick: (ev) => ev.stopPropagation(),
+              }, el('span', { html: icone('mapa', { tamanho: 14 }) }),
+              el('span', { texto: 'Como chegar' }))
+              : null),
+          el('button', {
+            class: 'cartao-selo', type: 'button',
+            'aria-label': tenho ? `Já tens o cartão de ${n.nome}` : `Juntar o cartão de ${n.nome}`,
+            html: tenho ? icone('visto', { tamanho: 13 }) + '<span>Já tens</span>'
+                        : icone('mais', { tamanho: 13 }) + '<span>Juntar</span>',
+            aoClick: async (ev) => {
+              const botao = ev.currentTarget;
+              ev.stopPropagation();
+              if (tenho) { irPara('carteira'); return; }
+              /* Sem este try, um erro aqui — programa desactivado, rede
+                 em baixo, sessão expirada — matava a promessa em silêncio:
+                 o botão continuava a dizer «Juntar», nada acontecia, e a
+                 única pista era uma excepção na consola que ninguém abre. */
+              botao.disabled = true;
+              try {
+                await api.aderir(estado.cliente.id, p.id);
+                estado.cartoes = await api.cartoes(estado.cliente.id);
+              } catch (e) {
+                botao.disabled = false;
+                avisar(e.message || 'Não deu para juntar este cartão.', 'mau');
+                return;
+              }
+              vibrar(14);
+              avisar(`Cartão de ${n.nome} adicionado.`, 'bom');
+              irPara('carteira');
+            },
+          }))));
+    /* O alfinete do mapa leva a este cartão, e é por ID que o encontra —
+       nunca pela posição na lista. Um negócio com dois programas dá dois
+       cartões, e indexar pela posição punha o alfinete a abrir o vizinho.
+       Foi esse o defeito que noutro projecto desta casa passou semanas com
+       sessenta e seis testes a passar por cima dele. */
+    cartao.dataset.negocio = n.id;
+    pintarCartao(cartao, n.cor);
+    return cartao;
+  }
+
+  /* --- pintar a lista, por uma ordem -------------------------------------
+     Sem posição conhecida, a ordem é a que vem do servidor (por nome). Com
+     ela, é a da distância — e a distância aparece escrita em cada cartão,
+     porque uma lista reordenada sem dizer porquê parece uma lista baralhada. */
+  function pintarLista(ordem, distancias) {
+    lista.innerHTML = '';
+    for (const n of ordem) {
+      for (const p of n.programas) {
+        const cartao = cartaoDoPrograma(n, p);
+        const km = distancias && distancias.get(n.id);
+        if (typeof km === 'number') {
+          cartao.querySelector('.cartao-tipo').append(
+            el('span', { class: 'cartao-distancia',
+              texto: ` · a ${distanciaEmPalavras(km)}` }));
+        }
+        lista.append(cartao);
+      }
     }
   }
+
+  /* --- perto de mim ------------------------------------------------------
+     A pergunta que um mapa de concelhos não responde: numa cidade, todos os
+     alfinetes caem no mesmo polígono. Responde-se ordenando a lista.
+
+     A POSIÇÃO NÃO SAI DO TELEMÓVEL. Não vai num endereço, não é guardada, não
+     chega ao servidor: é lida, usada para uma conta de distância aqui mesmo, e
+     esquecida quando o ecrã muda. É a diferença entre «a app sabe onde estás»
+     e «a app pediu ao teu telemóvel a distância a estes seis sítios».
+
+     E o botão só existe se houver a quem aplicá-lo — com um único negócio com
+     ponto, ordenar por distância é ordenar uma coisa só. */
+  let mapaVivo = null;
+  guardarMapa = (m) => { mapaVivo = m; };
+  if (comPonto.length > 1 && navigator.geolocation) {
+    principal.append(el('div', { class: 'perto-linha' },
+      el('button', {
+        class: 'btn btn-suave btn-pequeno', id: 'perto-de-mim', type: 'button',
+        html: icone('bussola', { tamanho: 16 }) + '<span>Ver os mais perto de mim</span>',
+        aoClick: async (ev) => {
+          const botao = ev.currentTarget;
+          if (botao.getAttribute('aria-disabled') === 'true') return;
+          botao.setAttribute('aria-disabled', 'true');
+          try {
+            const posicao = await new Promise((resolve, rejeitar) => {
+              navigator.geolocation.getCurrentPosition(resolve, rejeitar,
+                { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 });
+            });
+            const eu = { lat: posicao.coords.latitude, lon: posicao.coords.longitude };
+
+            const distancias = new Map();
+            for (const n of comPonto) {
+              distancias.set(n.id, distanciaKm(eu, { lat: n.latitude, lon: n.longitude }));
+            }
+            /* QUEM NÃO TEM PONTO FICA NO FIM, e não no princípio nem no meio:
+               ordenar por uma distância que não existe punha-os a todos em
+               primeiro, que é o contrário do que se pediu. Entre eles, a ordem
+               que já tinham. */
+            const ordem = [...negocios].sort((a, b) => {
+              const da = distancias.has(a.id) ? distancias.get(a.id) : Infinity;
+              const db = distancias.has(b.id) ? distancias.get(b.id) : Infinity;
+              return da - db;
+            });
+            pintarLista(ordem, distancias);
+            if (mapaVivo) mapaVivo.ondeEstou(eu.lat, eu.lon);
+
+            const maisPerto = ordem.find((n) => distancias.has(n.id));
+            botao.remove();
+            principal.querySelector('.perto-linha')?.append(el('p', {
+              class: 'miudo', texto: maisPerto
+                ? `Do mais perto ao mais longe. O mais perto é ${maisPerto.nome}, `
+                  + `a ${distanciaEmPalavras(distancias.get(maisPerto.id))} em linha recta.`
+                : 'Do mais perto ao mais longe.' }));
+          } catch (e) {
+            botao.removeAttribute('aria-disabled');
+            avisar(e && e.code === 1
+              ? 'Não deixaste a app saber onde estás. A lista fica por nome.'
+              : 'Não deu para saber onde estás. Tenta outra vez daqui a pouco.',
+            'neutro');
+          }
+        },
+      })));
+  }
+
+  pintarLista(negocios, null);
   principal.append(lista);
 
   principal.append(el('div', { class: 'folha caixa-texto', style: 'margin-top:24px' },
@@ -764,10 +855,10 @@ async function pintarMapaDoDescobrir(caixa, negocios) {
     dados = await carregarPortugal(base());
   } catch {
     caixa.remove();
-    return;
+    return null;
   }
   /* O ecrã pode ter mudado enquanto isto vinha a caminho. */
-  if (!caixa.isConnected) return;
+  if (!caixa.isConnected) return null;
 
   const pontos = negocios.map((n) => ({
     id: n.id, nome: n.nome, lat: n.latitude, lon: n.longitude,
@@ -798,7 +889,8 @@ async function pintarMapaDoDescobrir(caixa, negocios) {
   /* Um negócio fora do continente e dos arquipélagos não existe — mas se a
      base tiver um ponto estragado, ele fica na lista e não no mapa, e não se
      inventa um alfinete a meio do Atlântico. */
-  if (!mapa.pinos && pontos.length) caixa.remove();
+  if (!mapa.pinos && pontos.length) { caixa.remove(); return null; }
+  return mapa;
 }
 
 /* =========================================================================

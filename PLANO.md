@@ -391,9 +391,13 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   > corrigir a própria morada.** Era escrita ao fundar o negócio e ficava assim
   > para sempre, na página pública dele. Agora há campo.
   >
-  > O que fica por fazer, e é honesto dizê-lo: **ordenar por distância** com a
-  > `Geolocation API` — que é a pergunta «qual é o mais perto de mim» dentro de
-  > uma cidade, onde todos os alfinetes caem no mesmo concelho. **Dois
+  > **«Perto de mim» está feito** (18 set 2026): ordena a lista por distância,
+  > escreve a distância em cada cartão e marca no mapa onde a pessoa está. A
+  > posição não sai do telemóvel — não vai num endereço, não é guardada, não
+  > chega ao servidor —, e isso é uma afirmação da bateria e não uma promessa
+  > escrita: espia-se o `fetch` e o armazenamento depois de carregar no botão.
+  >
+  > O que fica por fazer, e é honesto dizê-lo: **dois
   > estabelecimentos na mesma rua sobrepõem-se** no enquadramento de abertura;
   > separam-se ao aproximar, e isso está provado, mas um toque no de cima é o
   > único que abre. E as ruas, se um dia a densidade justificar, alojadas por

@@ -114,6 +114,31 @@ export function emPortugal(dados, lat, lon) {
   return folha.concelhos.some((c) => dentroDoCaminho([x, y], c.d));
 }
 
+/**
+ * Quantos quilómetros há entre dois pontos, pela fórmula do semiverseno.
+ *
+ * É a distância EM LINHA RECTA, e é preciso dizê-lo onde ela aparece: a pé ou
+ * de carro é sempre mais, e num sítio com um rio ou uma auto-estrada pelo meio
+ * pode ser muito mais. Serve para ordenar uma lista — «este é mais perto do
+ * que aquele» — e não para dizer a alguém quanto tempo demora.
+ */
+export function distanciaKm(a, b) {
+  const R = 6371;
+  const rad = (g) => (g * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLon = rad(b.lon - a.lon);
+  const s = Math.sin(dLat / 2) ** 2
+    + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+/** Uma distância como uma pessoa a diz. */
+export function distanciaEmPalavras(km) {
+  if (km < 1) return `${Math.round(km * 1000 / 50) * 50} m`;
+  if (km < 10) return `${km.toFixed(1).replace('.', ',')} km`;
+  return `${Math.round(km)} km`;
+}
+
 /** Ponto dentro de um `<path>`, lido comando a comando. */
 function dentroDoCaminho(ponto, d) {
   const aneis = [];
@@ -296,10 +321,19 @@ export function criarMapa({ dados, pontos = [], aoEscolher = () => {},
     svg.append(g);
   }
 
+  /* --- onde está quem está a ver -----------------------------------------
+     Um ponto de outra natureza: não é um sítio que se possa visitar, é a
+     pessoa. Por isso não é `<button>` — não há nada para lhe fazer — e não
+     entra na ordem de tabulação. */
+  let euAqui = null;
+  const marcaEu = el('div', { class: 'mapa-eu', hidden: true, 'aria-hidden': 'true' });
+  camadaPinos.append(marcaEu);
+
   /* --- os alfinetes ------------------------------------------------------ */
   const botoes = [];
   function construirPinos() {
     camadaPinos.innerHTML = '';
+    camadaPinos.append(marcaEu);
     botoes.length = 0;
     for (const p of (porFolha.get(folha.nome) || [])) {
       const aproximado = p.fonte === 'concelho';
@@ -347,6 +381,18 @@ export function criarMapa({ dados, pontos = [], aoEscolher = () => {},
       botao.hidden = foraDoEcra;
       botao.style.left = `${px}px`;
       botao.style.top = `${py}px`;
+    }
+
+    /* E a pessoa, se ela quiser aparecer. */
+    if (euAqui && folhaDe(dados, euAqui.lat, euAqui.lon)?.nome === folha.nome) {
+      const { x, y } = projectar(folha, euAqui.lat, euAqui.lon);
+      const px = (x - vista.x) * escalaX;
+      const py = (y - vista.y) * escalaY;
+      marcaEu.hidden = px < -20 || py < -20 || px > r.width + 20 || py > r.height + 20;
+      marcaEu.style.left = `${px}px`;
+      marcaEu.style.top = `${py}px`;
+    } else {
+      marcaEu.hidden = true;
     }
   }
 
@@ -593,6 +639,12 @@ export function criarMapa({ dados, pontos = [], aoEscolher = () => {},
       return true;
     },
     get folha() { return folha.nome; },
+    /* Mostrar onde está quem está a ver. A posição fica NESTA variável e mais
+       nada: não vai a endereço nenhum, não é guardada, não sai do telemóvel. */
+    ondeEstou(lat, lon) {
+      euAqui = (typeof lat === 'number' && typeof lon === 'number') ? { lat, lon } : null;
+      colocarPinos();
+    },
     parar() { observador.disconnect(); },
     /* Para os testes: quantos alfinetes estão mesmo desenhados. */
     get pinos() { return botoes.length; },

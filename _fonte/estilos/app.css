@@ -1102,3 +1102,28 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
   font-size: .75rem;
   color: var(--tinta-3);
 }
+
+/* «Perto de mim», por cima da lista do «Descobrir». */
+.perto-linha {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e-2);
+  margin: var(--e-4) 0 var(--e-2);
+}
+.perto-linha .btn { align-self: flex-start; }
+.cartao-distancia { opacity: .9; }
+
+/* Onde está quem está a ver o mapa. Não é um alfinete: é um ponto de outra
+   natureza, e desenha-se diferente de propósito — um disco com um halo, que é
+   como qualquer mapa diz «tu estás aqui». */
+.mapa-eu {
+  position: absolute;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: var(--r-max);
+  background: var(--marca);
+  border: 2px solid var(--mapa-aro);
+  box-shadow: 0 0 0 1px var(--mapa-contorno),
+              0 0 0 8px color-mix(in srgb, var(--marca) 22%, transparent);
+  pointer-events: none;
+}

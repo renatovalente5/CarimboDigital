@@ -435,6 +435,48 @@ class Palco {
     await esperar(150);
   }
 
+  /**
+   * Finge que o telemóvel está num sítio.
+   *
+   * Dá a permissão E a posição: sem a permissão, o `getCurrentPosition` chama
+   * o ramo do erro e o teste acusava a app de não ordenar a lista quando o que
+   * faltava era alguém dizer que sim.
+   */
+  async posicao(lat, lon, { precisao = 30 } = {}) {
+    const origem = await this.js('return location.origin');
+    await this.enviar('Browser.grantPermissions',
+      { origin: origem, permissions: ['geolocation'] }).catch(() => {});
+    await this.enviar('Emulation.setGeolocationOverride',
+      { latitude: lat, longitude: lon, accuracy: precisao }, this.sessao);
+    await esperar(120);
+  }
+
+  /**
+   * Passa a contar os pedidos que a página faz daqui para a frente.
+   *
+   * Remenda o `fetch` e guarda o endereço E o corpo: uma coordenada tanto pode
+   * escapar num `?lat=` como dentro de um JSON, e uma afirmação que só olhe
+   * para o endereço deixa passar a segunda.
+   */
+  async espiarPedidos() {
+    await this.js(`
+      window.__pedidos = [];
+      if (!window.__fetchEspiado) {
+        window.__fetchEspiado = window.fetch.bind(window);
+        window.fetch = (...a) => {
+          const url = String(a[0] && a[0].url ? a[0].url : a[0]);
+          const corpo = a[1] && a[1].body ? String(a[1].body) : '';
+          window.__pedidos.push(url + (corpo ? ' :: ' + corpo : ''));
+          return window.__fetchEspiado(...a);
+        };
+      }
+      return true`);
+  }
+
+  async pedidos() {
+    return this.js('return window.__pedidos || []');
+  }
+
   async tema(qual) {
     await this.enviar('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-color-scheme', value: qual }],
