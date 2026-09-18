@@ -32,7 +32,7 @@
   to { border-bottom-color: var(--linha); }
 }
 .cabecalho-linha {
-  display: flex; align-items: center; gap: var(--e-4);
+  display: flex; align-items: center; gap: var(--e-3);
   max-width: var(--coluna-larga); margin-inline: auto;
   padding: var(--e-3) var(--e-5);
   min-height: 60px;
@@ -43,14 +43,78 @@
 }
 .marca svg { width: 32px; height: 32px; flex: 0 0 auto; }
 .marca .marca-palavra { font-size: 1.125rem; }
-.cabecalho-espaco { flex: 1; }
-.cabecalho-ligacoes { display: none; gap: var(--e-6); }
+/* O nome por extenso ocupa espaço que as duas portas precisam mais do que
+   ele. Sai abaixo de 560; o símbolo fica, continua a ser o link para a
+   inicial, e o `aria-label` diz o nome a quem não o vê. */
+@media (max-width: 559px) { .marca .marca-palavra { display: none; } }
+
+.cabecalho-espaco { flex: 1; min-width: var(--e-2); }
+
+/* Um item de navegação é uma coisa em que se carrega, e estes tinham 22,5 px
+   de altura — abaixo do mínimo da WCAG 2.2 e muito abaixo dos 44 que este
+   projecto promete. Dar-lhes corpo de pílula resolve o alvo e dá superfície
+   onde pintar o estado do rato. O `gap` desce porque o enchimento passa a dar
+   o espaço. */
+.cabecalho-ligacoes { display: none; gap: var(--e-1); }
 .cabecalho-ligacoes a {
+  display: inline-flex; align-items: center;
+  min-height: 44px; padding-inline: var(--e-3);
+  border-radius: var(--r-max);
   font-size: .9375rem; font-weight: 600; color: var(--tinta-2);
-  transition: color var(--t-2) ease;
+  transition: background-color var(--t-1) ease, color var(--t-2) ease;
 }
-.cabecalho-ligacoes a:hover { color: var(--tinta); }
-@media (min-width: 760px) { .cabecalho-ligacoes { display: flex; } }
+/* 880 e já não 760: entre as duas larguras as âncoras cabiam mas empurravam
+   uma porta contra o bordo. Uma âncora de secção que empurra uma porta vale
+   menos do que a porta — e está repetida no rodapé. */
+@media (min-width: 880px) { .cabecalho-ligacoes { display: flex; } }
+/* Em /negocios/ estas duas âncoras levariam o dono de negócio para as secções
+   da página do CLIENTE. A barra ali tem um trabalho só: as portas. */
+body.pagina-negocios .cabecalho-ligacoes { display: none; }
+
+/* --- as duas portas ------------------------------------------------------ */
+.portas { display: flex; align-items: center; gap: var(--e-2); flex: 0 0 auto; }
+
+/* Abaixo de 480 cedem as palavras acessórias — «Os meus», «Para», «Abrir o» —
+   e nunca as portas, que são a razão de a barra existir. */
+.porta-curta { display: inline; }
+.porta-longa { display: none; }
+@media (min-width: 480px) {
+  .porta-curta { display: none; }
+  .porta-longa { display: inline; }
+}
+
+.porta-app     { background: var(--marca); color: var(--marca-texto); }
+.porta-negocio { border-color: var(--linha-campo); color: var(--tinta); }
+.porta-balcao  { display: none; }
+
+/* Em /negocios/ a ênfase troca de lado — e é só isto. O cheio é sempre o da
+   audiência DA PÁGINA, para o cabeçalho não discordar do herói que está logo
+   por baixo dele. */
+body.pagina-negocios .porta-negocio { display: none; }
+body.pagina-negocios .porta-balcao {
+  display: inline-flex;
+  background: var(--marca); color: var(--marca-texto);
+}
+body.pagina-negocios .porta-app {
+  background: none;
+  border-color: var(--linha-campo); color: var(--tinta);
+}
+
+@media (hover: hover) {
+  .cabecalho-ligacoes a:hover { background: var(--veu); color: var(--tinta); }
+  .porta-app:hover     { background: var(--marca-cima); }
+  .porta-negocio:hover { background: var(--veu); }
+  body.pagina-negocios .porta-balcao:hover { background: var(--marca-cima); }
+  body.pagina-negocios .porta-app:hover    { background: var(--veu); }
+}
+
+/* A linha que responde a uma objecção logo por baixo dos botões do herói.
+   Pequena de propósito: não compete com a chamada, e quem a procura
+   encontra-a onde a pergunta lhe nasce. */
+.heroi-nota {
+  margin-top: var(--e-4);
+  font-size: .9375rem; color: var(--tinta-2);
+}
 
 /* --- secções ------------------------------------------------------------- */
 

@@ -30,6 +30,15 @@
   --marca-fundo:  #EFEAFE;
   --marca-aro:    rgba(90, 49, 232, .28);
   --marca-texto:  #FFFFFF;   /* o que se lê por cima de --marca             */
+  /* Os estados do rato e do dedo. A folha declarava `transition:
+     background-color` nos botões e não tinha UMA regra `:hover` — uma
+     transição para um estado que não existia. No claro o roxo desce um
+     degrau; no escuro clareia, senão desaparecia no fundo.
+     Branco sobre #4A28C4 = 8,78:1; sobre #3E21A4 = 10,72:1. */
+  --marca-cima:   #4A28C4;
+  --marca-baixo:  #3E21A4;
+  --veu:          rgba(23, 22, 28, .05);
+  --veu-forte:    rgba(23, 22, 28, .09);
 
   /* --- semântica -------------------------------------------------------- */
   --bom:          #0F7A52;
@@ -92,6 +101,9 @@
     --marca-fundo:  #221B3C;
     --marca-aro:    rgba(154, 128, 255, .34);
     --marca-texto:  #0E0D12;
+    --marca-cima:   #AE99FF; --marca-baixo:   #BFAFFF;
+    --veu:          rgba(255, 255, 255, .07);
+    --veu-forte:    rgba(255, 255, 255, .12);
     --bom:          #4ED39A; --bom-fundo:     #10261D;
     --atencao:      #F0B366; --atencao-fundo: #2A1E0E;
     --mau:          #FF8B8B; --mau-fundo:     #2C1416;
@@ -109,6 +121,8 @@
   --linha-campo: #6C6977;
   --marca: #9A80FF; --marca-fundo: #221B3C; --marca-aro: rgba(154,128,255,.34);
   --marca-texto: #0E0D12;
+  --marca-cima: #AE99FF; --marca-baixo: #BFAFFF;
+  --veu: rgba(255,255,255,.07); --veu-forte: rgba(255,255,255,.12);
   --bom: #4ED39A; --bom-fundo: #10261D;
   --atencao: #F0B366; --atencao-fundo: #2A1E0E;
   --mau: #FF8B8B; --mau-fundo: #2C1416;
@@ -237,6 +251,11 @@ button { background: none; border: 0; cursor: pointer; }
      nada no sítio onde ela é mais precisa. */
   min-height: 48px;
   padding: 0 var(--e-6);
+  /* CONTORNO TRANSPARENTE NA BASE. Só o `.btn-contorno` declarava `border`, e
+     por isso era 3 px mais largo do que as outras variantes. Duas pílulas
+     lado a lado com variantes diferentes não alinhavam — e o cabeçalho troca
+     a variante entre páginas, o que fazia a barra saltar. */
+  border: 1.5px solid transparent;
   border-radius: var(--r-max);
   font-weight: 650;
   font-size: .975rem;
@@ -253,10 +272,25 @@ button { background: none; border: 0; cursor: pointer; }
 }
 
 .btn-cheio    { background: var(--marca); color: var(--marca-texto); }
-.btn-contorno { border: 1.5px solid var(--linha-forte); color: var(--tinta); }
+/* `--linha-campo` E NÃO `--linha-forte`. O contorno estava a 1,46:1 sobre o
+   papel — o 1.4.11 da WCAG pede 3:1 ao contorno que IDENTIFICA um controlo, e
+   sem ele um botão de contorno lê-se como texto solto. `--linha-campo` dá
+   3,37:1 no claro e 3,62:1 no escuro. Isto não é só do cabeçalho: era o
+   contorno de todos os botões secundários do site e das duas apps. */
+.btn-contorno { border-color: var(--linha-campo); color: var(--tinta); }
 .btn-suave    { background: var(--papel-3); color: var(--tinta); }
 .btn-fantasma { color: var(--tinta-2); }
 .btn-perigo   { background: var(--mau-fundo); color: var(--mau); }
+
+/* `hover: hover` para o estado não ficar colado ao toque num telemóvel, que é
+   o que acontece quando se declara `:hover` sem a condição. */
+@media (hover: hover) {
+  .btn-cheio:hover    { background: var(--marca-cima); }
+  .btn-contorno:hover { background: var(--veu); }
+  .btn-suave:hover    { background: var(--veu-forte); }
+  .btn-fantasma:hover { background: var(--veu); color: var(--tinta); }
+}
+.btn-cheio:active { background: var(--marca-baixo); }
 
 .btn-bloco { width: 100%; }
 .btn-grande { min-height: 56px; font-size: 1.05rem; padding-inline: var(--e-7); }

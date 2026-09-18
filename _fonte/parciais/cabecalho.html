@@ -7,9 +7,29 @@
     <span class="cabecalho-espaco"></span>
     <nav class="cabecalho-ligacoes" aria-label="Secções">
       <a href="{{BASE}}/#como">Como funciona</a>
-      <a href="{{BASE}}/negocios/">Para negócios</a>
       <a href="{{BASE}}/#perguntas">Perguntas</a>
     </nav>
-    <a class="btn btn-cheio btn-pequeno" href="{{BASE}}/app/">Abrir a app</a>
+    <!-- AS DUAS PORTAS, e são o ponto todo desta barra.
+
+         Havia aqui um botão só — «Abrir a app» — e quem tem um negócio tinha
+         de perceber sozinho que o que lhe interessava era um link a meio de
+         uma lista. Pior: essa lista desaparecia abaixo dos 760 px, por isso
+         num telemóvel a palavra «negócios» não existia no cabeçalho.
+
+         A ORDEM É SEMPRE A MESMA — cliente à esquerda, negócio à direita — e
+         só o preenchimento muda de página para página: em `/` o cheio é o do
+         cliente, em `/negocios/` é o do balcão. Trocar a ORDEM obrigava o
+         olho a reencontrar os botões a cada navegação; trocar a TINTA não.
+
+         A terceira porta está sempre no HTML e é escondida com
+         `display: none`, que a tira também da ordem de tabulação e da árvore
+         de acessibilidade. O atributo `hidden` não servia: já falhou noutro
+         sítio deste projecto, porque não esconde nada se o CSS declarar
+         `display`. -->
+    <nav class="portas" aria-label="Aplicações">
+      <a class="btn btn-pequeno porta-app" href="{{BASE}}/app/"><span class="porta-longa">Os meus cartões</span><span class="porta-curta">Cartões</span></a>
+      <a class="btn btn-pequeno porta-negocio" href="{{BASE}}/negocios/"><span class="porta-longa">Para negócios</span><span class="porta-curta">Negócios</span></a>
+      <a class="btn btn-pequeno porta-balcao" href="{{BASE}}/balcao/"><span class="porta-longa">Abrir o balcão</span><span class="porta-curta">Balcão</span></a>
+    </nav>
   </div>
 </header>

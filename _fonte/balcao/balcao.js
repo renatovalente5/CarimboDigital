@@ -2215,7 +2215,23 @@ function desenharEntrada() {
        escrevendo `?demo=1` à mão. O que deixou de existir é a maneira de lá
        cair sem querer. */
     el('p', { class: 'entrada-nota', texto:
-      'Sem instalar nada, sem cartão de crédito, sem mensalidade.' }));
+      'Sem instalar nada, sem cartão de crédito, sem mensalidade.' }),
+    /* E A TERCEIRA HIPÓTESE, que é a de quem chega aqui pela primeira vez.
+ 
+       As duas portas acima servem quem já tem balcão e quem já tem código.
+       Quem não tem nenhum dos dois — que é toda a gente que chega pelo site —
+       ficava a olhar para um ecrã que lhe pedia uma coisa que ele não sabia
+       onde arranjar, e sem uma terceira linha para onde ir. Um beco sem saída
+       no fim do único caminho que o site tem.
+ 
+       Vai em `btn-fantasma` de propósito: é uma saída, não uma porta. Quem tem
+       código não pode ter dúvidas sobre onde carregar. */
+    el('a', {
+      class: 'btn btn-fantasma btn-bloco btn-pequeno', id: 'porta-pedir',
+      href: 'mailto:geral@carimbodigital.pt?subject='
+        + encodeURIComponent('Quero um convite para o Carimbo Digital'),
+      texto: 'Ainda não tenho código — quero pedir um',
+    }));
 }
 
 function entrarPorEmail() {

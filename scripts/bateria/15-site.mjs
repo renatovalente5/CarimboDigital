@@ -558,12 +558,26 @@ export async function correr(palco, certo) {
     'ligações: as externas são todas por https',
     externas.filter((u) => !u.startsWith('https://')).join(' · ') || `${externas.length} externas`);
 
+  /* O ASSUNTO NÃO É ENDEREÇO. Um `mailto:` pode levar `?subject=`, e a
+     comparação era feita à cadeia inteira — por isso um link legítimo com
+     assunto preenchido reprovava como se fosse um endereço perdido. Corta-se
+     no `?` e compara-se só o que está à esquerda, que é a parte que esta
+     guarda existe para vigiar: contactos escritos à mão que divergem do
+     config em silêncio. */
   const correios = [...new Set(todas.filter((l) => l.protocolo === 'mailto:')
-    .map((l) => l.cru.replace('mailto:', '')))];
+    .map((l) => l.cru.replace('mailto:', '').split('?')[0]))];
   certo(correios.length > 0 && correios.every((e) => e === config.contacto
     || e === config.entidade.email),
     'ligações: os mailto usam o contacto do config, sem endereços perdidos',
     correios.join(' · '));
+
+  /* E o que vai no assunto tem de ser legível quando chegar à caixa de
+     correio: por descodificar, ou com acentos crus, aterra como lixo. */
+  const assuntos = todas.filter((l) => l.protocolo === 'mailto:' && l.cru.includes('?'))
+    .map((l) => decodeURIComponent(l.cru.split('subject=')[1] || ''));
+  certo(assuntos.every((s) => s.length > 3 && !/%[0-9A-F]{2}/i.test(s)),
+    'ligações: e o assunto de cada mailto lê-se como uma frase',
+    assuntos.join(' · ') || '(nenhum leva assunto)');
 
   /* =======================================================================
      5. Os botões de topo levam mesmo às apps
@@ -572,26 +586,82 @@ export async function correr(palco, certo) {
      debaixo do cabeçalho. Estes carregam-se com o rato.
      ======================================================================= */
 
+  /* AS DUAS PORTAS, em todas as páginas e em todas as larguras.
+
+     Havia aqui um botão só, e a afirmação era sobre ele. Quem tinha um
+     negócio tinha de perceber sozinho que o que lhe interessava era um link a
+     meio de uma lista — e essa lista desaparecia abaixo dos 760 px, por isso
+     num telemóvel a palavra «negócios» não existia no cabeçalho.
+
+     O cheio é sempre o da audiência DA PÁGINA: em `/` é o do cliente, em
+     `/negocios/` é o do balcão. Se o cabeçalho discordasse do herói que está
+     logo por baixo, quem chega tinha de desempatar sozinho — e vai-se embora. */
   for (const p of PAGINAS) {
     await palco.ir(p.rota);
-    const topo = await palco.js(`
-      const a = document.querySelector('header.cabecalho a.btn');
-      if (!a) return null;
-      return { texto: a.textContent.trim(), href: a.getAttribute('href'),
-               altura: Math.round(a.getBoundingClientRect().height) };`);
-    certo(!!topo && topo.href === `${BASE}/app/`,
-      `${p.rota}: o botão do topo aponta para a app`, JSON.stringify(topo));
-    certo(!!topo && topo.texto === 'Abrir a app',
-      `${p.rota}: e diz o que faz`, topo ? topo.texto : 'não há botão');
-    certo(await palco.visivel('header.cabecalho a.btn'),
-      `${p.rota}: o botão do topo está à vista`);
-    /* A WCAG 2.2 pede 24 px de alvo; o sistema promete 40 no botão pequeno. */
-    certo(!!topo && topo.altura >= 40,
-      `${p.rota}: o botão do topo tem alvo de dedo`, `${topo ? topo.altura : 0}px`);
+    const portas = await palco.js(`
+      return [...document.querySelectorAll('.portas a')]
+        .filter((a) => getComputedStyle(a).display !== 'none')
+        .map((a) => {
+          const c = a.getBoundingClientRect();
+          const rotulo = [...a.querySelectorAll('span')]
+            .find((s) => getComputedStyle(s).display !== 'none');
+          return { href: a.getAttribute('href'),
+                   texto: rotulo ? rotulo.textContent.trim() : a.textContent.trim(),
+                   cheio: getComputedStyle(a).backgroundColor,
+                   altura: Math.round(c.height) };
+        });`);
+    certo(portas.length === 2,
+      `${p.rota}: o cabeçalho tem DUAS portas, uma por audiência`,
+      JSON.stringify(portas));
+
+    const negocios = p.rota === '/negocios/';
+    const destinos = portas.map((x) => x.href).join(' ');
+    certo(destinos.includes(`${BASE}/app/`),
+      `${p.rota}: uma leva à app do cliente`, destinos);
+    certo(destinos.includes(negocios ? `${BASE}/balcao/` : `${BASE}/negocios/`),
+      `${p.rota}: e a outra leva ao lado do negócio`, destinos);
+
+    /* O cheio distingue-se do de contorno pelo fundo: um tem cor, o outro é
+       transparente. Comparar cadeias de cor entre temas seria frágil. */
+    const comFundo = portas.filter((x) => !/rgba\(0, 0, 0, 0\)|transparent/.test(x.cheio));
+    certo(comFundo.length === 1,
+      `${p.rota}: uma e só uma das portas é a iluminada`,
+      portas.map((x) => `${x.texto}=${x.cheio}`).join(' · '));
+    certo(comFundo[0] && comFundo[0].href
+      === (negocios ? `${BASE}/balcao/` : `${BASE}/app/`),
+      `${p.rota}: e a iluminada é a da audiência desta página`,
+      comFundo[0] ? comFundo[0].href : 'nenhuma');
+
+    for (const porta of portas) {
+      certo(porta.altura >= 44,
+        `${p.rota}: a porta «${porta.texto}» tem alvo de dedo`, `${porta.altura}px`);
+    }
   }
 
+  /* E ÀS LARGURAS QUE INTERESSAM. A promessa é que as duas portas estão SEMPRE
+     lá — o que cede são as palavras acessórias, nunca as portas. */
+  for (const largura of [320, 375, 480, 900]) {
+    await palco.tamanho(largura, 800);
+    await palco.ir('/');
+    const estado = await palco.js(`
+      const p = [...document.querySelectorAll('.portas a')]
+        .filter((a) => getComputedStyle(a).display !== 'none');
+      return { quantas: p.length,
+               alturas: p.map((a) => Math.round(a.getBoundingClientRect().height)),
+               transbordo: document.documentElement.scrollWidth > window.innerWidth };`);
+    certo(estado.quantas === 2, `${largura}px: as duas portas continuam lá`,
+      JSON.stringify(estado));
+    certo(estado.alturas.every((h) => h >= 44),
+      `${largura}px: e nenhuma encolhe abaixo dos 44`, JSON.stringify(estado.alturas));
+    certo(!estado.transbordo, `${largura}px: e nada transborda para o lado`);
+  }
+  /* Repõe-se a largura em que o módulo estava (1280, posta lá em cima) — uma
+     medição que deixa o palco noutro tamanho contamina tudo o que vier a
+     seguir, e em silêncio. */
+  await palco.tamanho(1280, 900);
+
   await palco.ir('/');
-  await palco.clicar('header.cabecalho a.btn');
+  await palco.clicar('.porta-app');
   await palco.pronta(10000);
   await dormir(400);
   certo(await palco.js('return location.pathname') === `${BASE}/app/`,

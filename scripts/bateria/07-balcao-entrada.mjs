@@ -115,6 +115,27 @@ export async function correr(palco, certo) {
     'as duas portas são entrar e código — a terceira, a da demonstração, saiu',
     portas.join('|'));
 
+  /* A TERCEIRA SAÍDA, para quem não tem nenhuma das duas portas.
+
+     As duas portas servem quem já tem balcão e quem já tem código. Quem chega
+     pelo site não tem nenhum dos dois — fundar um negócio exige um convite —
+     e ficava a olhar para um ecrã que lhe pedia uma coisa que não sabia onde
+     arranjar. Era o fim de um beco sem saída que começava na página de
+     negócios. Vai em `btn-fantasma`: é uma saída, não uma porta. */
+  const pedir = await palco.js(`
+    const a = document.querySelector('#porta-pedir');
+    if (!a) return null;
+    return { etiqueta: a.tagName, href: a.getAttribute('href'),
+             texto: a.textContent.trim(), classe: a.className };
+  `);
+  certo(pedir && pedir.etiqueta === 'A' && /^mailto:/.test(pedir.href || ''),
+    'há uma terceira saída para quem ainda não tem código, e é um email',
+    JSON.stringify(pedir));
+  certo(pedir && /não tenho código/i.test(pedir.texto),
+    'e diz exactamente isso, com as palavras de quem chega', pedir?.texto);
+  certo(pedir && !/btn-cheio/.test(pedir.classe),
+    'e não compete com as portas — quem tem código não pode hesitar', pedir?.classe);
+
   /* A PERGUNTA QUE DESEMPATA. Sem ela, duas portas com o mesmo peso são pior
      do que uma iluminada: a pessoa fica sem critério nenhum para escolher. */
   const perguntou = await palco.texto('#entrada-acoes .entrada-pergunta');

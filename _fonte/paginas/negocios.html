@@ -1,7 +1,8 @@
 ---
-titulo: Carimbo Digital para negócios — o cartão de carimbos, sem custos
-resumo: Substitui o cartão de papel do teu café, barbearia ou salão. Sem mensalidade, sem equipamento, pronto em cinco minutos.
+titulo: Cartão de fidelidade digital, grátis — Carimbo Digital
+resumo: O cartão de fidelidade do teu café ou barbearia, em digital. Um código QR, sem mensalidade e sem equipamento — a funcionar em cinco minutos.
 prioridade: 0.8
+classe: pagina-negocios
 ---
 <section class="heroi">
   <div class="dentro">
@@ -10,12 +11,75 @@ prioridade: 0.8
     <p class="entrada-texto">
       Custa cêntimos, é verdade. Mas esquece-se, molha-se, desfaz-se — e no
       fim do ano não te diz uma única coisa sobre quem entrou pela tua porta.
-      O Carimbo Digital faz o mesmo trabalho, no telemóvel que já tens, e conta-te o
-      que o papel nunca contou.
+      O Carimbo Digital é o mesmo cartão de fidelidade, no telemóvel que já
+      tens: o cliente mostra um código QR, tu apontas a câmara, e o carimbo
+      aparece nos dois. E conta-te o que o papel nunca contou.
     </p>
     <div class="botoes">
-      <a class="btn btn-cheio btn-grande" href="{{BASE}}/balcao/">Experimentar o balcão</a>
-      <a class="btn btn-contorno btn-grande" href="{{BASE}}/#perguntas">Ver as perguntas</a>
+      <a class="btn btn-cheio btn-grande" href="mailto:{{CONTACTO}}?subject=Quero%20um%20convite%20para%20o%20Carimbo%20Digital">Pedir um convite</a>
+      <a class="btn btn-contorno btn-grande" href="{{BASE}}/balcao/">Já tenho um código</a>
+    </div>
+    <!-- DIZ-SE QUE É POR CONVITE, E DIZ-SE AQUI.
+ 
+         Fundar um balcão exige um código (ver `reivindicarConvite`, no
+         Worker). O site não dizia isto em lado nenhum, e mandava quem chegava
+         para um ecrã que lhe pedia um código que ele não tinha. Um beco sem
+         saída no fim do único caminho que a página tem. -->
+    <p class="heroi-nota">O Carimbo Digital está a abrir devagar, por convite,
+      para eu conseguir acompanhar cada negócio que entra. Escreves-me, e
+      respondo eu próprio — não há robô nenhum do outro lado.</p>
+  </div>
+</section>
+
+<!-- O PREÇO É O NOSSO ARGUMENTO, e estava na página errada.
+
+     Esta comparação vivia na página inicial — a do CLIENTE — e aqui, na
+     página de quem paga, a única menção a preço era «Nada.» dentro de um
+     acordeão fechado: zero píxeis visíveis. O Fresha esconde o preço porque
+     19,95 €/mês é a objecção DELES; nós fazíamos o mesmo sem termos a razão
+     deles. Sobe para segunda secção, logo a seguir ao herói. -->
+<section class="faixa" id="preco">
+  <div class="dentro">
+    <span class="olho">Quanto custa</span>
+    <h2 class="seccao-titulo-grande">Grátis. E sem asterisco nenhum.</h2>
+    <p class="entrada-texto">
+      Um cartão de papel custa cêntimos e não diz nada a ninguém. As
+      plataformas de fidelização digitais dizem tudo — e custam mais do que um
+      café por dia. O Carimbo Digital fica no meio: faz o que interessa, e é
+      gratuito.
+    </p>
+    <div class="preco">
+      <div class="preco-caixa">
+        <div class="preco-rotulo">Plataformas de fidelização</div>
+        <div class="preco-valor">49,95 €<small> / 4 semanas</small></div>
+        <!-- DATADO, e não por gosto. É uma comparação com concorrentes
+             reais num site comercial; sem a data e sem o âmbito, a frase é
+             indefensável ao abrigo do DL 57/2008, que os nossos próprios
+             termos citam. E uma comparação desactualizada é pior do que
+             nenhuma — rever de seis em seis meses. -->
+        <p class="preco-nota">Preço público de uma das maiores plataformas de
+           fidelização em Portugal, para um só estabelecimento, consultado em
+           setembro de 2026. Cerca de 650 € por ano.</p>
+        <div class="preco-lista">
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Cartão na Wallet do telemóvel</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Notificações e campanhas</span></div>
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>Mensalidade a partir do primeiro dia</span></div>
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>Contrato e período mínimo</span></div>
+        </div>
+      </div>
+      <div class="preco-caixa" data-nosso="sim">
+        <div class="preco-rotulo">Carimbo Digital</div>
+        <div class="preco-valor">0 €<small> / sempre</small></div>
+        <p class="preco-nota">Sem mensalidade, sem cartão de crédito, sem
+           limite de clientes nem de carimbos.</p>
+        <div class="preco-lista">
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Clientes e carimbos sem limite</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>O teu cartão com a tua cor e o teu carimbo</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Quem está quase a ganhar, quem deixou de vir</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Cartaz para o balcão, pronto a imprimir</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Cartão na Carteira do telemóvel</span></div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -23,7 +87,7 @@ prioridade: 0.8
 <section class="faixa faixa-recuada">
   <div class="dentro">
     <span class="olho">Cinco minutos</span>
-    <h2 class="seccao-titulo-grande">O que é preciso para começar.</h2>
+    <h2 class="seccao-titulo-grande">Um programa de fidelidade em cinco minutos.</h2>
     <div class="passos">
       <div class="passo" data-n="1">
         <h3>Um telemóvel</h3>
@@ -71,19 +135,11 @@ prioridade: 0.8
   </div>
 </section>
 
-<section class="faixa faixa-recuada">
+<section class="faixa faixa-recuada" id="perguntas">
   <div class="dentro">
     <span class="olho">Sem letra pequena</span>
     <h2 class="seccao-titulo-grande">Perguntas de dono para dono.</h2>
     <div style="margin-top:32px">
-      <details class="pergunta">
-        <summary>Quanto custa?</summary>
-        <div class="pergunta-corpo">
-          <p>Nada. Sem mensalidade, sem cartão de crédito, sem período
-             experimental que acaba. Não há limite de clientes, de carimbos
-             nem de prémios.</p>
-        </div>
-      </details>
       <details class="pergunta">
         <summary>Isto atrasa a fila?</summary>
         <div class="pergunta-corpo">
@@ -134,11 +190,12 @@ prioridade: 0.8
 <section class="faixa">
   <div class="dentro">
     <div class="apelo">
-      <h2>Vê como fica antes de decidires.</h2>
-      <p>O balcão abre já, com um cartão de exemplo que podes mudar para as
-         tuas cores e o teu prémio. Não pedimos nada para experimentar.</p>
+      <h2>Não custa nada perguntar.</h2>
+      <p>Escreves-me a dizer que negócio tens e onde, e eu mando-te um código.
+         Não há formulário de dez campos, não há comercial a ligar, e não
+         pedimos cartão de crédito — nem agora nem depois.</p>
       <div class="botoes">
-        <a class="btn btn-cheio btn-grande" href="{{BASE}}/balcao/">Abrir o balcão</a>
+        <a class="btn btn-cheio btn-grande" href="mailto:{{CONTACTO}}?subject=Quero%20um%20convite%20para%20o%20Carimbo%20Digital">Pedir um convite</a>
       </div>
     </div>
   </div>

@@ -12,7 +12,8 @@ balcão aponta a câmara, o carimbo aparece nos dois telemóveis.
 
 **Planos:** [PLANO.md](PLANO.md) (o produto) · [PLANO-LOGIN.md](PLANO-LOGIN.md)
 (a autenticação, fechado) · [SEO.md](SEO.md) (como é que isto aparece no
-Google, e o que é que aparecer significa).
+Google, e o que é que aparecer significa) · [FRESHA.md](FRESHA.md) (o que se
+trouxe do fresha.com — e, sobretudo, o que se recusou).
 
 ---
 
