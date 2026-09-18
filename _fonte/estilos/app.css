@@ -1152,7 +1152,14 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 .barra-demo {
   position: fixed;
   inset: 0 0 auto 0;
-  z-index: 60;
+  /* ACIMA DE TUDO menos da ligação de saltar (999).
+
+     Nasceu a 60, que é o mesmo do ecrã de boas-vindas — e como o ecrã de
+     boas-vindas vem depois no documento, ganhava o empate e tapava a barra
+     inteira. Ou seja: no primeiro ecrã que alguém vê ao entrar na
+     demonstração, o aviso de que aquilo é uma demonstração não existia.
+     Isto foi encontrado a olhar para o site publicado, não no código. */
+  z-index: 990;
   display: flex;
   align-items: center;
   gap: var(--e-3);
@@ -1193,3 +1200,15 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
    reserva só serve para o instante entre pintar a barra e medi-la. */
 :root[data-demo="sim"] body { padding-top: var(--barra-demo, 60px); }
 :root[data-demo="sim"] #topo { top: var(--barra-demo, 60px); }
+
+/* E AS FOLHAS DE ECRÃ INTEIRO DESCEM TAMBÉM. O `padding` do `body` não lhes
+   chega: uma coisa com `position: fixed; inset: 0` mede-se ao ecrã e não ao
+   `body`, e o que acontecia era a barra a comer-lhes os primeiros 60 px —
+   onde vivem títulos e botões de fechar. */
+:root[data-demo="sim"] .bv,
+:root[data-demo="sim"] .codigo-folha,
+:root[data-demo="sim"] .painel,
+:root[data-demo="sim"] .resultado,
+:root[data-demo="sim"] .entrada { top: var(--barra-demo, 60px); }
+/* O `.aviso` fica de fora de propósito: ele está preso ao FUNDO do ecrã, e
+   dar-lhe um `top` esticava-o de alto a baixo. */

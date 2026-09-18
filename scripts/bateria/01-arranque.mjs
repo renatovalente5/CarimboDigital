@@ -29,6 +29,33 @@ export async function correr(palco, certo) {
   certo(await palco.ver('#aplicacao'), 'app do cliente: o esqueleto existe');
   certo(await palco.ver('#boas-vindas'), 'app do cliente: as boas-vindas aparecem à primeira');
 
+  /* A BARRA DA DEMONSTRAÇÃO TEM DE SE VER AQUI, no primeiro ecrã de todos.
+
+     Nasceu com `z-index: 60`, o mesmo do ecrã de boas-vindas — e como o ecrã
+     de boas-vindas vem depois no documento, ganhava o empate. O aviso de que
+     aquilo é uma demonstração estava lá, com 60 px de altura, completamente
+     tapado, precisamente no ecrã de quem acabou de entrar. Não se via no
+     código: viu-se a olhar para o site publicado.
+
+     Não chega perguntar se a barra existe nem se está «visível» — os dois
+     diziam que sim. A pergunta é quem é que o browser encontra no ponto onde
+     ela está. */
+  const noTopo = await palco.js(`
+    const b = document.querySelector('#barra-demo');
+    if (!b) return { erro: 'não há barra' };
+    const c = b.getBoundingClientRect();
+    if (c.height < 10) return { erro: 'a barra não tem altura', altura: c.height };
+    const emCima = document.elementFromPoint(Math.round(c.width / 2), Math.round(c.height / 2));
+    return {
+      altura: Math.round(c.height),
+      daBarra: !!(emCima && emCima.closest('#barra-demo')),
+      quemTapa: emCima ? (emCima.id || emCima.className || emCima.tagName) : 'ninguém',
+    };
+  `);
+  certo(noTopo && noTopo.daBarra,
+    'a barra da demonstração está à frente das boas-vindas, e não atrás delas',
+    `no ponto dela está «${noTopo?.quemTapa ?? noTopo?.erro}»`);
+
   const passos = await passarBoasVindas(palco);
   certo(passos > 0 && passos < 8,
     `app do cliente: as boas-vindas acabam (${passos} passos)`, `passos=${passos}`);
