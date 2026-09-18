@@ -32,6 +32,7 @@ import {
   construirPasse, passeDeCartao, certificadosDoPEM, emissorESerie, doPEM,
   validadeDoCertificado,
 } from './pkpass.js';
+import { enviarPush, pushPronto } from './push.js';
 
 const JANELA = 15;                 // segundos de vida de um código
 const TOLERANCIA = 2;              // janelas de folga para relógios desencontrados
@@ -1917,19 +1918,19 @@ async function trocarCodigoGoogle(env, { codigo, redireccao, verificador }) {
   } catch (erro) {
     console.error('google entrar: a troca do código nem chegou a sair', String(erro));
     throw new Falha('A Google não respondeu. Tenta outra vez.',
-      { estado: 502, codigo: 'google-falhou' });
+      { estado: 502, codigo: 'porta-falhou' });
   }
   if (!r.ok) {
     /* O ESTADO VAI PARA O REGISTO, o corpo não. Uma mensagem de erro de
        terceiros pode trazer lá dentro o que lhe apetecer, e isto é escrito num
        log que alguém lê. */
     console.error('google entrar: a Google recusou a troca', r.status);
-    throw new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'google-falhou' });
+    throw new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'porta-falhou' });
   }
   let dados;
   try { dados = await r.json(); } catch { dados = null; }
   if (!dados || !dados.id_token) {
-    throw new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'google-falhou' });
+    throw new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'porta-falhou' });
   }
   return String(dados.id_token);
 }
@@ -1949,24 +1950,27 @@ async function trocarCodigoGoogle(env, { codigo, redireccao, verificador }) {
  * que não caducou (`exp`), e que responde a ESTA ida e não a outra (`nonce`).
  * Sem o `nonce`, um token legítimo obtido noutro sítio servia aqui.
  */
-function abrirIdToken(env, texto, nonce) {
+function abrirIdToken(env, provedor, texto, nonce) {
+  const apple = provedor === 'apple';
+  const emissores = apple ? ['https://appleid.apple.com'] : EMISSORES_GOOGLE;
+  const destinatario = apple ? env.APPLE_ENTRAR_SERVICO : env.GOOGLE_ENTRAR_ID;
   const partes = String(texto || '').split('.');
   if (partes.length !== 3) {
-    throw new Falha('A Google respondeu de forma estranha.', { estado: 502, codigo: 'google-falhou' });
+    throw new Falha('A Google respondeu de forma estranha.', { estado: 502, codigo: 'porta-falhou' });
   }
   let corpo;
   try {
     corpo = JSON.parse(new TextDecoder().decode(deBase64url(partes[1])));
   } catch {
-    throw new Falha('A Google respondeu de forma estranha.', { estado: 502, codigo: 'google-falhou' });
+    throw new Falha('A Google respondeu de forma estranha.', { estado: 502, codigo: 'porta-falhou' });
   }
 
   const mau = (porque) => {
-    console.error('google entrar: id_token recusado —', porque);
-    return new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'google-falhou' });
+    console.error(`${provedor} entrar: id_token recusado —`, porque);
+    return new Falha('A Google não confirmou a entrada.', { estado: 502, codigo: 'porta-falhou' });
   };
-  if (!EMISSORES_GOOGLE.includes(String(corpo.iss))) throw mau('emissor');
-  if (String(corpo.aud) !== String(env.GOOGLE_ENTRAR_ID)) throw mau('destinatário');
+  if (!emissores.includes(String(corpo.iss))) throw mau('emissor');
+  if (String(corpo.aud) !== String(destinatario)) throw mau('destinatário');
   if (!corpo.sub || typeof corpo.sub !== 'string') throw mau('sem sujeito');
   /* Na dúvida, caducado — a mesma direcção de `expirado`. */
   const exp = Number(corpo.exp);
@@ -2106,9 +2110,14 @@ async function anotarErroDaLigacao(env, ligacaoId, codigo) {
 rota('GET', '/v1/portas', async (env) => ({
   email: Boolean(env.MAIL_TOKEN),
   google: googleEntrarPronta(env),
-  /* A porta da Apple é a fase a seguir. Fica aqui a dizer que não, para a app
-     já poder contar com o campo. */
-  apple: false,
+  apple: appleEntrarPronta(env),
+  /* A CHAVE PÚBLICA DAS NOTIFICAÇÕES VEM DAQUI, e não da construção do site.
+     Ela e a privada são duas metades da mesma chave: se a app subscrevesse com
+     uma chave que o Worker não tem, o browser guardava-a e todos os envios
+     levavam 403 para sempre — e do lado de cá tudo parecia bem. Uma fonte só,
+     e é a que assina. `null` quando não está configurada, e então a app não
+     oferece o interruptor. */
+  push: env.PUSH_PUBLICA || null,
 }));
 
 /**
@@ -2180,6 +2189,156 @@ rota('POST', '/v1/cliente/google/comecar', async (env, pedido) => {
   return { url: url.toString(), bilhete, expiraEm: expira };
 });
 
+/* =========================================================================
+   Entrar com a Apple
+
+   O MESMO CAMINHO DA GOOGLE, e de propósito: a mesma tabela `ligacoes`, o
+   mesmo bilhete a prender a conclusão a quem começou, a mesma regra de
+   ligação. O que muda são três coisas, e as três são da Apple.
+
+   1. O «client secret» NÃO É UM SEGREDO GUARDADO: é um JWT que se assina na
+      hora, em ES256, com a chave `.p8`. Vale seis meses no máximo; aqui vale
+      dez minutos, que é quanto uma troca demora.
+
+   2. NÃO VAI ÂMBITO NENHUM, e isso é uma decisão com preço escrito. A Apple só
+      manda a morada de email se a volta for por POST (`response_mode=form_post`),
+      e a nossa volta aterra em `/app/`, no GitHub Pages, que só serve GET. Para
+      ter o POST era preciso o Worker ter endereço próprio, e isso obrigava a
+      mudar a zona do domínio da Hostinger para a Cloudflare. Quem entrar SÓ
+      pela Apple não nos deixa morada nenhuma — e a app oferece-lhe juntar um
+      email ou a Google no mesmo painel.
+
+   3. NÃO VAI PKCE. A Apple não o documenta para o caminho da web, e mandar-lhe
+      parâmetros que ela não conhece é pedir um erro que não se explica. O que
+      protege esta troca é o segredo de cliente, que só o Worker sabe assinar.
+
+   A ARMADILHA QUE CUSTA UM DIA, e que aqui não se cai nela: a página
+   «Verifying a user» da Apple manda verificar «the JWS E256 signature» do
+   `id_token` — e isso está errado. O `openid-configuration` dela declara
+   RS256; o ES256 é do NOSSO segredo de cliente, não do token dela. Como aqui
+   não se verifica assinatura nenhuma (ver `abrirIdToken`), a confusão não tem
+   por onde entrar.
+   ========================================================================= */
+
+const appleEntrarPronta = (env) => Boolean(
+  env.APPLE_ENTRAR_SERVICO && env.APPLE_ENTRAR_KID && env.APPLE_ENTRAR_CHAVE && env.APPLE_EQUIPA);
+
+/** Está esta porta ligada? Uma pergunta, duas respostas. */
+const portaPronta = (env, provedor) =>
+  (provedor === 'apple' ? appleEntrarPronta(env) : googleEntrarPronta(env));
+
+const appleContas = (env) => env.APPLE_CONTAS_BASE || 'https://appleid.apple.com';
+
+/**
+ * O segredo de cliente da Apple — um JWT assinado com a `.p8`.
+ *
+ * Assina-se a cada troca e não se guarda: um segredo que vive dez minutos não
+ * precisa de casa. O `kid` no cabeçalho é o que diz à Apple com que chave
+ * verificar, e esquecê-lo dá um `invalid_client` que não explica nada.
+ */
+async function segredoDeClienteApple(env) {
+  const chave = await crypto.subtle.importKey(
+    'pkcs8', doPEM(env.APPLE_ENTRAR_CHAVE),
+    { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const agoraSeg = Math.floor(Date.now() / 1000);
+  const cabecalho = base64url(new TextEncoder().encode(
+    JSON.stringify({ alg: 'ES256', kid: env.APPLE_ENTRAR_KID })));
+  const corpo = base64url(new TextEncoder().encode(JSON.stringify({
+    iss: env.APPLE_EQUIPA,
+    iat: agoraSeg,
+    exp: agoraSeg + 600,
+    aud: 'https://appleid.apple.com',
+    /* O `sub` é o Services ID, e não o Team ID nem o App ID. É o erro mais
+       comum deste caminho, e a Apple responde-lhe com `invalid_client`. */
+    sub: env.APPLE_ENTRAR_SERVICO,
+  })));
+  const assinatura = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' }, chave,
+    new TextEncoder().encode(`${cabecalho}.${corpo}`));
+  /* A WebCrypto devolve `r||s` em cru, que é o que um JWS quer. O `node:crypto`
+     devolveria DER — é por isso que este código não se copia de exemplos de
+     Node sem olhar. */
+  return `${cabecalho}.${corpo}.${base64url(assinatura)}`;
+}
+
+/** Troca o código por um `id_token`. Servidor a servidor, com o segredo. */
+async function trocarCodigoApple(env, { codigo, redireccao }) {
+  const corpo = new URLSearchParams({
+    code: codigo,
+    client_id: env.APPLE_ENTRAR_SERVICO,
+    client_secret: await segredoDeClienteApple(env),
+    redirect_uri: redireccao,
+    grant_type: 'authorization_code',
+  });
+  let r;
+  try {
+    r = await fetch(`${appleContas(env)}/auth/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: corpo.toString(),
+      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? { signal: AbortSignal.timeout(8000) } : {}),
+    });
+  } catch (erro) {
+    console.error('apple entrar: a troca do código nem chegou a sair', String(erro));
+    throw new Falha('A Apple não respondeu. Tenta outra vez.',
+      { estado: 502, codigo: 'porta-falhou' });
+  }
+  if (!r.ok) {
+    console.error('apple entrar: a Apple recusou a troca', r.status);
+    throw new Falha('A Apple não confirmou a entrada.', { estado: 502, codigo: 'porta-falhou' });
+  }
+  let dados;
+  try { dados = await r.json(); } catch { dados = null; }
+  if (!dados || !dados.id_token) {
+    throw new Falha('A Apple não confirmou a entrada.', { estado: 502, codigo: 'porta-falhou' });
+  }
+  return String(dados.id_token);
+}
+
+/** A ida à Apple. Gémea da da Google, com as diferenças dela. */
+rota('POST', '/v1/cliente/apple/comecar', async (env, pedido) => {
+  if (!appleEntrarPronta(env)) {
+    throw new Falha('A entrada pela Apple não está ligada.',
+      { estado: 404, codigo: 'porta-desligada' });
+  }
+  await travarPorOrigem(env, pedido, {
+    marca: 'liga', tecto: LIGACOES_HORA, codigo: 'demasiadas-ligacoes',
+    mensagem: 'Demasiadas tentativas de entrada daqui. Tenta daqui a uma hora.',
+  });
+
+  const redireccao = redireccaoDeVolta(env, pedido);
+  const s = await lerSessao(env, pedido);
+  const sessaoResumo = s && s.tipo === 'cliente' ? s.resumo : null;
+
+  const estado = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const bilhete = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const nonce = base64url(crypto.getRandomValues(new Uint8Array(16)));
+  const expira = new Date(Date.now() + LIGACAO_MINUTOS * 60000).toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO ligacoes
+       (id, provedor, estado_resumo, bilhete_resumo, verificador, nonce,
+        redireccao, sessao_resumo, criada_em, expira_em)
+     VALUES (?, 'apple', ?, ?, ?, ?, ?, ?, ?, ?)`
+  /* O `verificador` é NOT NULL e a Apple não leva PKCE: fica em branco, dito
+     por escrito, em vez de se afrouxar o esquema por causa de uma porta. */
+  ).bind(id(), await resumo(estado), await resumo(bilhete), '', nonce,
+         redireccao, sessaoResumo, agora(), expira).run();
+
+  const url = new URL(`${appleContas(env)}/auth/authorize`);
+  url.searchParams.set('client_id', env.APPLE_ENTRAR_SERVICO);
+  url.searchParams.set('redirect_uri', redireccao);
+  url.searchParams.set('response_type', 'code');
+  /* Sem `scope`, e por isso `response_mode=query` — que é o único que uma
+     página do GitHub Pages consegue receber. Ver o cabeçalho deste bloco. */
+  url.searchParams.set('response_mode', 'query');
+  url.searchParams.set('state', estado);
+  url.searchParams.set('nonce', nonce);
+
+  return { url: url.toString(), bilhete, expiraEm: expira, provedor: 'apple' };
+});
+
 /**
  * A volta. Chamada pela app, quando o browser regressa a `/app/?code=...`.
  *
@@ -2204,10 +2363,7 @@ rota('POST', '/v1/cliente/google/comecar', async (env, pedido) => {
  * E repare-se no que esta rota não devolve, mesmo assim: sessão nenhuma. Quem
  * a levanta é a rota seguinte, com o mesmo bilhete.
  */
-rota('POST', '/v1/cliente/google/volta', async (env, pedido) => {
-  if (!googleEntrarPronta(env)) {
-    throw new Falha('A entrada pela Google não está ligada.', { estado: 404, codigo: 'google-desligada' });
-  }
+async function tratarVolta(env, pedido) {
   const corpo = await corpoJSON(pedido);
   const estado = typeof corpo.estado === 'string' ? corpo.estado : '';
   const bilhete = typeof corpo.bilhete === 'string' ? corpo.bilhete : '';
@@ -2217,10 +2373,19 @@ rota('POST', '/v1/cliente/google/volta', async (env, pedido) => {
       { estado: 403, codigo: 'bilhete-em-falta' });
   }
 
+  /* A LIGAÇÃO É QUE DIZ QUAL É A PORTA. Antes procurava-se `provedor = 'google'`
+     e a rota tinha o nome da Google lá dentro; com duas portas a viverem na
+     mesma tabela, quem sabe de quem é aquele estado é a linha, e não o
+     endereço por onde o pedido entrou. É o que permite à app ter um caminho de
+     volta só. */
   const linha = await env.DB.prepare(
-    'SELECT * FROM ligacoes WHERE estado_resumo = ? AND provedor = ?'
-  ).bind(await resumo(estado), 'google').first();
+    'SELECT * FROM ligacoes WHERE estado_resumo = ?'
+  ).bind(await resumo(estado)).first();
   if (!linha) throw new Falha('Esta entrada já não vale.', { estado: 400, codigo: 'ligacao-desconhecida' });
+  if (!portaPronta(env, linha.provedor)) {
+    throw new Falha('Essa forma de entrar não está ligada.',
+      { estado: 404, codigo: 'porta-desligada' });
+  }
   /* O bilhete tem de ser o DESTA ligação. Comparação em tempo constante, como
      em todo o lado aqui. */
   if (!iguais(await resumo(bilhete), String(linha.bilhete_resumo))) {
@@ -2246,36 +2411,42 @@ rota('POST', '/v1/cliente/google/volta', async (env, pedido) => {
   /* A pessoa carregou em «Cancelar» no ecrã da Google. É um caminho normal e
      tem de chegar à app: ficar a sondar para sempre era o pior dos mundos. */
   if (corpo.erro) {
-    await anotarErroDaLigacao(env, linha.id, 'google-recusou');
-    return { ok: false, codigo: 'google-recusou' };
+    await anotarErroDaLigacao(env, linha.id, 'porta-recusou');
+    return { ok: false, codigo: 'porta-recusou' };
   }
 
   const codigo = typeof corpo.codigo === 'string' ? corpo.codigo : '';
   if (!codigo) {
-    await anotarErroDaLigacao(env, linha.id, 'google-falhou');
-    throw new Falha('Falta o código da Google.', { estado: 400, codigo: 'google-falhou' });
+    await anotarErroDaLigacao(env, linha.id, 'porta-falhou');
+    throw new Falha('Falta o código de autorização.', { estado: 400, codigo: 'porta-falhou' });
   }
 
   let reivindicacoes;
   try {
-    const idToken = await trocarCodigoGoogle(env, {
-      codigo, redireccao: linha.redireccao, verificador: linha.verificador,
-    });
-    reivindicacoes = abrirIdToken(env, idToken, linha.nonce);
+    const idToken = linha.provedor === 'apple'
+      ? await trocarCodigoApple(env, { codigo, redireccao: linha.redireccao })
+      : await trocarCodigoGoogle(env, {
+        codigo, redireccao: linha.redireccao, verificador: linha.verificador,
+      });
+    reivindicacoes = abrirIdToken(env, linha.provedor, idToken, linha.nonce);
   } catch (erro) {
-    await anotarErroDaLigacao(env, linha.id, 'google-falhou');
+    await anotarErroDaLigacao(env, linha.id, 'porta-falhou');
     throw erro;
   }
 
-  /* A MORADA SÓ CONTA SE A GOOGLE DISSER QUE A VERIFICOU. Sem isso é uma
+  /* A MORADA SÓ CONTA SE O PROVEDOR DISSER QUE A VERIFICOU. Sem isso é uma
      morada que ninguém provou, e este produto não guarda moradas por provar —
-     nem sequer como pista, que uma pista falsa é pior do que nenhuma. */
+     nem sequer como pista, que uma pista falsa é pior do que nenhuma.
+
+     Da APPLE não vem morada nenhuma, e é de propósito: ela só a manda se a
+     volta for por POST, e a nossa volta aterra no GitHub Pages, que só serve
+     GET. Fica `null`, como ficaria uma que não estivesse verificada. */
   const correio = normalizarEmail(reivindicacoes.email);
   const email = reivindicacoes.email_verified === true && EMAIL_VALIDO.test(correio)
     ? correio : null;
 
   const { clienteId, recuperada, pista } = await resolverEntrada(env, {
-    provedor: 'google',
+    provedor: linha.provedor,
     sujeito: String(reivindicacoes.sub),
     email,
     sessaoResumo: linha.sessao_resumo,
@@ -2286,14 +2457,20 @@ rota('POST', '/v1/cliente/google/volta', async (env, pedido) => {
       WHERE id = ?`
   ).bind(agora(), clienteId, recuperada ? 1 : 0, pista, linha.id).run();
 
-  return { ok: true };
-});
+  return { ok: true, provedor: linha.provedor };
+}
+
+/* O endereço GERAL, que serve as duas portas — e o antigo, que continua a
+   servir a da Google. A API acrescenta e não renomeia: a PWA no telemóvel de
+   alguém pode ser de há semanas e chama o de baixo. */
+rota('POST', '/v1/cliente/entrada/volta', tratarVolta);
+rota('POST', '/v1/cliente/google/volta', tratarVolta);
 
 /**
  * O bilhete. É aqui que a sessão nasce — e é por isso que a tabela `ligacoes`
  * nunca guarda um testemunho: uma cópia dela não abre conta nenhuma.
  */
-rota('POST', '/v1/cliente/google/estado', async (env, pedido) => {
+async function tratarEstadoDaEntrada(env, pedido) {
   const corpo = await corpoJSON(pedido);
   const bilhete = typeof corpo.bilhete === 'string' ? corpo.bilhete : '';
   if (!bilhete) throw new Falha('Falta o bilhete.', { estado: 400, codigo: 'sem-bilhete' });
@@ -2367,7 +2544,182 @@ rota('POST', '/v1/cliente/google/estado', async (env, pedido) => {
     /* 'mesma-morada' quando há outra conta com esta morada, pela porta do
        email. Não se juntou nada; é para a app poder dizê-lo. */
     pista: linha.pista || null,
+    provedor: linha.provedor,
   };
+}
+
+rota('POST', '/v1/cliente/entrada/estado', tratarEstadoDaEntrada);
+rota('POST', '/v1/cliente/google/estado', tratarEstadoDaEntrada);
+
+/* =========================================================================
+   Notificações
+
+   UMA SÓ, e é de propósito: quando o cartão fica cheio. É o momento em que a
+   pessoa está a guardar o telemóvel e a sair do café, e o carimbo foi dado no
+   aparelho do BALCÃO — do lado de cá não há nada que o diga, a não ser que a
+   app esteja aberta.
+
+   «Há dois meses que não apareces» fica de fora, e não por falta de vontade:
+   é publicidade com outro nome, e a página de privacidade promete em letra
+   grande que não a enviamos. Se um dia for para fazer, é outro consentimento e
+   outra linha — não um uso a mais deste.
+
+   O TEXTO VAI CIFRADO (ver `push.js`), por uma razão prática além da óbvia: um
+   push vazio obrigaria o service worker a ir buscar o texto à API, e um service
+   worker NÃO TEM ACESSO ao `localStorage`, que é onde vive a sessão.
+   ========================================================================= */
+
+/* Aparelhos por conta. Seis é muito para uma pessoa e pouco para abusar: cada
+   um custa um subpedido por prémio, e o tecto de uma invocação é 50. */
+const SUBSCRICOES_MAX = 6;
+/* Envios seguidos sem sucesso antes de se desistir daquele aparelho. */
+const FALHAS_MAX = 3;
+
+/** Uma subscrição tem de se parecer com uma subscrição antes de entrar na base. */
+function lerSubscricao(corpo) {
+  const endereco = String(corpo.endereco || '');
+  const p256dh = String(corpo.p256dh || '');
+  const auth = String(corpo.auth || '');
+  let u;
+  try { u = new URL(endereco); } catch { u = null; }
+  /* HTTPS e mais nada: os serviços de push são todos https, e aceitar outra
+     coisa era deixar alguém usar-nos para bater a um endereço qualquer. A
+     única excepção é o localhost, e é a mesma que o endereço de volta das
+     portas já abre — sem ela não há forma de provar este caminho contra um
+     serviço de push de mentira. */
+  const local = u && (u.hostname === 'localhost' || u.hostname === '127.0.0.1');
+  if (!u || (u.protocol !== 'https:' && !local) || endereco.length > 512) {
+    throw new Falha('Endereço de notificação inválido.', { estado: 400, codigo: 'push-endereco' });
+  }
+  /* 65 bytes sem compressão e 16 de segredo — é o que o RFC 8291 manda, e o
+     que a cifra precisa. Recusar aqui é recusar antes de gravar.
+
+     E O `atob` ATIRA com base64 mal formado, o que dava um «Erro interno» a
+     quem mandasse lixo — 500 para o que é claramente um 400. Uma chave que não
+     se consegue ler é uma chave inválida, e diz-se isso. */
+  let tamanhos;
+  try {
+    tamanhos = [deBase64url(p256dh).length, deBase64url(auth).length];
+  } catch {
+    tamanhos = [0, 0];
+  }
+  if (tamanhos[0] !== 65 || tamanhos[1] !== 16) {
+    throw new Falha('Chaves de notificação inválidas.', { estado: 400, codigo: 'push-chaves' });
+  }
+  return { endereco, p256dh, auth };
+}
+
+/**
+ * Manda o aviso do prémio aos aparelhos desta conta, e limpa os que morreram.
+ *
+ * NÃO ATIRA. Corre num `waitUntil`, depois de o carimbo já estar gravado e a
+ * resposta já ter saído: o que acontecer aqui não pode fazer o balcão esperar
+ * nem falhar. Um serviço de push em baixo é um aviso que não chega, não um
+ * carimbo que se perde.
+ */
+async function avisarDoPremio(env, cartao, ganhos) {
+  if (!pushPronto(env) || !cartao || !ganhos || !ganhos.length) return;
+  let subs;
+  try {
+    subs = (await env.DB.prepare(
+      'SELECT id, endereco, p256dh, auth FROM subscricoes WHERE cliente_id = ? LIMIT ?'
+    ).bind(cartao.clienteId, SUBSCRICOES_MAX).all()).results;
+  } catch (erro) {
+    console.error('push: não deu para ler as subscrições', String(erro));
+    return;
+  }
+  if (!subs.length) return;
+
+  const nomes = ganhos.map((g) => g.descricao).filter(Boolean);
+  const texto = JSON.stringify({
+    titulo: nomes.length > 1 ? 'Ganhaste prémios' : 'Ganhaste um prémio',
+    /* O nome do café e o que se ganhou. Quem lê isto no ecrã bloqueado tem de
+       saber onde ir buscar, sem abrir nada. */
+    corpo: `${cartao.negocio?.nome || 'O teu cartão'} — ${nomes.join(' · ')}`,
+  });
+
+  for (const s of subs) {
+    const r = await enviarPush(env, s, texto);
+    try {
+      if (r.ok) {
+        await env.DB.prepare(
+          'UPDATE subscricoes SET usada_em = ?, falhas = 0 WHERE id = ?'
+        ).bind(agora(), s.id).run();
+      } else if (r.morta) {
+        /* 404 e 410 são a resposta normal a um aparelho que já não existe — a
+           app foi desinstalada, os dados do site foram limpos. Guardar aquilo
+           é guardar um endereço de alguém que já não nos ouve. */
+        await env.DB.prepare('DELETE FROM subscricoes WHERE id = ?').bind(s.id).run();
+      } else {
+        await env.DB.prepare(
+          'UPDATE subscricoes SET falhas = falhas + 1 WHERE id = ?').bind(s.id).run();
+        await env.DB.prepare(
+          'DELETE FROM subscricoes WHERE id = ? AND falhas >= ?').bind(s.id, FALHAS_MAX).run();
+      }
+    } catch (erro) {
+      console.error('push: não deu para arrumar a subscrição', String(erro));
+    }
+  }
+}
+
+/**
+ * Passar a receber avisos neste aparelho.
+ *
+ * O consentimento verdadeiro é o do SISTEMA — a folha que o telemóvel desenha
+ * e que só ele pode desenhar. Quando este pedido chega, a pessoa já disse que
+ * sim lá; aqui só se guarda para onde mandar.
+ */
+rota('POST', '/v1/cliente/push', async (env, pedido) => {
+  if (!pushPronto(env)) {
+    throw new Falha('As notificações não estão ligadas.', { estado: 404, codigo: 'push-desligado' });
+  }
+  const clienteId = await exigirCliente(env, pedido);
+  const s = lerSubscricao(await corpoJSON(pedido));
+
+  /* UM APARELHO, UMA LINHA. O browser volta a subscrever com o mesmo endereço
+     depois de uma actualização, e duas linhas iguais são duas notificações
+     iguais no mesmo ecrã. O `cliente_id` também se actualiza: um telemóvel que
+     mude de conta tem de passar a receber a da conta nova, e nunca as duas. */
+  await env.DB.prepare(
+    `INSERT INTO subscricoes (id, cliente_id, endereco, p256dh, auth, criada_em)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(endereco) DO UPDATE SET
+       cliente_id = excluded.cliente_id, p256dh = excluded.p256dh,
+       auth = excluded.auth, criada_em = excluded.criada_em, falhas = 0`
+  ).bind(id(), clienteId, s.endereco, s.p256dh, s.auth, agora()).run();
+
+  /* O tecto guarda-se deitando fora os mais velhos, e não recusando o novo:
+     quem está com o telemóvel na mão é quem acabou de dizer que sim. */
+  await env.DB.prepare(
+    `DELETE FROM subscricoes WHERE cliente_id = ?1 AND id NOT IN (
+       SELECT id FROM subscricoes WHERE cliente_id = ?1
+        ORDER BY criada_em DESC LIMIT ?2)`
+  ).bind(clienteId, SUBSCRICOES_MAX).run();
+
+  return { ok: true };
+});
+
+/**
+ * Deixar de receber.
+ *
+ * Com endereço, é este aparelho; sem ele, são todos — que é o que se quer
+ * quando alguém desliga o interruptor numa app que tem sessão em três sítios.
+ */
+rota('DELETE', '/v1/cliente/push', async (env, pedido) => {
+  const clienteId = await exigirCliente(env, pedido);
+  let endereco = '';
+  try {
+    const corpo = await corpoJSON(pedido);
+    endereco = typeof corpo.endereco === 'string' ? corpo.endereco : '';
+  } catch { /* sem corpo: são todos */ }
+
+  if (endereco) {
+    await env.DB.prepare('DELETE FROM subscricoes WHERE cliente_id = ? AND endereco = ?')
+      .bind(clienteId, endereco).run();
+  } else {
+    await env.DB.prepare('DELETE FROM subscricoes WHERE cliente_id = ?').bind(clienteId).run();
+  }
+  return { ok: true };
 });
 
 rota('GET', '/v1/cliente/dados', async (env, pedido) => {
@@ -2418,9 +2770,18 @@ rota('GET', '/v1/cliente/dados', async (env, pedido) => {
       ORDER BY criada_em`
   ).bind(clienteId, `cliente:${clienteId}`).all()).results;
 
+  /* OS APARELHOS QUE RECEBEM AVISOS. O endereço de push identifica um
+     telemóvel — é a coisa mais identificadora que esta base guarda — por isso
+     entra na exportação. As CHAVES não: são material de cifra, não dizem nada
+     a quem lê, e publicá-las num ficheiro que anda por aí não ajuda ninguém. */
+  const aparelhos = (await env.DB.prepare(
+    `SELECT endereco, criada_em, usada_em FROM subscricoes
+      WHERE cliente_id = ? ORDER BY criada_em`
+  ).bind(clienteId).all()).results;
+
   const detalhados = await moldarCartoes(env, cartoes);
   return {
-    geradoEm: agora(), cliente, identidades, entradasAMeio,
+    geradoEm: agora(), cliente, identidades, entradasAMeio, aparelhos,
     cartoes: detalhados, movimentos, premios,
   };
 });
@@ -2493,6 +2854,11 @@ async function apagarCliente(env, clienteId) {
        isso ninguém a leva atrás. Deixá-la lá dava um bilhete que, ao ser
        levantado, ia procurar uma conta que já não existe. */
     env.DB.prepare('DELETE FROM ligacoes WHERE cliente_id = ?').bind(clienteId),
+    /* E os aparelhos que estavam a receber avisos. O CASCADE leva-os — a
+       chave estrangeira está lá — mas o modo de falha se ela algum dia não
+       estiver é mandar uma notificação para o telemóvel de quem pediu para
+       desaparecer, e isso não se deixa a um talvez. */
+    env.DB.prepare('DELETE FROM subscricoes WHERE cliente_id = ?').bind(clienteId),
     /* REDE A MAIS, e fica dito para ninguém a tomar por necessária: o
        `PRAGMA foreign_keys` está a 1 no D1, local e remoto — conferido — por
        isso o ON DELETE CASCADE da declaração já leva estas linhas à frente.
@@ -3686,6 +4052,12 @@ rota('POST', '/v1/balcao/carimbar', async (env, pedido, _p, ctx) => {
        é o único que a pessoa quer sentir. */
     ctx.waitUntil(espelharNaWallet(env, r.cartao.id,
       { notificar: Boolean(r.ganhos && r.ganhos.length) }));
+    /* E o toque no bolso de quem não tem passe na carteira. Mesma condição, e
+       pela mesma razão: é o carimbo que fecha o cartão que a pessoa quer
+       sentir, e ela está a sair do café quando ele acontece. */
+    if (r.ganhos && r.ganhos.length) {
+      ctx.waitUntil(avisarDoPremio(env, r.cartao, r.ganhos));
+    }
   }
   return r;
 });

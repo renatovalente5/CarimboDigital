@@ -52,6 +52,9 @@ const PORTA = Number(process.argv[2]) || 8799;
 
 let visto = [];
 let avariarProximo = 0;
+/* As notificações que chegaram, e as subscrições que já «morreram» (410). */
+let entregues = [];
+const mortas = new Set();
 /* Os códigos de autorização por resgatar: código → o que foi pedido. */
 const codigos = new Map();
 
@@ -120,11 +123,22 @@ este caminho poder ser provado sem Internet e sem conta nenhuma.</p>
 </main></body></html>`;
 }
 
+/**
+ * O corpo em BYTES, e quem quiser texto que o converta.
+ *
+ * Chegou a devolver texto. Isso bastou enquanto tudo o que entrava era JSON —
+ * e deixou de bastar no dia em que passou a entrar um push, que é binário: sal,
+ * chave efémera e ciframento. Mas a correcção óbvia (ler tudo como `binary`)
+ * partiu o outro lado, e de uma forma que não grita: os corpos da carteira têm
+ * acentos, o latin-1 desfaz o UTF-8 deles byte a byte, e o que reprovou foi um
+ * teste de «mudar o nome do café» a dizer que `Café Rebaptizado` não era
+ * `Café Rebaptizado`. Bytes à entrada, e cada caminho decide como os lê.
+ */
 function corpoDe(pedido) {
   return new Promise((resolve) => {
-    let dados = '';
-    pedido.on('data', (p) => { dados += p; });
-    pedido.on('end', () => resolve(dados));
+    const pedacos = [];
+    pedido.on('data', (p) => pedacos.push(p));
+    pedido.on('end', () => resolve(Buffer.concat(pedacos)));
   });
 }
 
@@ -137,12 +151,14 @@ const responder = (res, estado, dados) => {
 const servidor = createServer(async (pedido, res) => {
   const url = new URL(pedido.url, `http://localhost:${PORTA}`);
   const caminho = url.pathname;
-  const corpo = await corpoDe(pedido);
+  const bytes = await corpoDe(pedido);
+  const corpo = bytes.toString('utf8');
 
   /* --- os endereços de controlo ---------------------------------------- */
   if (caminho === '/__visto') return responder(res, 200, visto);
   if (caminho === '/__limpar') {
     visto = []; avariarProximo = 0; codigos.clear();
+    entregues = []; mortas.clear();
     return responder(res, 200, { ok: true });
   }
   if (caminho === '/__avariar') {
@@ -158,6 +174,31 @@ const servidor = createServer(async (pedido, res) => {
   if (avariarProximo > 0) {
     avariarProximo -= 1;
     return responder(res, 500, { error: { message: 'a Google teve um mau dia' } });
+  }
+
+  /* --- a Google que ENTREGA NOTIFICAÇÕES --------------------------------- */
+  /* O serviço de push do Chrome é mesmo da Google (`fcm.googleapis.com`), por
+     isso ele vive aqui e não noutro sítio. Guarda o corpo CIFRADO tal como
+     chegou: quem decifra é o teste, com as chaves do «browser» que ele próprio
+     gerou — é a única forma de provar que a cifra funciona dos dois lados.
+
+     Também se guarda o cabeçalho `authorization`, que é onde vai o VAPID. */
+  if (caminho.startsWith('/wp/')) {
+    const id = caminho.slice(4);
+    if (mortas.has(id)) return responder(res, 410, { error: 'gone' });
+    entregues.push({
+      id,
+      autorizacao: pedido.headers.authorization || '',
+      codificacao: pedido.headers['content-encoding'] || '',
+      ttl: pedido.headers.ttl || '',
+      corpo: bytes.toString('base64'),
+    });
+    res.writeHead(201); return res.end();
+  }
+  if (caminho === '/__entregues') return responder(res, 200, entregues);
+  if (caminho === '/__matar') {
+    mortas.add(url.searchParams.get('id') || '');
+    return responder(res, 200, { mortas: [...mortas] });
   }
 
   /* --- a Google de ENTRAR ------------------------------------------------ */

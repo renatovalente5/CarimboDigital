@@ -446,6 +446,43 @@ self.addEventListener('activate', (ev) => {
   })());
 });
 
+${app === 'app' ? `
+/* --- as notificações ---------------------------------------------------- */
+/* O texto vem CIFRADO no corpo do push, e não se vai buscar a lado nenhum: um
+   service worker não tem acesso ao localStorage, que é onde vive a sessão, e
+   sem sessão não havia nada para ir buscar. Ver worker/src/push.js. */
+self.addEventListener('push', (ev) => {
+  let dados = {};
+  try { dados = ev.data ? ev.data.json() : {}; } catch { dados = {}; }
+  const titulo = dados.titulo || 'Carimbo Digital';
+  ev.waitUntil(self.registration.showNotification(titulo, {
+    body: dados.corpo || '',
+    icon: '${BASE}/icones/192.png',
+    badge: '${BASE}/icones/192.png',
+    /* Uma etiqueta só: dois prémios seguidos não empilham dois avisos iguais
+       no ecrã bloqueado de quem está a sair do café. */
+    tag: 'carimbo-premio',
+    renotify: true,
+    data: { abrir: '${BASE}/app/' },
+  }));
+});
+
+/* Tocar na notificação traz a app que JÁ ESTÁ ABERTA, se estiver — abrir uma
+   segunda janela por cima da primeira é a forma mais rápida de alguém perder
+   o sítio onde estava. */
+self.addEventListener('notificationclick', (ev) => {
+  ev.notification.close();
+  const destino = (ev.notification.data && ev.notification.data.abrir) || '${BASE}/app/';
+  ev.waitUntil((async () => {
+    const janelas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const j of janelas) {
+      if (j.url.includes('${BASE}/app/') && 'focus' in j) return j.focus();
+    }
+    if (self.clients.openWindow) return self.clients.openWindow(destino);
+    return null;
+  })());
+});
+` : ''}
 self.addEventListener('fetch', (ev) => {
   const pedido = ev.request;
   if (pedido.method !== 'GET') return;

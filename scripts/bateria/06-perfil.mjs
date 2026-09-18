@@ -120,8 +120,24 @@ export async function correr(palco, certo) {
 
   certo(await palco.visivel(LINHA_CONTA), 'perfil: a linha «Guardar a conta» está à vista');
   certo(await palco.visivel(LINHA_EXPORTAR), 'perfil: a linha «Descarregar os meus dados» está à vista');
-  certo(await palco.visivel(LINHA_APAGAR), 'perfil: a linha de apagar está à vista');
+  /* A LINHA DE APAGAR CAIU ABAIXO DA DOBRA, e isto afirmava que estava «à
+     vista». Caiu porque o perfil cresceu — os avisos entraram — e não porque
+     alguém a escondesse. Para a mais destrutiva de todas as acções, estar em
+     último e obrigar a um deslize é o sítio certo: o que se prova é que se
+     CHEGA lá, e que fica depois das que não fazem mal a ninguém. */
+  const yApagar = await palco.medir(LINHA_APAGAR);
+  const yExportar = await palco.medir(LINHA_EXPORTAR);
+  certo(Boolean(yApagar) && Boolean(yExportar) && yApagar.y > yExportar.y,
+    'perfil: a linha de apagar fica em último, depois das que não têm volta atrás',
+    yApagar && yExportar ? `apagar=${Math.round(yApagar.y)} exportar=${Math.round(yExportar.y)}` : 'não medida');
+  await palco.js(`document.querySelector('#principal .linha-perigo')
+    .scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 350)); return true`);
+  certo(await palco.visivel(LINHA_APAGAR),
+    'perfil: e chega-se a ela com um deslize — não está presa fora do ecrã');
   await palco.captura('06-perfil');
+  await palco.js(`window.scrollTo(0, 0);
+    await new Promise((r) => setTimeout(r, 250)); return true`);
 
   /* --- guardar a conta: o que a app tem de recusar ------------------------ */
   await palco.clicar(LINHA_CONTA);

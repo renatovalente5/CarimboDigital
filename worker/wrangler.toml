@@ -90,6 +90,54 @@ GOOGLE_EMISSOR = "3388000000023200429"
 # e nunca regressa à app instalada.
 GOOGLE_ENTRAR_ID = "834648750841-6te9ulculj64tojq5jsmq4ct7aproqg3.apps.googleusercontent.com"
 
+# AS NOTIFICAÇÕES. Duas metades da mesma chave P-256 (VAPID, RFC 8292):
+#
+#   PUSH_PUBLICA — vai na barra de endereço de cada subscrição e o browser
+#                  guarda-a. Não é segredo, e é o Worker que a serve à app em
+#                  `/v1/portas` — não a construção do site. Se a app subscrevesse
+#                  com uma chave que o Worker não tem, o browser guardava-a e
+#                  todos os envios levavam 403 para sempre, com tudo a parecer
+#                  bem deste lado.
+#   PUSH_CHAVE   — assina o JWT de cada envio. Segredo:
+#                    npx wrangler secret put PUSH_CHAVE
+#
+# Geram-se as duas com `node scripts/chaves-push.mjs`, UMA vez. Trocá-las
+# invalida as subscrições todas: o browser guardou a pública no momento em que
+# disse que sim, e não há como lhe pedir que volte a dizer sem pedir outra vez.
+#
+# Enquanto as duas não existirem, `/v1/portas` diz `push: null` e a app não
+# mostra o interruptor — a mesma manha das carteiras e da porta da Google.
+PUSH_PUBLICA = "BJE5YyrngA6XMPIRtNaWbZKE379VOOTPy5T9AMPFkk8EFQfK755Clp4Ou_w8AEL2TsV1NApVO8b-yKlOhVK6lgo"
+
+# ENTRAR COM A APPLE — outra coisa da Apple, e não se confunde com a carteira:
+# a carteira assina passes com um certificado de Pass Type ID, isto assina um
+# *client secret* com uma chave de autenticação. São chaves diferentes e a da
+# carteira NÃO serve aqui.
+#
+#   APPLE_ENTRAR_SERVICO — o Services ID, que é o `client_id` da web.
+#   APPLE_ENTRAR_KID     — o identificador da chave `.p8`. Vai no cabeçalho do
+#                          JWT para a Apple saber com qual verificar.
+#   APPLE_EQUIPA         — o Team ID, o mesmo da carteira, já em baixo.
+#   APPLE_ENTRAR_CHAVE   — a `.p8` em PKCS#8. Segredo:
+#                            npx wrangler secret put APPLE_ENTRAR_CHAVE
+#                          Descarrega-se UMA vez da consola e não há segunda.
+#
+# Criado a 18 de Setembro de 2026: App ID primário `pt.carimbodigital.app` com
+# Sign in with Apple, Services ID `pt.carimbodigital.entrar` agrupado com ele,
+# domínio `carimbodigital.pt` e volta em `https://carimbodigital.pt/app/`.
+#
+# SEM ÂMBITO, e isso é uma decisão com preço. A Apple só manda a morada de
+# email se a volta for por POST (`response_mode=form_post`), e a volta aterra
+# no GitHub Pages, que só serve GET. Para ter o POST era preciso que o Worker
+# tivesse endereço próprio, e isso obrigava a mudar a zona do domínio da
+# Hostinger para a Cloudflare. Fica sem morada: quem entrar SÓ pela Apple não
+# nos deixa por onde lhe escrever, e o aviso de conta parada não lhe chega — a
+# app oferece-lhe juntar um email ou a Google no mesmo painel. É por isso
+# também que o quarto passo da consola («Register Email Sources») não é
+# preciso: ele só serve para escrever a moradas `privaterelay`.
+APPLE_ENTRAR_SERVICO = "pt.carimbodigital.entrar"
+APPLE_ENTRAR_KID = "57HH2WUS32"
+
 # A APPLE WALLET. Estes dois NÃO são segredo, e é por isso que estão aqui e não
 # num `wrangler secret`: vão dentro de cada `.pkpass` servido, em texto simples,
 # no `pass.json`. Qualquer pessoa que descarregue um passe os lê. Guardá-los

@@ -535,6 +535,45 @@ console.log('\nContraste');
   if (!mal) bem(`${contados} pares de cores medidos e ${manuais} escritos à mão, todos passam`);
 }
 
+/* =========================================================================
+   Cada `api.alguma coisa()` existe mesmo
+
+   Renomeei o `concluirGoogle` para `concluirEntrada` quando a Apple entrou, e
+   duas chamadas ficaram para tras com o nome velho. O JavaScript nao se queixa
+   de chamar uma coisa que nao existe — atira quando la chega, e o `catch` que
+   estava a volta transformava isso numa frase educada: «Nao deu para concluir
+   a entrada.» O caminho da volta do OAuth ficou morto e com ar de vivo.
+
+   Nao e analise a serio: e um grep dos dois lados a bater um no outro. Mas
+   apanha exactamente esta classe de erro, que e a que nao da sinal nenhum.
+   ========================================================================= */
+{
+  console.log('\nAs chamadas a API existem');
+  const api = readFileSync(join(RAIZ, '_fonte', 'js', 'api.js'), 'utf8');
+  const quemChama = [
+    ['app/app.js', join(RAIZ, '_fonte', 'app', 'app.js')],
+    ['balcao/balcao.js', join(RAIZ, '_fonte', 'balcao', 'balcao.js')],
+  ].filter(([, f]) => existsSync(f));
+
+  /* Um nome conta como definido se aparecer como chave de objecto (`nome:`) ou
+     como metodo (`nome(`) — que sao as duas formas que o api.js usa, uma para
+     o remoto e outra para a demonstracao. */
+  const definido = (nome) =>
+    new RegExp(`(^|[^A-Za-z0-9_$.])(async\\s+)?${nome}\\s*[:(]`, 'm').test(api);
+
+  let chamadas = 0, mal = 0;
+  for (const [nome, ficheiro] of quemChama) {
+    const texto = readFileSync(ficheiro, 'utf8');
+    const vistos = new Set();
+    for (const m of texto.matchAll(/\bapi\.([A-Za-z0-9_$]+)\s*\(/g)) vistos.add(m[1]);
+    for (const chamado of vistos) {
+      chamadas++;
+      if (!definido(chamado)) { falhar(`${nome}: chama api.${chamado}(), que nao existe no api.js`); mal++; }
+    }
+  }
+  if (!mal) bem(`${chamadas} chamadas a API, todas com quem as atenda`);
+}
+
 /* --- resumo ------------------------------------------------------------- */
 console.log(`\n${erros ? '✗' : '✓'} ${erros} erros, ${avisos} avisos.\n`);
 process.exit(erros ? 1 : 0);

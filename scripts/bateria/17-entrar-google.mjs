@@ -33,6 +33,7 @@ export const nome = '17 · Entrar com a Google';
 const PERFIL = '.barra-item:nth-child(5)';
 const LINHA_CONTA = '#principal section:first-of-type .lista .linha:first-child';
 const BOTAO_GOOGLE = '#painel .btn-google';
+const BOTAO_APPLE = '#painel .btn-apple';
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,9 +45,15 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
  * antigo desaparece com ele. Marcar uma vez e clicar duas é esperar por um
  * elemento que já não existe.
  */
-async function marcarPorta(palco, verbo) {
+async function marcarPorta(palco, verbo, porta = null) {
+  /* O `porta` faz falta desde que há três: «Desligar» aparece ao lado da
+     Google E da Apple, e um `find` só pelo verbo apanha sempre a primeira. */
   return palco.js(`
-    const b = [...document.querySelectorAll('#painel .linha-porta .btn')]
+    const linhas = [...document.querySelectorAll('#painel .linha-porta')];
+    const so = ${JSON.stringify(porta)};
+    const b = linhas
+      .filter((l) => !so || l.textContent.includes(so))
+      .flatMap((l) => [...l.querySelectorAll('.btn')])
       .find((n) => n.textContent.includes(${JSON.stringify(verbo)}));
     if (!b) return null;
     b.setAttribute('data-prova', 'porta');
@@ -88,10 +95,22 @@ export async function correr(palco, certo) {
   const yEmail = (await palco.medir('#campo-email')).y;
   const ou = await palco.medir('#painel .ou');
   certo(yGoogle < yEmail, 'a Google vem por cima do email', `${yGoogle} vs ${yEmail}`);
+
+  /* E a Apple, que chegou a seguir. As duas portas de provedor ficam juntas,
+     por cima do «ou» — senão lê-se como se fossem três caminhos soltos. */
+  const APPLE = '#painel .btn-apple';
+  certo(await palco.visivel(APPLE), 'o botão «Continuar com a Apple» está à vista');
+  const yApple = (await palco.medir(APPLE)).y;
+  certo(yGoogle < yApple && yApple < yEmail,
+    'e fica entre a Google e o email', `${yGoogle} < ${yApple} < ${yEmail}`);
+  certo(Boolean(ou) && ou.y > yApple,
+    'o «ou» fica por baixo das duas, e não entre elas');
+  certo(await palco.contar(`${APPLE} svg`) === 1,
+    'com a maçã da Apple, desenhada aqui e não carregada de lá');
   certo(Boolean(ou) && ou.y > yGoogle && ou.y < yEmail,
     'e há um «ou» entre as duas, a dizer que chega uma');
-  certo((await palco.textoTodo()).includes('Não lhe pedimos o teu nome'),
-    'o painel diz o que a Google fica a saber, ao lado do botão');
+  certo(/pedimos o teu nome/.test(await palco.textoTodo()),
+    'o painel diz o que o provedor fica a saber, ao lado dos botões');
 
   /* O botão do email continua a ser o que o campo do código submete. Se o da
      Google entrasse como `.btn-cheio` acima dele, o preenchimento automático
@@ -134,8 +153,14 @@ export async function correr(palco, certo) {
      nada esteja errado no ecrã. */
   certo((await palco.textoTodo()).toLowerCase().includes('juntar outra forma de entrar'),
     'e o que falta é oferecido por baixo, como o que falta e não como alternativa');
-  certo(!(await palco.visivel('#painel .ou')),
-    'sem duas escolhas não há «ou» — ele separa alternativas, e aqui não há duas');
+  /* O «ou» separa as portas de provedor do email. Com a Google já ligada,
+     sobra a Apple — e o «ou» continua a fazer sentido, por baixo dela. Quando
+     NÃO sobrar nenhuma, ele tem de desaparecer; isso prova-se na secção das
+     duas portas, mais abaixo. */
+  const ouAqui = await palco.medir('#painel .ou');
+  const yApple2 = await palco.medir('#painel .btn-apple');
+  certo(Boolean(ouAqui) && Boolean(yApple2) && ouAqui.y > yApple2.y,
+    'e o «ou» fica por baixo da porta que falta, a separá-la do email');
 
   /* --- 4. RETIRAR É TÃO FÁCIL COMO DAR (art. 7.º/3 do RGPD) ------------ */
   /* O botão vive AO LADO da porta que desliga, e não numa linha solta do
@@ -191,13 +216,14 @@ export async function correr(palco, certo) {
     'e o código sai da barra de endereço logo — não fica no histórico do telemóvel');
 
   /* --- 6. A VOLTA NA JANELA CERTA -------------------------------------- */
-  await palco.js(`localStorage.setItem('carimbo-demo:entrada-google',
-    JSON.stringify({ bilhete: 'bilhete-de-demonstracao', em: Date.now() }))`);
+  /* A chave deixou de ter o nome de uma porta quando ficaram três. */
+  await palco.js(`localStorage.setItem('carimbo-demo:entrada',
+    JSON.stringify({ bilhete: 'bilhete-de-demonstracao', provedor: 'google', em: Date.now() }))`);
   await palco.ir('/app/?code=um-codigo-qualquer&state=um-estado-qualquer');
   await palco.esperar('#barra .barra-item');
   certo(!(await palco.textoTodo()).includes('A entrada não ficou feita'),
     'com o bilhete no sítio, a volta conclui-se');
-  certo(await guardado(palco, 'entrada-google') === null,
+  certo(await guardado(palco, 'entrada') === null,
     'e o bilhete é gasto: não fica lá para servir outra vez');
 
   await palco.clicar(PERFIL);
@@ -207,7 +233,7 @@ export async function correr(palco, certo) {
 
   /* --- 7. O QUE FICA PARA TRÁS DEPOIS DE APAGAR ------------------------ */
   const chaves = await palco.js(`return Object.keys(localStorage)`);
-  certo(!chaves.some((k) => k.includes('entrada-google')),
+  certo(!chaves.some((k) => k.endsWith(':entrada')),
     'não sobra bilhete nenhum no armazenamento depois de a entrada estar feita',
     JSON.stringify(chaves));
 
@@ -236,8 +262,47 @@ export async function correr(palco, certo) {
     'quem já tem email não o volta a escrever — o campo deixa de ser oferecido');
   certo(!(await palco.ver(BOTAO_GOOGLE)),
     'e o botão da Google também não, que já está ligada');
-  certo(texto.includes('Tens as duas'),
-    'e o painel fecha-se a dizer que não falta nada');
+  certo(!(await palco.visivel('#painel .ou')),
+    'e sem nada para oferecer não há «ou» — ele separa alternativas, e aqui não sobra nenhuma');
+  /* Com TRÊS portas, ter duas não é ter tudo — e o painel não pode dizer que
+     sim. Afirma-se o contrário do que estava aqui escrito: que a que falta
+     continua a ser oferecida, com o nome dela. */
+  certo(texto.includes('Continuar com a Apple'),
+    'e a porta que falta continua oferecida, em vez de o painel dar a conta por fechada');
+  certo(!texto.includes('Tens tudo o que há'),
+    'e não diz «tens tudo» com uma porta ainda por ligar');
+
+  /* --- 8b. E COM AS TRÊS, AÍ SIM ---------------------------------------- */
+  /* O fim da linha: ligada a terceira, não há nada para oferecer e o painel
+     tem de o dizer, em vez de acabar num cabeçalho com nada por baixo. */
+  /* Ligar uma porta FECHA o painel e leva ao perfil — é o mesmo fim de todos
+     os caminhos de entrada, e a demonstração faz-lhe o percurso todo. Por
+     isso reabre-se, em vez de esperar que o painel se repinte por baixo. */
+  await palco.clicar(BOTAO_APPLE);
+  await palco.sumir('#painel', 6000);
+  await palco.esperarTexto('demonstração não há Apple a sério');
+  await palco.esperar(LINHA_CONTA);
+  await palco.clicar(LINHA_CONTA);
+  await palco.esperar('#painel .linha-porta');
+  certo(await palco.contar('#painel .linha-porta') === 3,
+    'ligada a Apple, ficam as três portas na lista',
+    String(await palco.contar('#painel .linha-porta')));
+  const comTodas = await palco.texto('#painel');
+  certo(comTodas.includes('Tens tudo o que há'),
+    'e aí sim o painel diz que não falta nada', comTodas.slice(-200));
+  certo(!(await palco.ver(BOTAO_APPLE)) && !(await palco.ver(BOTAO_GOOGLE))
+    && !(await palco.ver('#painel #campo-email')),
+    'e não sobra oferta nenhuma — nem botão, nem campo');
+
+  /* E desliga-se outra vez, que o resto da secção conta com as duas. */
+  certo(await marcarPorta(palco, 'Desligar', 'Apple') === true,
+    'a porta da Apple tem um «Desligar» ao lado');
+  await palco.clicar('[data-prova="porta"]');
+  await palco.esperar('#painel .btn-perigo');
+  await palco.clicar('#painel .btn-perigo');
+  await palco.esperar('#painel .btn-apple');
+  certo(await palco.contar('#painel .linha-porta') === 2,
+    'desligada, voltam a ser duas', String(await palco.contar('#painel .linha-porta')));
 
   /* A morada que o painel mostra e a que o perfil mostra são lidas por duas
      funções diferentes — `moradaDaPorta` e `moradaDaConta`. Nada as obriga a

@@ -29,6 +29,7 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 /* A porta da Google de mentira. Fora da gama do wrangler, para não haver
    encontrões quando os dois arrancam ao mesmo tempo. */
 const PORTA_GOOGLE = 8799;
+const PORTA_APPLE = 8797;
 
 /** Garante que há segredos locais. Nunca vão para o repositório. */
 export function garantirSegredos() {
@@ -91,6 +92,14 @@ function paresDeDesenvolvimento() {
     ['GOOGLE_CONTAS_BASE', `http://localhost:${PORTA_GOOGLE}`],
     ['GOOGLE_ENTRAR_ID', 'de-mentira.apps.googleusercontent.com'],
     ['GOOGLE_ENTRAR_SEGREDO', 'GOCSPX-de-mentira'],
+    /* As notificações. A chave é gerada aqui, na hora, e não vale nada fora
+       desta máquina — o que interessa é existirem as duas metades da MESMA
+       chave, porque é isso que a bateria verifica do outro lado. */
+    ...chavesDePushDeMentira(),
+    ['APPLE_CONTAS_BASE', `http://localhost:${PORTA_APPLE}`],
+    ['APPLE_ENTRAR_SERVICO', 'pt.carimbodigital.dementira'],
+    ['APPLE_ENTRAR_KID', 'KIDDEMENTIR'],
+    ['APPLE_ENTRAR_CHAVE', chaveP8DeMentira()],
     ['APPLE_PASS_TIPO', 'pass.pt.carimbodigital.dementira'],
     ['APPLE_EQUIPA', 'DEMENTIRA1'],
     ['APPLE_CERTIFICADO', apple.certificado],
@@ -111,6 +120,31 @@ function paresDeDesenvolvimento() {
  * As mudanças de linha vão como `\n` literais porque um ficheiro de variáveis
  * de ambiente não as aguarda — o `doPEM` desfaz isso do outro lado.
  */
+/**
+ * Uma `.p8` de mentira para o «entrar com a Apple».
+ *
+ * É uma chave P-256 a sério, em PKCS#8, gerada aqui: o que se prova com ela é
+ * que o Worker sabe montar e assinar o JWT do segredo de cliente. Que a APPLE
+ * a aceitaria é outra pergunta, e essa nenhum teste responde.
+ */
+function chaveP8DeMentira() {
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  return privateKey.export({ type: 'pkcs8', format: 'pem' }).trim().replace(/\n/g, '\\n');
+}
+
+/** Um par VAPID de mentira, gerado a cada arranque. */
+function chavesDePushDeMentira() {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const jwk = privateKey.export({ format: 'jwk' });
+  const publica = publicKey.export({ type: 'spki', format: 'der' });
+  /* Os últimos 65 bytes de um SPKI de P-256 são o ponto sem compressão, que é
+     o formato em que a chave pública VAPID viaja. */
+  return [
+    ['PUSH_CHAVE', jwk.d],
+    ['PUSH_PUBLICA', Buffer.from(publica.subarray(publica.length - 65)).toString('base64url')],
+  ];
+}
+
 function certificadoDeMentira() {
   const pasta = mkdtempSync(join(tmpdir(), 'carimbo-apple-'));
   try {
@@ -416,6 +450,12 @@ export async function comWorker(tarefa, { porta = 8787, tecto = 90000, limpo = f
   const google = spawn(process.execPath, [join(AQUI, 'google-de-mentira.mjs'), String(PORTA_GOOGLE)], {
     stdio: 'ignore', detached: true, env: { ...process.env, CALADO: 'sim' },
   });
+  /* E a Apple, pela mesma razão: a entrada por lá tem casos maus que só se
+     provam pedindo-os — um código gasto, um segredo de cliente mal montado,
+     um «Cancelar». */
+  const apple = spawn(process.execPath, [join(AQUI, 'apple-de-mentira.mjs'), String(PORTA_APPLE)], {
+    stdio: 'ignore', detached: true, env: { ...process.env, CALADO: 'sim' },
+  });
 
   const processo = spawn('npx', ['--yes', 'wrangler', 'dev', '--local', '--test-scheduled', '--port', String(porta)], {
     cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
@@ -433,6 +473,8 @@ export async function comWorker(tarefa, { porta = 8787, tecto = 90000, limpo = f
        amanhã sem ninguém perceber porquê. */
     try { process.kill(-google.pid, 'SIGKILL'); } catch { /* já morreu */ }
     try { google.kill('SIGKILL'); } catch { /* idem */ }
+    try { process.kill(-apple.pid, 'SIGKILL'); } catch { /* já morreu */ }
+    try { apple.kill('SIGKILL'); } catch { /* idem */ }
   };
   process.once('exit', matar);
   process.once('SIGINT', () => { matar(); process.exit(130); });

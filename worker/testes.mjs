@@ -3340,6 +3340,11 @@ grupo('Fundir: o que NÃO pode acontecer');
   await pedir('/v1/cliente/fundir', { metodo: 'POST', sessao: f.sessao,
     corpo: { sessaoOrigem: e.sessao } });
   const g = await criar();
+  /* APAGA-SE ANTES DE INSERIR. O resumo é FIXO — vem da palavra «ressuscitada»
+     — e a linha não tem chave estrangeira que a leve quando a conta é apagada.
+     Uma segunda corrida sem `--limpo` batia no índice único e o ficheiro
+     inteiro morria à entrada, antes de um único teste. */
+  sql(`DELETE FROM sessoes WHERE resumo = '${createHash('sha256').update('ressuscitada').digest('hex')}'`);
   sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
        VALUES ('${createHash('sha256').update('ressuscitada').digest('hex')}',
                'cliente:${e.id}', datetime('now'),
@@ -3736,8 +3741,9 @@ grupo('Entrar com a Google');
   certo(portas.estado === 200 && portas.dados.google === true,
     'o servidor diz que a porta da Google está aberta — um botão não se adivinha',
     JSON.stringify(portas.dados));
-  certo(portas.dados.apple === false,
-    'e diz que a da Apple ainda não, em vez de calar o campo');
+  certo(typeof portas.dados.apple === 'boolean',
+    'e responde também pela da Apple, em vez de calar o campo',
+    String(portas.dados.apple));
 
   /* --- 2. A IDA LEVA O QUE TEM DE LEVAR --------------------------------- */
   const ida = await comecar();
@@ -3875,10 +3881,10 @@ grupo('Entrar com a Google');
     const ida6 = await comecar();
     const r = await voltar({ estado: (new URL(ida6.dados.url)).searchParams.get('state'),
       bilhete: ida6.dados.bilhete, erro: 'access_denied' });
-    certo(r.estado === 200 && r.dados.ok === false && r.dados.codigo === 'google-recusou',
+    certo(r.estado === 200 && r.dados.ok === false && r.dados.codigo === 'porta-recusou',
       'cancelar na Google é um caminho normal e chega cá', JSON.stringify(r.dados));
     const lev = await levantar(ida6.dados.bilhete);
-    certo(lev.dados.situacao === 'erro' && lev.dados.codigo === 'google-recusou',
+    certo(lev.dados.situacao === 'erro' && lev.dados.codigo === 'porta-recusou',
       'e a app fica a saber porquê, em vez de sondar para sempre', JSON.stringify(lev.dados));
   }
 
@@ -3889,7 +3895,7 @@ grupo('Entrar com a Google');
     const volta7 = await passarPelaGoogle(ida7.dados.url, 'pessoa.d@gmail.com');
     await fetch(`${GOOGLE}/__avariar?n=1`, { method: 'POST' });
     const r = await voltar({ ...volta7, bilhete: ida7.dados.bilhete });
-    certo(r.estado === 502 && r.dados.codigo === 'google-falhou',
+    certo(r.estado === 502 && r.dados.codigo === 'porta-falhou',
       'a Google a responder 500 dá um erro que se explica, e não um 500 nosso',
       JSON.stringify(r.dados));
     const lev = await levantar(ida7.dados.bilhete);
@@ -3908,7 +3914,7 @@ grupo('Entrar com a Google');
     torto.searchParams.set('client_id', 'de-outra-pessoa.apps.googleusercontent.com');
     const volta8 = await passarPelaGoogle(torto.toString(), 'pessoa.e@gmail.com');
     const r = await voltar({ ...volta8, bilhete: ida8.dados.bilhete });
-    certo(r.estado === 502 && r.dados.codigo === 'google-falhou',
+    certo(r.estado === 502 && r.dados.codigo === 'porta-falhou',
       'um `id_token` emitido para outro destinatário é recusado', JSON.stringify(r.dados));
   }
   {
@@ -3919,7 +3925,7 @@ grupo('Entrar com a Google');
     const volta9 = await passarPelaGoogle(ida9.dados.url, 'pessoa.f@gmail.com');
     sql(`UPDATE ligacoes SET nonce = 'outro-qualquer' WHERE id = '${ultimaLigacao().id}'`);
     const r = await voltar({ ...volta9, bilhete: ida9.dados.bilhete });
-    certo(r.estado === 502 && r.dados.codigo === 'google-falhou',
+    certo(r.estado === 502 && r.dados.codigo === 'porta-falhou',
       'um `id_token` que responde a outra ida é recusado (o `nonce`)', JSON.stringify(r.dados));
   }
 
@@ -4044,6 +4050,292 @@ grupo('Entrar com a Google');
   const lista = [...new Set(criados)].filter(Boolean).map((x) => `'${x}'`).join(',');
   if (lista) sql(`DELETE FROM clientes WHERE id IN (${lista})`);
   sql(`DELETE FROM ligacoes`);
+  await fetch(`${GOOGLE}/__limpar`, { method: 'POST' });
+}
+
+grupo('Entrar com a Apple');
+{
+  /* Contra uma Apple DE MENTIRA (`scripts/apple-de-mentira.mjs`), que é menos
+     generosa do que a Google de propósito: não manda morada nenhuma, porque a
+     Apple a sério também não manda sem âmbito — e sem POST na volta não há
+     âmbito. Um teste contra uma imitação mais simpática do que o original não
+     prova nada. */
+  const APPLE = 'http://localhost:8797';
+  const ORIGEM = { origin: 'http://localhost:4321', 'cf-connecting-ip': '198.51.100.91' };
+  const criados = [];
+  sql(`DELETE FROM registos`);
+
+  const comecar = (sessao) => pedir('/v1/cliente/apple/comecar',
+    { metodo: 'POST', corpo: {}, sessao, cabecalhos: ORIGEM });
+  const voltar = (corpo) => pedir('/v1/cliente/entrada/volta',
+    { metodo: 'POST', corpo, cabecalhos: ORIGEM });
+  const levantar = (bilhete) => pedir('/v1/cliente/entrada/estado',
+    { metodo: 'POST', corpo: { bilhete }, cabecalhos: ORIGEM });
+
+  async function passarPelaApple(url, quem) {
+    const pagina = await fetch(url);
+    const html = await pagina.text();
+    const codigo = html.match(/name="codigo" value="([^"]+)"/)[1];
+    const estadoForm = html.match(/name="estado" value="([^"]+)"/)[1];
+    const r = await fetch(`${APPLE}/auth/aprovar`, {
+      method: 'POST', redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ codigo, estado: estadoForm, decisao: 'sim', quem }),
+    });
+    const destino = new URL(r.headers.get('location'));
+    return { codigo: destino.searchParams.get('code'), estado: destino.searchParams.get('state') };
+  }
+
+  const portas = await pedir('/v1/portas', { cabecalhos: ORIGEM });
+  certo(portas.dados.apple === true,
+    'o servidor diz que a porta da Apple está aberta', JSON.stringify(portas.dados));
+
+  const ida = await comecar();
+  certo(ida.estado === 200 && ida.dados.url && ida.dados.bilhete,
+    'a ida devolve o endereço da Apple e um bilhete');
+  const url = new URL(ida.dados.url);
+  certo(url.pathname === '/auth/authorize', 'e bate ao endereço certo', url.pathname);
+  certo(url.searchParams.get('response_mode') === 'query',
+    'a volta é por QUERY — é a única que uma página do GitHub Pages consegue receber',
+    url.searchParams.get('response_mode'));
+  certo(!url.searchParams.has('scope'),
+    'e vai SEM âmbito: com âmbito a Apple obriga a POST, e a nossa volta é um GET');
+  certo(!url.searchParams.has('code_challenge'),
+    'e sem PKCE, que a Apple não documenta para a web — o que protege é o segredo de cliente');
+  certo(url.searchParams.get('redirect_uri') === 'http://localhost:4321/app/',
+    'e aterra dentro do âmbito da app', url.searchParams.get('redirect_uri'));
+
+  const volta1 = await passarPelaApple(ida.dados.url, 'pessoa@icloud.com');
+  const semBilhete = await voltar({ estado: volta1.estado, codigo: volta1.codigo });
+  certo(semBilhete.estado === 403,
+    'sem bilhete não se conclui — a mesma trava da Google, e pelo mesmo motivo');
+
+  const feito = await voltar({ ...volta1, bilhete: ida.dados.bilhete });
+  certo(feito.estado === 200 && feito.dados.ok === true && feito.dados.provedor === 'apple',
+    'com o bilhete certo conclui, e diz de que porta foi', JSON.stringify(feito.dados));
+
+  const lev = await levantar(ida.dados.bilhete);
+  certo(lev.dados.situacao === 'pronta' && Boolean(lev.dados.sessao),
+    'o bilhete levanta a entrada feita', JSON.stringify(lev.dados).slice(0, 100));
+  const contaA = lev.dados.cliente.id;
+  criados.push(contaA);
+
+  const identidade = linhas(
+    `SELECT provedor, sujeito, email FROM identidades WHERE cliente_id = '${contaA}'`);
+  certo(identidade.length === 1 && identidade[0].provedor === 'apple',
+    'ficou uma identidade `apple` colada à conta');
+  certo(identidade[0].email === null,
+    'e SEM morada — a Apple não a manda, e não se inventa uma', String(identidade[0].email));
+  certo(linhas(`SELECT email FROM clientes WHERE id = '${contaA}'`)[0].email === null,
+    'o espelho também fica vazio: quem entra só pela Apple não nos deixa por onde escrever');
+
+  /* --- o segredo de cliente, que é onde estão os três enganos ----------- */
+  {
+    const visto = await (await fetch(`${APPLE}/__visto`)).json();
+    const troca = visto.filter((v) => v.caminho === '/auth/token').pop();
+    const forma = new URLSearchParams(troca.bruto);
+    const segredo = forma.get('client_secret');
+    const [cab, corpo] = segredo.split('.').slice(0, 2)
+      .map((x) => JSON.parse(Buffer.from(x, 'base64url').toString()));
+    certo(cab.alg === 'ES256', 'o segredo de cliente é assinado em ES256', cab.alg);
+    certo(cab.kid === 'KIDDEMENTIR',
+      'e leva o `kid` da chave — sem ele a Apple responde `invalid_client`', cab.kid);
+    certo(corpo.iss === 'DEMENTIRA1', 'o `iss` é o Team ID', corpo.iss);
+    certo(corpo.sub === 'pt.carimbodigital.dementira',
+      'e o `sub` é o SERVICES ID, que é o engano mais comum deste caminho', corpo.sub);
+    certo(corpo.aud === 'https://appleid.apple.com', 'e o `aud` é a Apple', corpo.aud);
+    certo(corpo.exp > corpo.iat && corpo.exp - corpo.iat <= 15777000,
+      'com prazo dentro dos seis meses que a Apple aceita');
+  }
+
+  /* --- a mesma pessoa outra vez, e o cancelar --------------------------- */
+  const ida2 = await comecar();
+  const volta2 = await passarPelaApple(ida2.dados.url, 'pessoa@icloud.com');
+  await voltar({ ...volta2, bilhete: ida2.dados.bilhete });
+  const lev2 = await levantar(ida2.dados.bilhete);
+  certo(lev2.dados.cliente.id === contaA, 'a mesma conta Apple entra sempre na mesma conta nossa');
+
+  {
+    const ida3 = await comecar();
+    const r = await voltar({ estado: (new URL(ida3.dados.url)).searchParams.get('state'),
+      bilhete: ida3.dados.bilhete, erro: 'user_cancelled_authorize' });
+    certo(r.estado === 200 && r.dados.ok === false,
+      'cancelar na Apple chega cá como um caminho normal', JSON.stringify(r.dados));
+  }
+
+  /* --- e as duas portas na mesma conta ---------------------------------- */
+  {
+    const ida4 = await comecar(lev.dados.sessao);
+    const volta4 = await passarPelaApple(ida4.dados.url, 'outra.pessoa@icloud.com');
+    await voltar({ ...volta4, bilhete: ida4.dados.bilhete });
+    const lev4 = await levantar(ida4.dados.bilhete);
+    certo(lev4.dados.cliente.id === contaA,
+      'uma identidade Apple nova cola-se à conta que pediu, com sessão provada');
+    certo(linhas(`SELECT COUNT(*) AS n FROM identidades
+                   WHERE cliente_id = '${contaA}' AND provedor = 'apple'`)[0].n === 2,
+      'e ficam as duas — a mesma conta pode entrar por dois IDs Apple');
+  }
+
+  const lista = [...new Set(criados)].filter(Boolean).map((x) => `'${x}'`).join(',');
+  if (lista) sql(`DELETE FROM clientes WHERE id IN (${lista})`);
+  sql(`DELETE FROM ligacoes`);
+  await fetch(`${APPLE}/__limpar`, { method: 'POST' });
+}
+
+grupo('Avisar quando o cartão fica cheio');
+{
+  /* A cifra do Web Push prova-se AQUI, decifrando: geram-se as chaves como um
+     browser as geraria, subscreve-se, carimba-se até ao prémio, e abre-se o
+     envelope que chegou ao serviço de push de mentira. Uma cifra provada só de
+     um lado não está provada. */
+  const GOOGLE = 'http://localhost:8799';
+  const ORIGEM = { origin: 'http://localhost:4321', 'cf-connecting-ip': '198.51.100.92' };
+  await fetch(`${GOOGLE}/__limpar`, { method: 'POST' });
+
+  const b64 = (b) => Buffer.from(b).toString('base64url');
+  const juntar = (...p) => {
+    const t = p.reduce((n, x) => n + x.length, 0);
+    const s = new Uint8Array(t); let i = 0;
+    for (const x of p) { s.set(x, i); i += x.length; }
+    return s;
+  };
+  const hkdf = async (ikm, sal, info, bytes) => {
+    const k = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+    return new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt: sal, info }, k, bytes * 8));
+  };
+
+  /* O «browser» gera o par e o segredo, exactamente como o `pushManager`. */
+  const par = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const uaPublica = new Uint8Array(await crypto.subtle.exportKey('raw', par.publicKey));
+  const auth = crypto.getRandomValues(new Uint8Array(16));
+  const idDoAparelho = randomBytes(8).toString('hex');
+  const subscricao = {
+    endereco: `${GOOGLE}/wp/${idDoAparelho}`,
+    p256dh: b64(uaPublica),
+    auth: b64(auth),
+  };
+
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {}, cabecalhos: ORIGEM });
+  const sessao = c.dados.sessao;
+  const clienteId = c.dados.cliente.id;
+  const meuSegredo = c.dados.segredo;
+  /* Dois carimbos seguidos no mesmo cartão, e é isso que este grupo precisa. */
+  sql(`UPDATE programas SET arrefecimento = 0 WHERE id = 'p1'`);
+
+  const mau = await pedir('/v1/cliente/push', {
+    metodo: 'POST', sessao, cabecalhos: ORIGEM,
+    corpo: { endereco: 'https://exemplo.pt/x', p256dh: 'curta', auth: b64(auth) } });
+  certo(mau.estado === 400 && mau.dados.codigo === 'push-chaves',
+    'uma subscrição com chaves do tamanho errado é recusada antes de entrar na base',
+    JSON.stringify(mau.dados));
+
+  const sub = await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
+  certo(sub.estado === 200, 'a subscrição entra', JSON.stringify(sub.dados));
+  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 1,
+    'e fica uma linha');
+
+  await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
+  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 1,
+    'subscrever duas vezes com o mesmo endereço NÃO duplica — seriam dois avisos iguais no mesmo ecrã');
+
+  /* --- carimbar até fechar o cartão ------------------------------------- */
+  const cartao = await pedir('/v1/cliente/aderir',
+    { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: { programaId: 'p1' } });
+  certo(cartao.estado === 200, 'aderiu a um programa (o teste é válido)', JSON.stringify(cartao.dados).slice(0, 80));
+
+  /* Põe-se o cartão a um carimbo do fim, e dá-se o último — que é o único que
+     manda aviso. */
+  const objetivo = linhas(`SELECT objetivo FROM programas WHERE id = 'p1'`)[0].objetivo;
+  sql(`UPDATE cartoes SET carimbos = ${objetivo - 1}, ultimo_em = NULL
+        WHERE cliente_id = '${clienteId}' AND programa_id = 'p1'`);
+
+  const carimbo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao, cabecalhos: ORIGEM,
+    corpo: { codigo: codigoPara(c.dados.cliente.publico, meuSegredo), programaId: 'p1' } });
+  certo(carimbo.estado === 200 && carimbo.dados.ganhos && carimbo.dados.ganhos.length === 1,
+    'o carimbo fecha o cartão e ganha um prémio', JSON.stringify(carimbo.dados).slice(0, 120));
+
+  /* O envio vai num `waitUntil`, depois da resposta. Dá-se-lhe tempo. */
+  let entregues = [];
+  for (let i = 0; i < 20 && !entregues.length; i++) {
+    await dormir(250);
+    entregues = await (await fetch(`${GOOGLE}/__entregues`)).json();
+  }
+  certo(entregues.length === 1, 'chegou UM aviso ao serviço de push', String(entregues.length));
+
+  const chegou = entregues[0];
+  certo(chegou.codificacao === 'aes128gcm',
+    'com a codificação que a norma manda', chegou.codificacao);
+  certo(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/.test(chegou.autorizacao),
+    'e um cabeçalho VAPID com a forma certa', chegou.autorizacao.slice(0, 40));
+  {
+    const [, jwt] = chegou.autorizacao.match(/t=([^,]+)/);
+    const reivindicacoes = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+    certo(reivindicacoes.aud === 'http://localhost:8799',
+      'cujo `aud` é a ORIGEM do endereço e não o endereço todo — é aqui que a Mozilla dá 401',
+      reivindicacoes.aud);
+    certo(String(reivindicacoes.sub).startsWith('mailto:'), 'e diz a quem reclamar');
+  }
+
+  /* --- e agora abre-se o envelope --------------------------------------- */
+  const corpoCifrado = new Uint8Array(Buffer.from(chegou.corpo, 'base64'));
+  const sal = corpoCifrado.slice(0, 16);
+  const idlen = corpoCifrado[20];
+  const asPublica = corpoCifrado.slice(21, 21 + idlen);
+  const cifrado = corpoCifrado.slice(21 + idlen);
+  const doServidor = await crypto.subtle.importKey(
+    'raw', asPublica, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const partilhado = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: doServidor }, par.privateKey, 256));
+  const ikm = await hkdf(partilhado, auth,
+    juntar(new TextEncoder().encode('WebPush: info\0'), uaPublica, asPublica), 32);
+  const cek = await hkdf(ikm, sal, new TextEncoder().encode('Content-Encoding: aes128gcm\0'), 16);
+  const nonce = await hkdf(ikm, sal, new TextEncoder().encode('Content-Encoding: nonce\0'), 12);
+  const chaveAES = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['decrypt']);
+  const claro = new Uint8Array(await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce, tagLength: 128 }, chaveAES, cifrado));
+  const texto = JSON.parse(new TextDecoder().decode(claro.slice(0, -1)));
+
+  certo(/prémio/i.test(texto.titulo), 'e o que vai lá dentro é o prémio', JSON.stringify(texto));
+  certo(texto.corpo.includes('Café'), 'com o nome do sítio onde se ganhou', texto.corpo);
+
+  /* --- uma subscrição que morreu apaga-se ------------------------------- */
+  await fetch(`${GOOGLE}/__matar?id=${idDoAparelho}`, { method: 'POST' });
+  sql(`UPDATE cartoes SET carimbos = ${objetivo - 1}, ultimo_em = NULL,
+        premios_ganhos = 0 WHERE cliente_id = '${clienteId}' AND programa_id = 'p1'`);
+  /* OUTRA JANELA. O mesmo código QR não serve duas vezes — é a defesa contra a
+     fotografia do ecrã de um amigo — e dois carimbos no mesmo minuto usariam o
+     mesmo. O `deslocamento` pede o da janela seguinte, que continua dentro da
+     tolerância de relógio. */
+  const segundo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao, cabecalhos: ORIGEM,
+    corpo: { codigo: codigoPara(c.dados.cliente.publico, meuSegredo, 1), programaId: 'p1' } });
+  certo(segundo.estado === 200 && segundo.dados.ganhos && segundo.dados.ganhos.length === 1,
+    'o segundo carimbo também fecha o cartão (o teste do 410 depende disso)',
+    JSON.stringify(segundo.dados).slice(0, 140));
+  let restam = 1;
+  for (let i = 0; i < 20 && restam; i++) {
+    await dormir(250);
+    restam = linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n;
+  }
+  certo(restam === 0,
+    'um 410 do serviço de push apaga a subscrição — o aparelho já não existe e insistir é gastar contra uma parede',
+    String(restam));
+
+  /* --- desligar, e apagar a conta --------------------------------------- */
+  await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
+  const fora = await pedir('/v1/cliente/push', { metodo: 'DELETE', sessao, cabecalhos: ORIGEM, corpo: {} });
+  certo(fora.estado === 200
+    && linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 0,
+    'desligar sem endereço desliga todos os aparelhos desta conta');
+
+  await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao, cabecalhos: ORIGEM });
+  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 0,
+    'e apagar a conta leva os aparelhos — mandar um aviso a quem pediu para desaparecer seria o pior fim');
+
   await fetch(`${GOOGLE}/__limpar`, { method: 'POST' });
 }
 

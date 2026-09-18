@@ -109,6 +109,25 @@ const ECRAS = [
             document.querySelectorAll('.barra-item')[3].click();
             await new Promise(res=>setTimeout(res,900));`,
   },
+
+  /* O ecrã de quem mudou de telemóvel. Não estava aqui porque, até agora, o
+     botão das boas-vindas não abria nada em demonstração. */
+  {
+    nome: '14-mudei-de-telemovel', url: '/app/', largura: 402, altura: 1000, limpar: true,
+    guiao: `document.querySelector('#bv-saltar').click();
+            await new Promise(r=>setTimeout(r,1800));`,
+  },
+  /* E o mesmo painel pelo outro lado: guardar em vez de recuperar. NÃO se
+     carrega em porta nenhuma aqui — fora da demonstração, tocar na Google sai
+     do site e a captura acaba noutro ecrã com o nome deste. */
+  {
+    nome: '15-guardar-a-conta', url: '/app/', largura: 402, altura: 1100, limpar: true,
+    guiao: `${ABRIR_APP}
+            document.querySelectorAll('.barra-item')[4].click();
+            await new Promise(r=>setTimeout(r,900));
+            document.querySelector('#principal .lista .linha').click();
+            await new Promise(r=>setTimeout(r,1600));`,
+  },
 ];
 
 /* --- a correr ------------------------------------------------------------ */

@@ -870,3 +870,23 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 /* A marca da Google é colorida e não herda a cor do texto: o quadrado por trás
    dela fica claro nos dois temas, para ela assentar como assenta no botão. */
 .linha-porta .linha-icone:has(> svg[viewBox="0 0 48 48"]) { background: #fff; }
+
+/* O botão da Apple, nas cores que ela publica: preto no tema claro, branco no
+   escuro. A maçã herda a cor do texto (`currentColor`), que é o que ela pede.
+   Medido: #FFFFFF sobre #000000 dá 21:1, e #000000 sobre #FFFFFF o mesmo. */
+.btn-apple {
+  background: #000;
+  color: #fff;
+  border: 1px solid #000;
+  gap: var(--e-3);
+}
+.btn-apple svg { flex: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) .btn-apple {
+    background: #fff; color: #000; border-color: #fff;
+  }
+}
+:root[data-tema="escuro"] .btn-apple { background: #fff; color: #000; border-color: #fff; }
+
+/* Dois botões de porta seguidos respiram. */
+.btn-google + .btn-apple, .btn-apple + .btn-google { margin-top: var(--e-3); }

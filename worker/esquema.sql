@@ -303,6 +303,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_ligacoes_estado ON ligacoes(estado_resumo);
 CREATE UNIQUE INDEX IF NOT EXISTS ix_ligacoes_bilhete ON ligacoes(bilhete_resumo);
 CREATE INDEX IF NOT EXISTS ix_ligacoes_prazo ON ligacoes(expira_em);
 
+-- --- notificações (ver migracoes/013) -------------------------------------
+-- Uma notificação por PRÉMIO GANHO, e mais nada: o momento em que o cartão
+-- fica cheio é o momento em que a pessoa está a sair do café, e o carimbo foi
+-- dado no aparelho do balcão. «Há dois meses que não apareces» é publicidade
+-- com outro nome, e a página de privacidade promete que não a enviamos.
+-- O `endereco` identifica um aparelho e não se pode guardar em resumo — é para
+-- lá que se manda. As duas chaves são do BROWSER: só ele lê a mensagem.
+CREATE TABLE IF NOT EXISTS subscricoes (
+  id          TEXT PRIMARY KEY,
+  cliente_id  TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  endereco    TEXT NOT NULL,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  criada_em   TEXT NOT NULL,
+  usada_em    TEXT,
+  falhas      INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_subscricoes_endereco ON subscricoes(endereco);
+CREATE INDEX IF NOT EXISTS ix_subscricoes_cliente ON subscricoes(cliente_id);
+
 -- --- códigos já usados (anti-repetição) ---------------------------------
 -- Um código só serve uma vez. Sem isto, a fotografia do ecrã de um amigo
 -- valia carimbos durante os quinze segundos de vida do código.

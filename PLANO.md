@@ -297,13 +297,35 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   > O MCC ficou **4816**. A consola chama-lhe «Computer Network Services» na
   > lista e «Internet Cafes» depois de gravar — é o mesmo código, é o standard
   > para serviços online, e o rótulo é da Google.
-- **Vários operadores, com PIN por pessoa e histórico de quem carimbou.** POR
-  FAZER. Hoje um negócio tem um operador e o `movimentos.operador` existe mas
-  guarda sempre o mesmo. É o que separa um café de uma pessoa só de um café com
-  três turnos.
-- **Notificações.** POR FAZER. «Faltam-lhe dois carimbos» e «há dois meses que
-  não aparece». Web Push funciona no iOS 16.4+ **apenas em apps instaladas no
-  ecrã principal**, e sai de graça do Worker com VAPID.
+- **Vários operadores por balcão.** POR FAZER, e **sem PIN** — a ideia do PIN
+  foi posta de lado a 17 de Setembro de 2026, por quem manda: o dono do balcão
+  entra uma vez com o email e fica ligado, e o cliente nunca escreve PIN
+  nenhum. O que falta é o balcão poder ter mais do que um email, para um café
+  com três turnos saber quem carimbou. O `movimentos.operador` já existe e o
+  histórico por cartão já está no ar.
+- ~~Notificações~~ — **feitas a 18 de Setembro de 2026.** Um aviso só:
+  **quando o cartão fica cheio**. É o momento em que o carimbo é dado no
+  aparelho do balcão com a pessoa já a guardar o telemóvel, e do lado dela não
+  há nada que o diga.
+
+  > «Há dois meses que não apareces» **ficou de fora**, e não por falta de
+  > vontade: é publicidade com outro nome, e a página de privacidade promete em
+  > letra grande que não a enviamos. Se um dia for para fazer, é outro
+  > consentimento e outra linha — não um uso a mais deste.
+  >
+  > Escrito à mão, sem dependências: VAPID (RFC 8292) para o servidor se
+  > identificar, e a cifra do RFC 8291 sobre o 8188 para o texto viajar
+  > ilegível para quem o transporta. O texto vai **no corpo** e não se vai
+  > buscar: um service worker não tem acesso ao `localStorage`, que é onde vive
+  > a sessão, e um push vazio só dava para dizer «tens novidades».
+  >
+  > Prova-se a decifrar: o teste gera as chaves como um browser as geraria,
+  > carimba até ao prémio, e abre o envelope que chegou ao serviço de push de
+  > mentira. Uma cifra provada de um lado só não está provada.
+  >
+  > **No iPhone só funciona dentro da app posta no ecrã principal** (iOS 16.4+).
+  > Fora dela não há `PushManager`, e a linha do perfil desaparece em vez de
+  > prometer.
 
 ### Versão 3
 
@@ -327,11 +349,14 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
 
 ### O login
 
-Tem plano próprio, em [PLANO-LOGIN.md](PLANO-LOGIN.md). Fases 0 a 3 feitas e no
-ar; a 4 está a meio e a **5 — entrar com a Google — está feita** (17 set 2026,
-ver §6.2 desse plano). Falta o **ecrã de entrada** (à espera da porta da Apple,
-para se fazer uma vez só com os três botões) e a fase **6**, que depende de
-quatro passos de consola.
+Tem plano próprio, em [PLANO-LOGIN.md](PLANO-LOGIN.md). **Está fechado.** Fases
+0 a 3 feitas a 16 de Setembro, a **5 (Google)** a 17 e a **6 (Apple)** a 18, as
+três portas no ar. O **ecrã de entrada** — a metade que sobrava da fase 4 —
+fechou no mesmo dia, assim que as portas existiram todas: não é um ecrã novo,
+é o painel da conta a abrir-se também a quem chega de um telemóvel novo.
+
+A fase 7 (telefone) está **fora, decidido**. O que sobra está em §7 do plano do
+login, e nada disso bloqueia ninguém.
 
 ## 9. Riscos
 

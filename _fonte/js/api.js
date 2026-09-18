@@ -895,11 +895,15 @@ function criarDemo() {
       const identidades = [];
       if (cliente && cliente.email) identidades.push({ provedor: 'email', email: cliente.email, relay: 0 });
       if (cliente && cliente.google) identidades.push({ provedor: 'google', email: cliente.google, relay: 0 });
+      if (cliente && cliente.apple) identidades.push({ provedor: 'apple', email: null, relay: 0 });
       return { cliente, identidades };
     },
 
     async portas() {
-      return { email: true, google: true, apple: false, demo: true };
+      /* A demonstração mostra a app INTEIRA, portas incluídas. A chave do push
+         é de mentira e nunca chega a ser usada: o caminho da demonstração não
+         sai daqui. */
+      return { email: true, google: true, apple: true, push: 'demonstracao', demo: true };
     },
 
     /* A GOOGLE, NA DEMONSTRAÇÃO, NÃO SAI DAQUI. A demonstração existe para
@@ -908,30 +912,41 @@ function criarDemo() {
        ver uma coisa que não é verdadeira. Finge-se o caminho todo, e diz-se
        que se está a fingir; o que não se faz é esconder o botão, que era
        ensinar uma app que não é esta. */
-    async comecarGoogle() {
-      return { demo: true, url: null, bilhete: 'bilhete-de-demonstracao' };
+    async comecarEntrada(provedor) {
+      return { demo: true, url: null, bilhete: 'bilhete-de-demonstracao', provedor };
     },
 
-    async concluirGoogle() {
+    async concluirEntrada() {
       return { ok: true, demo: true };
     },
 
-    async estadoGoogle() {
+    async estadoEntrada(_bilhete, provedor = 'google') {
       const e = estado();
       const cliente = e.clientes[0] || null;
       if (!cliente) return { situacao: 'expirada', demo: true };
-      cliente.google = cliente.google || 'a.tua.conta@gmail.com';
+      if (provedor === 'apple') {
+        /* Da Apple não vem morada — nem aqui. A demonstração tem de ensinar o
+           que a app faz, e não uma versão mais bonita dela. */
+        cliente.apple = cliente.apple || true;
+      } else {
+        cliente.google = cliente.google || 'a.tua.conta@gmail.com';
+      }
       gravar(e);
-      return { situacao: 'pronta', cliente, recuperada: false, pista: null, demo: true };
+      return { situacao: 'pronta', cliente, recuperada: false, pista: null, provedor, demo: true };
     },
 
-    async desligarGoogle() {
+    async desligarPorta(provedor) {
       const e = estado();
       const cliente = e.clientes[0];
-      if (cliente) { cliente.google = null; gravar(e); }
-      return { identidades: cliente && cliente.email
-        ? [{ provedor: 'email', email: cliente.email, relay: 0 }] : [] };
+      if (cliente) {
+        if (provedor === 'apple') cliente.apple = null; else cliente.google = null;
+        gravar(e);
+      }
+      return { identidades: (await this.eu()).identidades };
     },
+
+    async subscreverPush() { return { ok: true, demo: true }; },
+    async desligarPush() { return { ok: true, demo: true }; },
 
     async fundir() {
       return { cartoesMudados: 0, cartoesJuntados: 0, passesRevogados: 0, modo: 'absorcao', demo: true };
@@ -1023,17 +1038,26 @@ export const api = MODO === 'remoto'
          fica neste browser: é o bilhete que prova, à volta, que quem conclui é
          quem começou. Sem ele, quem me mandasse o endereço levava a minha
          conta. */
-      comecarGoogle: () => remoto.pedir('/v1/cliente/google/comecar', { metodo: 'POST' }),
-      /* A volta. Não devolve credencial nenhuma — só diz que ficou feito. */
-      concluirGoogle: (estadoGoogle, codigo, bilhete, erro) =>
-        remoto.pedir('/v1/cliente/google/volta',
-          { metodo: 'POST', corpo: { estado: estadoGoogle, codigo, bilhete, erro } }),
+      comecarEntrada: (provedor) =>
+        remoto.pedir(`/v1/cliente/${provedor}/comecar`, { metodo: 'POST' }),
+      /* A volta. Não devolve credencial nenhuma — só diz que ficou feito. E é
+         UM endereço para as duas portas: quem sabe de que porta é aquele
+         estado é a ligação, do lado de lá. */
+      concluirEntrada: (estadoDaPorta, codigo, bilhete, erro) =>
+        remoto.pedir('/v1/cliente/entrada/volta',
+          { metodo: 'POST', corpo: { estado: estadoDaPorta, codigo, bilhete, erro } }),
       /* E o levantamento, com o mesmo bilhete. É aqui que a sessão nasce. */
-      estadoGoogle: (bilhete) =>
-        remoto.pedir('/v1/cliente/google/estado', { metodo: 'POST', corpo: { bilhete } }),
-      /* Desligar a conta da Google. O art. 7.º/3 do RGPD: retirar tem de ser
-         tão fácil como dar. */
-      desligarGoogle: () => remoto.pedir('/v1/cliente/identidades/google', { metodo: 'DELETE' }),
+      estadoEntrada: (bilhete) =>
+        remoto.pedir('/v1/cliente/entrada/estado', { metodo: 'POST', corpo: { bilhete } }),
+      /* Desligar uma porta. O art. 7.º/3 do RGPD: retirar tem de ser tão fácil
+         como dar. */
+      desligarPorta: (provedor) =>
+        remoto.pedir(`/v1/cliente/identidades/${provedor}`, { metodo: 'DELETE' }),
+      /* AS NOTIFICAÇÕES. O consentimento verdadeiro é o do sistema — a folha
+         que o telemóvel desenha; aqui só se diz ao servidor para onde mandar. */
+      subscreverPush: (s) => remoto.pedir('/v1/cliente/push', { metodo: 'POST', corpo: s }),
+      desligarPush: (endereco) =>
+        remoto.pedir('/v1/cliente/push', { metodo: 'DELETE', corpo: { endereco } }),
       /* Juntar a conta deste telemóvel à conta em que se acabou de entrar. A
          prova são as DUAS sessões — a de agora vai no cabeçalho, a antiga no
          corpo. */

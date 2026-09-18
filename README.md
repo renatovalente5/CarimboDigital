@@ -71,13 +71,24 @@ e põe `"api": "http://localhost:8787"` em `_fonte/config.json`.
 ## Provar
 
 ```bash
-node scripts/verificar-qr.mjs      # 320 matrizes lidas por um descodificador independente
-node scripts/verificar-leitor.mjs  # o leitor, contra códigos tortos e desfocados
-node worker/testes.mjs          # 53 casos contra a API (precisa do wrangler a correr)
-node scripts/auditar.mjs        # ligações, prefixos, manifestos, dados legais, segredos
+node scripts/verificar-qr.mjs                            # 320 matrizes lidas por um descodificador independente
+node scripts/verificar-leitor.mjs                        # o leitor, contra códigos tortos e desfocados
+node scripts/com-worker.mjs worker/testes.mjs --limpo    # a API, contra um Worker e uma base a sério
+node scripts/bateria.mjs                                 # a app conduzida num Chrome, ecrã a ecrã
+node scripts/auditar.mjs                                 # ligações, prefixos, manifestos, dados legais, segredos
 ```
 
-O CI corre os três. Se algum falhar, não se publica.
+O CI corre-os todos. Se algum falhar, não se publica.
+
+Os dois últimos merecem uma nota, porque fazem perguntas diferentes. O auditor
+lê o que foi construído; a bateria **conduz** — carrega nos botões com o rato,
+escreve nos campos e vê o que aparece. Ler o código apanhou 90 defeitos e
+conduzir a app apanhou outros 42, e a intersecção é pequena. O defeito mais
+caro desta casa até hoje passou por um `node --check` limpo, por um auditor
+limpo e pelos testes todos da API: uma função da app tinha sido renomeada e
+duas chamadas ficaram com o nome velho, dentro de um `try` que transformava o
+`TypeError` numa frase educada. Quem o apanhou foi a bateria, porque percorre
+a volta do login até ao fim em vez de a ler.
 
 ## Publicar
 
@@ -299,11 +310,19 @@ tecto as consultas falham até à meia-noite UTC, em vez de serem toleradas.
   não por ligação. A outra porta — **entrar com a Google** — é por
   redireccionamento puro, e a volta aterra dentro de `/app/`, que é o âmbito
   declarado no manifesto: para fora dele, um iPhone abre o Safari e não volta.
-- **Quem conclui uma entrada pela Google tem de ser quem a começou.** A app
+- **Quem conclui uma entrada por um provedor tem de ser quem a começou.** A app
   guarda um bilhete antes de sair, e sem ele o servidor recusa a volta. Sem
   isso, bastava mandar a alguém o endereço da ida — um endereço verdadeiro da
-  Google — para lhe levar a conta: o `state`, o PKCE e o `nonce` são todos do
-  lado de quem começa.
+  Google ou da Apple — para lhe levar a conta: o `state`, o PKCE e o `nonce`
+  são todos do lado de quem começa.
+- **Da Apple não vem morada de email.** Ela só a manda se a volta for por POST,
+  e a volta aterra no GitHub Pages, que só serve GET. Quem entra só pela Apple
+  não deixa por onde lhe escrever — e é por isso que o aviso de conta parada
+  não lhe chega, e que a app lhe oferece juntar outra porta. Ver PLANO-LOGIN §6.3.
+- **As notificações são uma só: o cartão ficou cheio.** «Há dois meses que não
+  apareces» seria publicidade, e a página promete que não a enviamos. O texto
+  vai cifrado no corpo do push (RFC 8291) e não se vai buscar à API — um
+  service worker não tem acesso ao `localStorage`, que é onde vive a sessão.
 - **Publica-se sempre com `--config ./wrangler.toml`.** O wrangler 4.131
   estreou uma «autoconfig» que, quando não encontra configuração à primeira,
   escreve uma por sua conta — e escreveu-a na **pasta-mãe** (`~/Websites/`),

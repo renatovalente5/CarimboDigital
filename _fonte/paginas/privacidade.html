@@ -14,8 +14,8 @@ prioridade: 0.4
       <p><strong>Em duas linhas:</strong> não sabemos quem és. Guardamos um
       número de seis caracteres, os cartões que tens e as datas dos carimbos.
       Não há nome, telefone, morada nem cookies — nem sequer quando entras
-      pela Google. Podes descarregar tudo e apagar tudo, a qualquer momento,
-      dentro da app.</p>
+      pela Google ou pela Apple. Podes descarregar tudo e apagar tudo, a
+      qualquer momento, dentro da app.</p>
     </div>
 
     <h2>1. Quem é responsável</h2>
@@ -63,6 +63,28 @@ prioridade: 0.4
               nem a tua fotografia</strong>, por isso ela também não nos manda
               nenhum dos dois. Não é usado para mais nada e não enviamos
               publicidade.</td>
+          <td>Consentimento — art. 6.º, n.º 1, al. a)</td>
+        </tr>
+        <tr>
+          <td><strong>A tua conta Apple</strong> (opcional, só se carregares em
+              «Continuar com a Apple»)</td>
+          <td>O mesmo que as outras portas: recuperares os cartões se mudares
+              ou perderes o telemóvel. Da Apple vem <strong>menos</strong> do
+              que da Google — só um identificador da tua conta, e
+              <strong>nem sequer a tua morada de email</strong>. Se entrares só
+              por aqui, não ficamos com nenhuma forma de te contactar.</td>
+          <td>Consentimento — art. 6.º, n.º 1, al. a)</td>
+        </tr>
+        <tr>
+          <td><strong>Para onde mandar um aviso</strong> (opcional, só se
+              ligares os avisos)</td>
+          <td>Quando ligas «Avisar-me quando ganhar um prémio», o teu browser
+              dá-nos um endereço que identifica <em>este</em> telemóvel no
+              serviço de notificações dele, e duas chaves que ele próprio
+              gerou. Guardamos as três, e servem só para te mandar uma coisa:
+              que o cartão ficou cheio. <strong>Não enviamos publicidade nem
+              lembretes para voltares a um café.</strong> Desligas no mesmo
+              sítio onde ligaste, e a linha desaparece.</td>
           <td>Consentimento — art. 6.º, n.º 1, al. a)</td>
         </tr>
         <tr>
@@ -115,10 +137,11 @@ prioridade: 0.4
       carrega tipos de letra, mapas ou scripts de terceiros. Por isso não
       verás aqui nenhum aviso de cookies a pedir-te autorização — não há nada
       para autorizar.</p>
-    <p>O botão «Continuar com a Google» não é excepção: ele não carrega nada
-      da Google para dentro desta página. O que faz é <em>levar-te</em> lá, a
-      uma página da Google, e trazer-te de volta — e só depois de lhe tocares.
-      Enquanto não lhe tocares, a Google não sabe que aqui estiveste.</p>
+    <p>Os botões «Continuar com a Google» e «Continuar com a Apple» não são
+      excepção: não carregam nada delas para dentro desta página. O que fazem é
+      <em>levar-te</em> lá e trazer-te de volta — e só depois de lhes tocares.
+      Enquanto não lhes tocares, nem a Google nem a Apple sabem que aqui
+      estiveste.</p>
     <p>A app guarda no teu próprio telemóvel (no armazenamento local do
       browser) o número do cartão, o segredo do aparelho, as tuas preferências
       e — enquanto vais à Google e voltas — um bilhete de vida curta que serve
@@ -147,6 +170,18 @@ prioridade: 0.4
       do lado dela, pelas regras dela, e é uma empresa dos Estados Unidos. Nós
       respondemos pelo que fazemos com o que nos chega — que é o que está na
       tabela da secção 2.</p>
+    <p>Com <strong>«Continuar com a Apple»</strong> passa-se o mesmo, com a
+      <strong>Apple Inc.</strong> no lugar da Google — e com menos a vir de lá:
+      um identificador da tua conta e mais nada. Tal como a Google, a Apple não
+      é subcontratante nossa nisto: responde pelo que faz do lado dela.</p>
+    <p>Se ligares os <strong>avisos</strong>, as notificações passam pelo
+      serviço de notificações do teu browser — a <strong>Google</strong> no
+      Chrome e no Android, a <strong>Apple</strong> no iPhone e no Safari, a
+      <strong>Mozilla</strong> no Firefox. Eles entregam a mensagem ao teu
+      telemóvel, e <strong>não a conseguem ler</strong>: o texto vai cifrado
+      daqui até ao teu aparelho, com chaves que o teu próprio browser gerou e
+      cuja metade privada nunca sai de lá. O que eles sabem é que chegou uma
+      mensagem, e a que horas.</p>
     <p>Se puseres um cartão na <strong>Carteira do telemóvel</strong>, o
       conteúdo desse cartão — o nome do estabelecimento, o teu saldo de
       carimbos e o código de barras — passa a estar também no teu telemóvel,
@@ -163,8 +198,9 @@ prioridade: 0.4
       dados fique em região europeia. A Hostinger é europeia e o email não sai
       da União.</p>
     <p>Se preferires não passar por aqui, não deixes email <strong>nem entres
-      pela Google</strong>: a app funciona sem as duas coisas — só perdes a
-      possibilidade de recuperar os cartões noutro telemóvel.</p>
+      pela Google ou pela Apple</strong>, e não ligues os avisos: a app funciona
+      sem nada disso — só perdes a possibilidade de recuperar os cartões noutro
+      telemóvel, e o toque no bolso quando ganhas um prémio.</p>
 
     <h2>6. Durante quanto tempo</h2>
     <ul>
@@ -177,8 +213,12 @@ prioridade: 0.4
         conta.</li>
       <li><strong>Códigos enviados por email:</strong> {{PRAZO_CODIGO_EMAIL}}
         minutos. Depois disso deixam de valer e a linha é apagada.</li>
-      <li><strong>Entradas pela Google a meio:</strong> {{PRAZO_LIGACAO}}
-        minutos. Enquanto vais à Google e voltas, fica cá uma linha a
+      <li><strong>Para onde mandar um aviso:</strong> enquanto os avisos
+        estiverem ligados. Desligas e a linha é apagada na hora. Se o teu
+        telemóvel deixar de responder — app desinstalada, dados do site limpos
+        — apagamo-la nós, à terceira tentativa falhada.</li>
+      <li><strong>Entradas pela Google ou pela Apple a meio:</strong> {{PRAZO_LIGACAO}}
+        minutos. Enquanto vais lá e voltas, fica cá uma linha a
         guardar-te o lugar. Serve uma vez, morre ao fim desse tempo e é
         apagada na limpeza seguinte. Não tem lá dentro nenhuma chave de entrar
         na tua conta.</li>
@@ -186,7 +226,8 @@ prioridade: 0.4
         esse tempo ninguém abrir a app nem te carimbar um cartão, a conta é
         apagada por inteiro — cartões, carimbos e prémios incluídos. Se
         tivermos uma morada de email — escrita por ti, ou vinda da Google
-        quando entraste por lá — avisamos-te {{PRAZO_AVISO}} dias antes, e
+        quando entraste por lá; da Apple não vem nenhuma — avisamos-te
+        {{PRAZO_AVISO}} dias antes, e
         basta abrires a app para ficar tudo como estava.</li>
     </ul>
 
@@ -200,9 +241,11 @@ prioridade: 0.4
         ficheiro com tudo o que temos sobre ti.</li>
       <li><strong>Perfil › Apagar a conta</strong> — apaga tudo, na hora e
         sem volta.</li>
-      <li><strong>Perfil › Tirar o email</strong> e <strong>Perfil › Desligar
-        a conta Google</strong> — retirar o consentimento é um toque, como
-        dá-lo foi. Os cartões ficam.</li>
+      <li><strong>Perfil › Guardar a conta</strong> — é lá que se vê por onde
+        entras, e é lá que se desliga cada porta. Retirar o consentimento é um
+        toque, como dá-lo foi; os cartões ficam.</li>
+      <li><strong>Perfil › Avisar-me quando ganhar um prémio</strong> — o mesmo
+        para os avisos.</li>
     </ul>
     <p>Para os restantes, escreve para
       <a href="mailto:{{ENT_EMAIL}}">{{ENT_EMAIL}}</a>. Respondemos no prazo

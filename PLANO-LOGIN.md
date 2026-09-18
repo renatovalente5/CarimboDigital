@@ -381,9 +381,9 @@ nosso *client secret*.
 | ~~1~~ | ~~Migração `identidades` + email a passar por lá~~ — **feita, 16 set 2026** | — | nada |
 | ~~2~~ | ~~As contas-sombra (`fundida_em`)~~ — **feita, 16 set 2026** | — | nada |
 | ~~3~~ | ~~A fusão, com a bateria a prová-la~~ — **feita, 16 set 2026** | — | **confirmar a regra dos prémios** (ver abaixo) |
-| 4 | **Metade feita (16 set 2026):** a fusão na app, o botão «sair nos outros aparelhos» e as seis frases conferidas. Falta o **ecrã de entrada**, que espera pela fase 6 | 1 dia | ver o ecrã quando as portas existirem |
+| ~~4~~ | ~~A fusão na app, o «sair nos outros aparelhos», as seis frases e o **ecrã de entrada**~~ — **fechada, 18 set 2026** (ver §6.4) | — | nada |
 | ~~5~~ | ~~Continuar com Google~~ — **feita, 17 set 2026** (ver §6.2) | — | nada |
-| 6 | Continuar com Apple | 4–5 dias | 4 passos de consola |
+| ~~6~~ | ~~Continuar com Apple~~ — **feita, 18 set 2026** (ver §6.3) | — | nada |
 | ~~7~~ | ~~Telefone~~ | — | **fora, decidido** |
 
 **A ordem de publicação é sempre a mesma, e é regra desta casa:** SQL primeiro,
@@ -542,6 +542,107 @@ nunca regressa à app instalada.
 
 ---
 
+## 6.3 Fase 6: a porta da Apple
+
+**Três passos de consola, e não quatro** (18 set 2026): App ID primário
+`pt.carimbodigital.app` com Sign in with Apple, Services ID
+`pt.carimbodigital.entrar` agrupado com ele e com o domínio `carimbodigital.pt`
+e a volta em `https://carimbodigital.pt/app/`, e a chave `57HH2WUS32`. O quarto
+— «Register Email Sources for Communication» — **não é preciso**, e a razão é a
+mesma que explica tudo o resto desta fase.
+
+### A decisão que o DNS tomou por nós
+
+A Apple só manda a morada de email se a volta for por **POST**
+(`response_mode=form_post`). A nossa volta aterra em `/app/`, que é GitHub
+Pages e **só serve GET**. Para ter o POST, o `redirect_uri` teria de ser o
+Worker — e para a Apple aceitar um `redirect_uri` é preciso registar e
+verificar o domínio dele, que é um `workers.dev`. Dar ao Worker um endereço
+nosso (`api.carimbodigital.pt`) obrigava a mudar a zona do domínio da Hostinger
+para a Cloudflare, que é uma operação com risco por uma morada de email.
+
+**Vai sem âmbito nenhum, e por isso sem morada.** O que isso custa, escrito:
+
+- quem entrar **só** pela Apple não nos deixa por onde lhe escrever, e o aviso
+  de conta parada não lhe chega. A política de privacidade já dizia «se
+  tivermos uma morada»; passou a dizer também que da Apple não vem nenhuma;
+- a app oferece-lhe juntar um email ou a Google no mesmo painel, e é lá que
+  isso se resolve;
+- e o quarto passo da consola cai por terra: ele só serve para se poder
+  escrever a moradas `privaterelay`, e nunca vamos ter nenhuma.
+
+Se um dia a zona mudar para a Cloudflare, isto reabre-se com um `redirect_uri`
+novo e um `scope=email` — o resto do caminho não muda.
+
+### O que se reaproveitou, e o que não
+
+A tabela `ligacoes`, o bilhete que prende a conclusão a quem começou, a regra
+de ligação, o `resolverEntrada`, o ecrã de falha. **As rotas de volta passaram
+a ser uma só para as duas portas** (`/v1/cliente/entrada/volta` e
+`/v1/cliente/entrada/estado`): quem sabe de que porta é um estado é a linha da
+ligação, e não o endereço por onde o pedido entrou. As antigas
+(`/v1/cliente/google/...`) continuam a responder — a PWA no telemóvel de
+alguém é de há semanas.
+
+O que é só da Apple: o **segredo de cliente** é um JWT assinado em ES256 com a
+`.p8`, montado na hora e válido dez minutos; **sem PKCE**, que a Apple não
+documenta para a web; e o `sub` do JWT é o **Services ID** — não o Team ID, não
+o App ID. É o engano mais comum deste caminho e a Apple responde-lhe com um
+`invalid_client` que não explica nada. Há um teste para cada um dos três.
+
+**A armadilha que o plano avisava não chegou a morder:** a página «Verifying a
+user» manda verificar «the JWS E256 signature» do `id_token`, e isso está
+errado — o `openid-configuration` dela declara RS256, e o ES256 é do nosso
+segredo. Como aqui não se verifica assinatura nenhuma (o token vem por TLS do
+endereço de troca, OIDC Core §3.1.3.7), a confusão não teve por onde entrar.
+
+---
+
+## 6.4 Fase 4, a outra metade: o ecrã de entrada
+
+Feito a 18 de Setembro de 2026, com as três portas já no ar — que era a única
+razão por que tinha esperado.
+
+**Não é um ecrã novo, e isso é a decisão.** Um portão à entrada punha uma
+parede à frente de quem hoje entra sem nenhuma, e o painel de «Guardar a
+conta» já era, ponto por ponto, o ecrã que faltava: as três portas, o «ou», o
+campo do email. O que faltava era **chegar-se lá** e o painel **dizer o que é**
+quando se chega pelo outro lado.
+
+- **«Já tenho conta noutro telemóvel» abre-o também na demonstração.** Dava um
+  aviso e ficava tudo como estava — e este é, de todos, o ecrã que mais falta
+  faz ver ANTES de se precisar dele. Um beco na demonstração ensina que a app
+  não tem por onde voltar. Agora abre, e é o painel que diz, por escrito, que
+  ali não há conta nenhuma do outro lado para ir buscar.
+- **A frase de cima passou a sair das portas abertas.** Estava escrita à mão:
+  «Duas formas, e chega uma: entrar com a Google, ou deixar um email.» Ficou a
+  mentir no dia em que entrou a Apple, e voltaria a mentir se uma porta caísse
+  — o `/v1/portas` responde «não» por omissão. Agora nasce vazia e enche-se
+  depois de o servidor responder, com os nomes do que vai mesmo aparecer por
+  baixo. A bateria afirma as duas direcções: cada nome tem um botão, e cada
+  botão tem um nome.
+- **O módulo 19 da bateria** conduz o caminho todo — boas-vindas, painel,
+  porta, app aberta, perfil a dizer que a conta está guardada.
+
+### O defeito que esta metade encontrou, e que estava no ar
+
+Quando a fase 6 juntou as duas portas numa rota só, o `concluirGoogle` passou a
+chamar-se `concluirEntrada` — e **duas chamadas ficaram para trás** com o nome
+velho, dentro do `voltarDaPorta`. O JavaScript não se queixa de chamar uma
+coisa que não existe: atira quando lá chega. E lá chegava dentro de um `try`,
+que transformava o `TypeError` numa frase educada — «Não deu para concluir a
+entrada.» **A volta do OAuth ficou morta, e com ar de viva.**
+
+O `node --check` passa. O auditor passava. Os 555 testes do Worker passam —
+testam a API, e a API estava certa. Quem o apanhou foi a bateria de browser, e
+só porque o módulo 17 percorre a volta até ao fim em vez de a ler.
+
+Ficaram duas coisas: a guarda no auditor (cada `api.x()` do lado da app tem de
+existir no `api.js`, e provou-se a partir o código de propósito), e a regra de
+que **um rename não acaba no ficheiro onde se faz**.
+
+---
+
 ## 7. O que fica por resolver
 
 - **O telefone reciclado.** A ANACOM fixa um «tempo de guarda» de seis meses,
@@ -553,3 +654,10 @@ nunca regressa à app instalada.
   actualização — que é mais uma peça por construir.
 - **As passkeys** resolvem melhor do que o telefone o problema que o telefone
   ia resolver, e custam zero. Vale a pena olhar, depois.
+- **A morada da Apple**, se um dia a zona do domínio mudar para a Cloudflare.
+  Ver §6.3.
+- **Um `api.x()` que não existe não se queixa até lá chegar.** Foi o defeito
+  mais caro desta fase e ficou uma guarda no auditor a apanhá-lo; mas ela é um
+  grep, e um grep não segue uma referência guardada numa variável. O que fecha
+  isto a sério é conduzir cada caminho no browser, e é por isso que a bateria
+  cresceu em vez de o auditor.
