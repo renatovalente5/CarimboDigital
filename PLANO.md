@@ -400,11 +400,15 @@ mais abaixo.
   > chega ao servidor —, e isso é uma afirmação da bateria e não uma promessa
   > escrita: espia-se o `fetch` e o armazenamento depois de carregar no botão.
   >
-  > O que fica por fazer, e é honesto dizê-lo: **dois
-  > estabelecimentos na mesma rua sobrepõem-se** no enquadramento de abertura;
-  > separam-se ao aproximar, e isso está provado, mas um toque no de cima é o
-  > único que abre. E as ruas, se um dia a densidade justificar, alojadas por
-  > nós.
+  > **Os pinos sobrepostos ficaram resolvidos** a 18 de Setembro: dois
+  > estabelecimentos na mesma rua nascem colados no enquadramento de abertura,
+  > e o de cima ficava com os toques todos. Agora, ao tocar, procura-se o
+  > centro de pino mais perto do ponto onde o dedo bateu, dentro de 22 px — e
+  > os cliques de teclado ficam de fora, que aí não há dedo nenhum.
+  >
+  > Fica em aberto, e só se a densidade o justificar: **as ruas**, alojadas
+  > por nós. Comprá-las a terceiros parte a promessa de que nada é carregado
+  > de fora.
 - ~~Convites entre clientes~~ — **feito a 18 de Setembro de 2026.** «Cada
   cliente traz outro, e ganham os dois.» (Os `convites` que já existiam são de
   NEGÓCIO — para fundar um balcão — e não têm nada que ver com isto; a tabela

@@ -36,7 +36,15 @@ const BASE = process.argv[2] || `http://localhost:4321${PREFIXO}`;
    dentro: a conferência só olhava para o `location.pathname`, e esse estava
    sempre certo. De caminho, cada corrida deixava meia dúzia de contas vazias
    na base de produção. A demonstração tem os três cartões semeados e não sai
-   do browser. */
+   do browser.
+
+   E DESDE 18 DE SETEMBRO DE 2026 A DEMONSTRAÇÃO TEM UMA BARRA, fixa no topo,
+   em âmbar, a dizer que nada dali é real. Ela aparece em todas estas
+   fotografias, e é suposto aparecer: é o que está no ecrã de quem corre a
+   demonstração. O que estas fotografias NÃO servem, por causa disso, é para
+   submeter a uma loja de aplicações — lá mostra-se o produto, e o produto não
+   tem barra nenhuma. Nesse dia captura-se contra uma base de ensaio com dados
+   a sério, e não contra a demonstração. */
 
 
 

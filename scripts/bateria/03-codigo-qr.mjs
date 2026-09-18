@@ -252,6 +252,39 @@ export async function correr(palco, certo) {
     'o número por baixo do QR é o código público do cliente',
     `ecrã=«${numero}» guardado=«${publico}»`);
 
+  /* --- o código diz de que mundo é --------------------------------------- */
+
+  /* A demonstração assina com outro segredo, por isso um balcão a sério nunca
+     poderia carimbar isto. O que ele NÃO tinha era forma de o saber: o código
+     começava por `C1`, igual ao a sério, e a resposta ao balcão era «este
+     código não é de um cartão Carimbo Digital» — a mesma que se dá ao QR de
+     um site qualquer, e que manda procurar o defeito na câmara, no leitor e
+     no cartão do cliente.
+
+     Daí o `D1`. Prova-se aqui, no ecrã onde ele nasce, e do lado do servidor
+     nos testes da API. */
+  const gerado = await palco.js(`
+    const m = await import('/js/api.js');
+    return (await m.gerarCodigo(${JSON.stringify(publico || 'AAAAAA')})).texto;
+  `);
+  certo(typeof gerado === 'string' && gerado.startsWith('D1.'),
+    'na demonstração o código começa por «D1», e não por «C1» — é assim que o '
+    + 'balcão a sério lhe sabe dizer «isto é uma demonstração»', String(gerado));
+
+  /* E o contrário: este balcão de demonstração, a ler um código a sério. */
+  const aSerio = await palco.js(`
+    const m = await import('/js/api.js');
+    try {
+      await m.api.carimbar({ codigo: 'C1.AAAAAA.1.0123456789abcdef', programaId: 'p-torrado' });
+      return { codigo: null, erro: 'não se queixou de nada' };
+    } catch (e) { return { codigo: e.codigo || null, erro: String(e.message || '') }; }
+  `);
+  certo(aSerio.codigo === 'a-serio',
+    'e um código A SÉRIO mostrado a um balcão de demonstração é reconhecido como tal',
+    `${aSerio.codigo} — ${aSerio.erro}`);
+  certo(/demonstra/i.test(aSerio.erro),
+    'e a frase diz onde está o problema, em vez de «cartão desconhecido»', aSerio.erro);
+
   await palco.captura('03-codigo-aberto');
 
   /* --- o código roda sozinho --------------------------------------------- */
