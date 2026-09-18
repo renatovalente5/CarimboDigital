@@ -524,7 +524,27 @@ function mostrarErro(e) {
     expirado: ['Código expirado', 'O código muda a cada 15 segundos. Pede para mostrar de novo.'],
     repetido: ['Código já usado', 'Este código já foi carimbado. Pede o seguinte.'],
     arrefecimento: ['Já foi carimbado há pouco', e.message],
+    /* OS DOIS LADOS DA MESMA CONFUSÃO. Sem estas duas linhas, um código de
+       demonstração lido num balcão a sério caía em «formato» — «este código é
+       de outra coisa qualquer» — e mandava procurar o defeito no leitor, na
+       câmara ou no cartão, quando o que estava errado era o telemóvel do outro
+       lado estar em demonstração. */
+    demonstracao: ['Esse cartão é de uma demonstração', e.message],
+    'a-serio': ['Este balcão é uma demonstração', e.message],
+    'sem-cartao': ['Esse cartão não é deste balcão', 'O cartão é de outro negócio. Confirma que entraste no balcão certo.'],
+    /* «Código inválido» sozinho não diz a ninguém o que fazer a seguir. A
+       assinatura não bate por duas razões, e as duas se resolvem da mesma
+       maneira: o código foi lido a meio de mudar, ou o cliente trocou de
+       telemóvel e o segredo do aparelho é outro. */
+    assinatura: ['Esse código não bate certo',
+      'Pede ao cliente para fechar e abrir a app, e mostrar outra vez.'],
+    'maximo-diario': ['Já chegou ao máximo de hoje', e.message],
+    concorrencia: ['Já foi carimbado noutro aparelho', e.message],
   };
+  /* ESTA TABELA TEM DE COBRIR TUDO o que o carimbar pode devolver, e há uma
+     guarda no auditor que o exige. Sem ela, um código novo cai no «Não deu»
+     genérico — foi o que aconteceu ao `demonstracao`, que durante meses se
+     apresentou ao balcão como «este código é de outra coisa qualquer». */
   let [titulo, corpo] = explicacoes[e.codigo] || ['Não deu', e.message];
   /* O corpo de alguns erros começa pelo próprio título — a mensagem do
      servidor traz a frase inteira e a tabela acima só lhe põe um chapéu.
@@ -2173,16 +2193,19 @@ function desenharEntrada() {
       class: 'btn btn-cheio btn-grande btn-bloco', texto: 'Deram-me um código',
       aoClick: fundarNegocio,
     }),
-    /* A porta para quem só quer ver. Um dono de café não vai pedir um convite
-       antes de saber o que isto faz — e a demonstração corre no espaço de
-       chaves dela, por isso não estraga nada. Sobe de fantasma a contorno: um
-       botão fantasma, num ecrã em poupança de bateria e com os óculos no
-       bolso, não existe. */
-    el('button', {
-      id: 'porta-espreitar',
-      class: 'btn btn-contorno btn-bloco', texto: 'Só quero ver como funciona',
-      aoClick: () => { location.href = '?demo=1'; },
-    }),
+    /* AQUI ESTAVA A PORTA DA DEMONSTRAÇÃO, e saiu. Não foi por a demonstração
+       ser má: foi por ela ser fácil de entrar sem se dar por isso, e difícil
+       de sair.
+
+       A bandeira do modo vivia no `localStorage`, numa origem partilhada pelas
+       duas aplicações. Um toque neste botão punha TAMBÉM a app do cliente em
+       demonstração, para sempre. E um cartão de demonstração é assinado com
+       outro segredo: um balcão a sério não o carimba. O dono do café ficava com
+       uma app que parecia a certa e um carimbo que não dava.
+
+       A demonstração continua a existir para as baterias, e alcança-se
+       escrevendo `?demo=1` à mão. O que deixou de existir é a maneira de lá
+       cair sem querer. */
     el('p', { class: 'entrada-nota', texto:
       'Sem instalar nada, sem cartão de crédito, sem mensalidade.' }));
 }
@@ -2405,7 +2428,63 @@ function convitePelaLigacao() {
   return c[1];
 }
 
+
+/**
+ * A barra da demonstração.
+ *
+ * Fixa, no topo, em todos os ecrãs, e não se fecha. Não é um enfeite: é a
+ * resposta a um defeito que custou caro — a demonstração colava-se ao
+ * telemóvel, contaminava a outra aplicação, e ficava-se com uma app que
+ * parecia a certa e um carimbo que não dava. Um aviso discreto num canto do
+ * perfil não chegou; este ocupa uma faixa e leva um botão para sair.
+ */
+function barraDaDemonstracao() {
+  if (MODO !== 'demo' || document.querySelector('#barra-demo')) return;
+  const barra = el('div', { class: 'barra-demo', id: 'barra-demo' },
+    el('span', { class: 'barra-demo-texto' },
+      el('b', { texto: 'Demonstração.' }),
+      el('span', { texto: ' Nada disto é real — nenhum destes cartões serve num café.' })),
+    el('button', {
+      class: 'barra-demo-sair', type: 'button', texto: 'Sair',
+      /* SAIR É SAIR: apaga-se a bandeira do separador, deitam-se fora os dados
+         da demonstração, e recarrega-se em produção. Deixar os dados lá era
+         deixar a demonstração à espera da próxima vez. */
+      aoClick: () => {
+        try {
+          sessionStorage.removeItem('carimbo:modo-demo');
+          localStorage.removeItem('carimbo:modo-demo');
+          for (const k of Object.keys(localStorage)) {
+            if (k.startsWith('carimbo-demo:')) localStorage.removeItem(k);
+          }
+        } catch { /* armazenamento fechado: o recarregar chega */ }
+        location.href = `${location.pathname}?demo=0`;
+      },
+    }));
+  /* A SEGUIR À LIGAÇÃO DE SALTAR, e não antes dela.
+
+     `prepend` punha a barra em primeiro no documento, e portanto em primeiro
+     na tabulação: quem anda de Tab batia no «Sair» da demonstração antes de
+     chegar ao «Saltar para o conteúdo», que é a primeira paragem de todas as
+     páginas e a única que quem não vê o ecrã espera encontrar ali. A barra é o
+     que está mais acima NO ECRÃ; a ligação de saltar está acima de tudo por
+     convenção, e as duas cabem por esta ordem. */
+  const saltar = document.querySelector('a.saltar');
+  if (saltar) saltar.after(barra); else document.body.prepend(barra);
+  document.documentElement.dataset.demo = 'sim';
+
+  /* E A ALTURA MEDE-SE, não se adivinha. O texto quebra em duas linhas num
+     ecrã estreito, e o número escrito à mão no CSS tinha de ter uma media
+     query a adivinhar onde é que isso acontecia — que é adivinhar duas vezes.
+     A barra diz quanto ocupa, e a página desce isso. */
+  const medir = () => document.documentElement.style.setProperty(
+    '--barra-demo', `${Math.ceil(barra.getBoundingClientRect().height)}px`);
+  medir();
+  new ResizeObserver(medir).observe(barra);
+}
+
 async function arrancar() {
+  barraDaDemonstracao();
+
   /* Escuro sempre — ver o comentário no topo de balcao.css. */
   document.documentElement.dataset.tema = 'escuro';
   const convite = convitePelaLigacao();

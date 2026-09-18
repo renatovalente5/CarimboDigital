@@ -266,8 +266,11 @@ Verificado contra os textos originais.
 
 O domínio está comprado e a servir (`carimbodigital.pt`), a `entidade` está
 preenchida no `_fonte/config.json` com `producao: true`, e o Worker está
-publicado com o endereço em `config.json`. Há **dois negócios de teste** na
-base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 contas.
+publicado com o endereço em `config.json`.
+
+**A base de produção só tem produção** (18 set 2026): um negócio a sério —
+Titi BarberShop —, um programa, dois cartões e duas contas. Ver «Uma base só»,
+mais abaixo.
 
 ### Versão 2
 
@@ -426,6 +429,60 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   > `?demo=1` deitava fora a query INTEIRA, e com ela o `?n=` do cartaz. Em
   > produção nunca mordeu — lá não há `demo` para limpar —, mas mordia em cada
   > link que alguém experimentasse na demonstração.
+
+### Uma base só — feito a 18 de Setembro de 2026
+
+Veio de uma queixa curta: «às vezes estou a tentar carimbar e não dá, não sei
+se está a haver uma mistura entre o ambiente de testes e o de produção». Estava.
+
+**O que estava errado, em três peças:**
+
+1. A bandeira do modo de demonstração vivia no `localStorage`, que as DUAS
+   aplicações partilham por serem do mesmo domínio. Um toque em «Só quero ver
+   como funciona», na entrada do balcão, punha também a app do CLIENTE em
+   demonstração — e não havia por onde dar por isso nem por onde sair.
+2. Um cartão de demonstração é assinado com outro segredo, por isso um balcão a
+   sério nunca o poderia carimbar. Só que o código dele era indistinguível de um
+   código a sério, e a resposta era «Este código não é de um cartão Carimbo
+   Digital» — que manda procurar o defeito na câmara, no leitor ou no cartão.
+3. Na base de produção vivia o **Café Maravilha**, um café inventado com treze
+   cartões e carimbos com datas escritas à mão, criado para se poder ver o
+   produto cheio. Com duas lojas na base e o mesmo balcão a poder abrir
+   qualquer uma, «estou no balcão errado» deixou de ser improvável — e um
+   carimbo dado no balcão errado não dá erro nenhum, dá um carimbo.
+
+**O que se fez:**
+
+- **A porta fechou-se.** O botão da demonstração saiu da entrada do balcão, e
+  não há mais nenhum sítio no produto por onde lá se caia. Chega-se escrevendo
+  `?demo=1` à mão, que é o que as baterias fazem.
+- **A bandeira mudou-se para o `sessionStorage`** — morre com o separador, e o
+  que se faz num separador não contamina o outro. E a chave velha é apagada do
+  `localStorage` em cada arranque, para o defeito morrer nos telemóveis que já
+  o apanharam.
+- **Uma barra fixa no topo** de todos os ecrãs, que não se fecha, a dizer que
+  nada dali é real, com um «Sair» que apaga os dados da demonstração e recarrega
+  em produção.
+- **O código da demonstração passou a começar por `D1`.** O balcão a sério
+  reconhece-o e responde «este código é de uma DEMONSTRAÇÃO, e não de um cartão
+  a sério»; o balcão da demonstração responde o contrário quando lhe mostram um
+  `C1`. Ao lado, o «esse cartão não é deste balcão» passou a ter explicação.
+- **O Café Maravilha foi apagado** (migração `017-so-producao.sql`), com os
+  treze cartões, os movimentos, os prémios e o operador. E, com ele, vinte e
+  seis contas anónimas que ficaram das provas — a regra é estreita de propósito:
+  só sai quem ficou sem UM cartão e sem UMA identidade.
+- Pelo caminho apareceram **trinta e seis sessões órfãs**, apontadas a contas
+  que já não existiam. Não as fez o produto: fi-las eu, cada vez que apaguei uma
+  conta de prova com um `DELETE FROM clientes` escrito à mão em vez do caminho
+  que a API usa. Ficam varridas, e **a limpeza diária passou a varrê-las
+  sozinha** — porque a próxima mão apressada vai ser igual à anterior.
+
+Depois disto a base tem: um negócio, um programa, dois cartões, duas contas.
+
+> E um aviso que não é defeito nenhum: o programa do Titi tem **arrefecimento
+> de uma hora** e **máximo de quatro carimbos por dia**. Um cliente que passe
+> duas vezes na mesma hora é recusado, e a frase que aparece diz-lhe porquê.
+> É uma decisão do negócio, e muda-se nas definições do balcão.
 
 ### O login
 

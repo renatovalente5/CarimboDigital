@@ -104,12 +104,14 @@ const ECRAS = [
             await new Promise(r=>setTimeout(r,900));`,
   },
 
-  { nome: '10-balcao-entrada', espera: '#porta-espreitar', url: '/balcao/', largura: 402, altura: 874, limpar: true },
-  /* O BALCÃO ABRE-SE EM `?demo=1`, e não com um clique no botão de espreitar:
-     esse botão faz `location.href = '?demo=1'`, ou seja NAVEGA — e o guião
-     morria a meio com «Inspected target navigated or closed». Era o que
-     estava escrito aqui antes com outro nome: um `#entrar-demo` que nunca
-     existiu, e um `?.click()` que não se queixa de nada. */
+  { nome: '10-balcao-entrada', espera: '#porta-entrar', url: '/balcao/', largura: 402, altura: 874, limpar: true },
+  /* O BALCÃO DA DEMONSTRAÇÃO ABRE-SE EM `?demo=1`, escrito no endereço. Já não
+     há botão nenhum que lá leve: a porta de espreitar saiu do produto, porque
+     era fácil entrar nela sem dar por isso e difícil sair. Ver `balcao.js`.
+
+     E mesmo quando havia, era o endereço que se usava aqui: o botão fazia
+     `location.href = '?demo=1'`, ou seja NAVEGAVA, e o guião morria a meio com
+     «Inspected target navigated or closed». */
   {
     nome: '11-balcao-carimbado', espera: '#principal .visor, #principal .resultado',
     url: '/balcao/?demo=1', largura: 402, altura: 874, limpar: true,
@@ -273,7 +275,7 @@ for (const ecra of ECRAS) {
      errada é pior do que nenhuma — parece que o produto está avariado.
 
      E NÃO CHEGA O ENDEREÇO. O guião do balcão carregava em `#entrar-demo`, que
-     nunca existiu — o botão chama-se `#porta-espreitar` —, e o `?.click()` de
+     nunca existiu — o botão chamava-se `#porta-espreitar` —, e o `?.click()` de
      uma coisa que não existe não se queixa. Três capturas do balcão eram o
      ECRÃ DE ENTRADA com o nome do ecrã de dentro, e ninguém notou porque o
      endereço estava certo: `/balcao/` é o mesmo antes e depois de entrar.

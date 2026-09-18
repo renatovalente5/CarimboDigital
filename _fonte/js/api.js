@@ -19,18 +19,38 @@ import { identificador, ler, guardar, guardarChave, lerChave, apagarChave,
 
 const CONFIG = globalThis.CARIMBO_CONFIG || {};
 
-/* O modo de demonstração pode ser ligado por `?demo=1` e desligado por
-   `?demo=0`. Serve para mostrar o produto a um dono de café no próprio
-   telemóvel, sem conta e sem convite — e para o site continuar a poder ser
-   experimentado depois de o servidor entrar ao serviço.
-   As chaves ficam noutro espaço, por isso entrar na demonstração não toca na
-   conta a sério e sair dela devolve-a como estava. */
+/* =========================================================================
+   O modo de demonstração
+
+   Liga-se com `?demo=1` e desliga-se fechando o separador. Existe para as
+   baterias, e para se poder mostrar o produto sem conta — mas NÃO tem porta
+   nenhuma na app: não há botão, não há ligação, e ninguém lá chega sem
+   escrever o endereço à mão.
+
+   E NÃO SE COLA. Esta é a correcção que este ficheiro mais precisava.
+
+   A bandeira vivia no `localStorage`, com a chave `carimbo:modo-demo` — no
+   espaço de PRODUÇÃO, e numa origem partilhada pelas duas aplicações. O que
+   isso queria dizer, na prática: um toque em «Só quero ver como funciona» no
+   balcão punha TAMBÉM a app do cliente em demonstração, para sempre, até
+   alguém se lembrar de visitar `?demo=0`. E um cartão de demonstração é
+   assinado com outro segredo, por isso um balcão a sério não o consegue
+   carimbar: ficava-se com uma app que parecia a certa e um carimbo que não
+   dava, sem nada no ecrã que explicasse porquê.
+
+   Agora vive no `sessionStorage`, que é POR SEPARADOR: fechar o separador
+   acaba com ela, e o que se faz num separador não contamina o outro. Enquanto
+   durar, há uma barra fixa em todos os ecrãs a dizê-lo.
+   ========================================================================= */
 function pedidoDeDemo() {
   try {
     const p = new URLSearchParams(location.search);
     if (p.has('demo')) {
       const liga = p.get('demo') !== '0';
-      localStorage.setItem('carimbo:modo-demo', liga ? '1' : '0');
+      /* `sessionStorage` e não `localStorage`: por separador, e não para
+         sempre. Ver o comentário em cima. */
+      if (liga) sessionStorage.setItem('carimbo:modo-demo', '1');
+      else sessionStorage.removeItem('carimbo:modo-demo');
       /* Limpa-se o endereço, senão fica colado no histórico e no ecrã
          principal do telemóvel.
 
@@ -47,7 +67,11 @@ function pedidoDeDemo() {
         location.pathname + (resto ? `?${resto}` : '') + location.hash);
       return liga;
     }
-    return localStorage.getItem('carimbo:modo-demo') === '1';
+    /* E LIMPA-SE O RESTO DE UMA VEZ. Quem já andou em demonstração tem a
+       bandeira velha colada no `localStorage`; deixá-la lá era deixar o
+       defeito vivo em cada telemóvel que já a tenha. */
+    localStorage.removeItem('carimbo:modo-demo');
+    return sessionStorage.getItem('carimbo:modo-demo') === '1';
   } catch { return false; }
 }
 
@@ -120,7 +144,8 @@ async function assinar(mensagem) {
 /**
  * O código que vai dentro do QR.
  *
- *   C1.<público>.<janela>.<assinatura>
+ *   C1.<público>.<janela>.<assinatura>     — a sério
+ *   D1.<público>.<janela>.<assinatura>     — demonstração
  *
  * `janela` é o tempo dividido em fatias de 15 segundos, e a assinatura é um
  * HMAC do par (público, janela) com o segredo do dispositivo. Quem tirar uma
@@ -156,7 +181,16 @@ export async function gerarCodigo(publico) {
   const janela = Math.floor(tempo() / 1000 / JANELA);
   const assinatura = (await assinar(`${publico}.${janela}`)).slice(0, 16);
   return {
-    texto: `C1.${publico}.${janela}.${assinatura}`,
+    /* O `D1` DIZ QUE ISTO É DE UMA DEMONSTRAÇÃO, e é a diferença entre um
+       balcão que responde «código inválido» e um que responde «este código é
+       de uma demonstração».
+
+       Um código de demonstração é assinado com outro segredo, por isso um
+       balcão a sério nunca o poderia carimbar — mas até aqui não tinha forma
+       de o distinguir de um código forjado ou estragado, e dizia a mesma coisa
+       aos dois. Quem estava do outro lado ficava sem saber o que tinha feito de
+       errado. */
+    texto: `${MODO === 'demo' ? 'D1' : 'C1'}.${publico}.${janela}.${assinatura}`,
     janela,
     expiraEm: (janela + 1) * JANELA * 1000 - (ler('desvio', 0) || 0),
   };
@@ -506,8 +540,9 @@ function criarDemo() {
       const partes = String(codigo || '').split('.');
 
       /* Duas formas de identificar o cliente:
-         · C1.<público>.<janela>.<assinatura> — o código do ecrã, assinado e
-           com quinze segundos de vida.
+         · D1.<público>.<janela>.<assinatura> — o código do ecrã, assinado e
+           com quinze segundos de vida. Aqui é `D1` e não `C1` porque isto é
+           uma demonstração: ver `gerarCodigo`.
          · M1.<público> — o número escrito à mão, para quando a câmara não
            colabora. Não é assinado, e por isso fica marcado como manual: o
            dono do negócio consegue vê-lo no histórico. O arrefecimento e o
@@ -516,9 +551,17 @@ function criarDemo() {
       if (partes[0] === 'M1' && partes.length === 2) {
         publico = partes[1].toUpperCase();
         manual = true;
-      } else if (partes[0] === 'C1' && partes.length === 4) {
+      } else if (partes[0] === 'D1' && partes.length === 4) {
         publico = partes[1];
         janela = Number(partes[2]);
+      } else if (partes[0] === 'C1' || partes[0] === 'W1') {
+        /* E O CONTRÁRIO TAMBÉM: um balcão de demonstração a ler um código a
+           sério. Acontece a quem deixou este separador aberto e foi buscar o
+           telemóvel de um cliente — e sem esta frase o que aparecia era
+           «cartão desconhecido», que manda procurar o defeito no sítio errado. */
+        const err = new Error('Este código é de um cartão A SÉRIO, e este balcão '
+          + 'é uma DEMONSTRAÇÃO. Sai da demonstração no aviso lá de cima.');
+        err.codigo = 'a-serio'; throw err;
       } else {
         const err = new Error('Este código não é de um cartão Carimbo Digital.');
         err.codigo = 'formato'; throw err;

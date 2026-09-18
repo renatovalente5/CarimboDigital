@@ -1139,3 +1139,57 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
   -webkit-user-select: all;
   user-select: all;
 }
+
+/* =========================================================================
+   A barra da demonstração
+
+   Fixa, no topo, em todos os ecrãs, e não se fecha. É a resposta a um defeito
+   que custou caro: a demonstração colava-se ao telemóvel e contaminava a
+   outra aplicação, e ficava-se com uma app que parecia a certa e um carimbo
+   que não dava. Um aviso discreto num canto não chegou.
+   ========================================================================= */
+
+.barra-demo {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
+  padding: calc(var(--seguro-cima) + 8px) var(--e-4) 8px;
+  background: #8A5A00;
+  color: #FFFFFF;
+  font-size: .8125rem;
+  line-height: 1.35;
+}
+.barra-demo-texto { flex: 1; }
+.barra-demo-sair {
+  flex: none;
+  /* 44×44, como qualquer outro alvo de toque desta casa. Nasceu com 32 de
+     altura porque a barra parecia melhor fina, e um botão que se falha com o
+     polegar num aviso que não se fecha é um aviso que não se pode dispensar. */
+  min-height: 44px;
+  min-width: 44px;
+  padding: 4px var(--e-4);
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: var(--r-max);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.barra-demo-sair:hover { background: rgba(255, 255, 255, .14); }
+/* O ANEL DE FOCO É BRANCO, e só aqui. O anel de toda a casa é a cor da marca —
+   roxo — e sobre este âmbar dá 1,17:1, que é o mesmo que não haver anel
+   nenhum. Branco sobre `#8A5A00` dá 5,9:1. É o que acontece a qualquer cor
+   fixa quando se lhe põe um fundo que ela nunca viu: mede-se, e troca-se. */
+.barra-demo-sair:focus-visible { outline-color: #FFFFFF; }
+
+/* O resto da página desce, senão a barra tapa o cabeçalho. A medida vem da
+   PRÓPRIA BARRA (ver `barraDaDemonstracao`), e não de um número escrito aqui:
+   o texto quebra em duas linhas num ecrã estreito, e um número à mão obrigava
+   a uma media query a adivinhar em que largura é que isso acontece. O valor de
+   reserva só serve para o instante entre pintar a barra e medi-la. */
+:root[data-demo="sim"] body { padding-top: var(--barra-demo, 60px); }
+:root[data-demo="sim"] #topo { top: var(--barra-demo, 60px); }

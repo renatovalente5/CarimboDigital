@@ -30,6 +30,8 @@ export const desculpar = [/favicon/];
    apanhou noutro sítio. Com `id`, o teste aponta para o que quer dizer. */
 const ENTRAR = '#porta-entrar';
 const CONVITE = '#porta-convite';
+/* JÁ NÃO EXISTE, e é isso que se verifica: o endereço fica aqui para o teste
+   poder perguntar pela ausência dele. Ver a secção da demonstração, lá em baixo. */
 const ESPREITAR = '#porta-espreitar';
 const BOTAO_PAINEL = '.painel-folha .btn-cheio';
 
@@ -108,9 +110,10 @@ export async function correr(palco, certo) {
   certo(!(await palco.visivel('#aplicacao')), 'e a aplicação fica escondida por trás dela');
 
   const portas = await palco.textos('#entrada-acoes button');
-  certo(portas.length === 3, 'a entrada tem três portas', `tem ${portas.length}: ${portas.join(' | ')}`);
-  certo(portas.join('|') === 'Já criei — quero entrar|Deram-me um código|Só quero ver como funciona',
-    'as três portas são entrar, código e espreitar', portas.join('|'));
+  certo(portas.length === 2, 'a entrada tem duas portas', `tem ${portas.length}: ${portas.join(' | ')}`);
+  certo(portas.join('|') === 'Já criei — quero entrar|Deram-me um código',
+    'as duas portas são entrar e código — a terceira, a da demonstração, saiu',
+    portas.join('|'));
 
   /* A PERGUNTA QUE DESEMPATA. Sem ela, duas portas com o mesmo peso são pior
      do que uma iluminada: a pessoa fica sem critério nenhum para escolher. */
@@ -436,24 +439,49 @@ export async function correr(palco, certo) {
     `o pedido levou objetivo=${JSON.stringify(saiu1)}`);
   await limparAvisos(palco);
 
-  /* --- porta 3: só quero ver como funciona ------------------------------ */
+  /* --- a demonstração não tem porta ------------------------------------- */
 
-  /* Entrada limpa: o painel aberto tapava as portas, e a demonstração não
-     precisa de rede nenhuma para nada. */
+  /* AQUI HAVIA UM BOTÃO, e ele saiu. Não por a demonstração ser má: por ser
+     fácil entrar nela sem se dar por isso e difícil sair.
+
+     A bandeira do modo vivia no `localStorage`, numa origem partilhada pelas
+     duas aplicações — um toque neste botão punha TAMBÉM a app do cliente em
+     demonstração, para sempre. E um cartão de demonstração é assinado com
+     outro segredo, por isso um balcão a sério não o carimba: ficava-se com uma
+     app que parecia a certa e um carimbo que não dava. */
   await palco.semRede(false);
   await palco.ir('/balcao/');
-  await palco.esperar(ESPREITAR);
+  await palco.esperar('#entrada-acoes button');
 
-  await palco.clicar(ESPREITAR);
+  certo(!(await palco.ver(ESPREITAR)),
+    'a entrada do balcão NÃO tem porta para a demonstração — era por aqui que '
+    + 'se entrava nela sem querer');
+  const textoDaEntrada = await palco.textoTodo();
+  certo(!/demonstra|experimentar|só quero ver/i.test(textoDaEntrada),
+    'e não há nada no ecrã que convide a experimentar',
+    textoDaEntrada.slice(0, 200));
+
+  /* A demonstração continua a existir — é o chão das baterias — e alcança-se
+     escrevendo o endereço à mão. */
+  await palco.ir('/balcao/?demo=1');
   await palco.pronta();
   await palco.esperar('#entrada-acoes button');
 
-  const emDemo = await palco.js("return localStorage.getItem('carimbo:modo-demo')");
-  certo(emDemo === '1', 'espreitar: fica em modo de demonstração', String(emDemo));
+  certo((await palco.js("return sessionStorage.getItem('carimbo:modo-demo')")) === '1',
+    'escrevendo «?demo=1» à mão, entra-se — é assim que as baterias lá chegam');
+  certo((await palco.js("return localStorage.getItem('carimbo:modo-demo')")) === null,
+    'MAS NÃO SE COLA: a bandeira vive no armazenamento do SEPARADOR, e não no do '
+    + 'telemóvel. Fechar o separador acaba com ela, e o que se faz num separador '
+    + 'não contamina o outro — que era o defeito');
 
   const endereco = await palco.js('return location.search');
   certo(endereco === '',
-    'espreitar: o «?demo=1» é limpo do endereço para não colar ao histórico', String(endereco));
+    'e o «?demo=1» é limpo do endereço para não colar ao histórico', String(endereco));
+
+  certo(await palco.ver('#barra-demo'),
+    'e enquanto durar, há uma barra fixa a dizê-lo em todos os ecrãs');
+  certo(/demonstra/i.test(await palco.texto('#barra-demo')),
+    'que diz o que é', await palco.texto('#barra-demo'));
 
   const portasDemo = await palco.textos('#entrada-acoes button');
   certo(portasDemo[0] === 'Experimentar agora',

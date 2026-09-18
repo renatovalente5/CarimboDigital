@@ -304,6 +304,25 @@ grupo('Defesas');
   const inexistente = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
     corpo: { codigo: 'M1.ZZZZZZ', programaId: 'p1' } });
   certo(inexistente.dados.codigo === 'sem-cliente', 'um número que não existe dá erro claro');
+
+  /* UM CÓDIGO DE DEMONSTRAÇÃO LIDO NUM BALCÃO A SÉRIO.
+
+     Nunca poderia ser carimbado — é assinado com outro segredo e o cliente
+     dele vive dentro do browser de outra pessoa —, mas a resposta era
+     «formato», a mesma que se dá a um QR de um site qualquer. Quem estava ao
+     balcão ia procurar o defeito na câmara, no leitor, no cartão; e o que
+     estava errado era a app do outro lado estar em demonstração.
+
+     É por isso que o código da demonstração leva `D1` e não `C1`: para haver
+     uma resposta que se possa ler em voz alta. */
+  const demo = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(cliente.publico, segredo).replace(/^C1\./, 'D1.'),
+             programaId: 'p1' } });
+  certo(demo.dados.codigo === 'demonstracao',
+    'um código de demonstração é reconhecido como tal, e não confundido com lixo',
+    JSON.stringify(demo.dados));
+  certo(/demonstra/i.test(demo.dados.erro || ''),
+    'e a frase diz a palavra, para o balcão a poder ler ao cliente', demo.dados.erro);
 }
 
 grupo('Arrefecimento');

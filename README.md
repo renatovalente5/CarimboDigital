@@ -52,9 +52,23 @@ o servidor a sério. Para trabalhar sem rede, esvazia o campo `api`.
 
 **Modo de demonstração:** `?demo=1` em qualquer das apps liga uma
 implementação completa das regras dentro do browser (arrefecimento, prémios,
-movimentos), sem servidor nenhum. `?demo=0` sai. Os dados da demonstração
-ficam noutro espaço de chaves, por isso não tocam na conta a sério — serve
-para mostrar o produto a um dono de café no próprio telemóvel.
+movimentos), sem servidor nenhum. `?demo=0` sai, e há um botão «Sair» na barra
+que ela põe no topo de todos os ecrãs.
+
+Escreve-se à mão, e é de propósito: **não há botão nenhum no produto que lá
+leve.** Havia — «Só quero ver como funciona», na entrada do balcão — e saiu a
+18 de Setembro de 2026. A bandeira do modo vivia no `localStorage`, que as duas
+aplicações partilham por serem do mesmo domínio: um toque nesse botão punha
+TAMBÉM a app do cliente em demonstração, e para sempre. Um cartão de
+demonstração é assinado com outro segredo, por isso o balcão a sério não o
+carimba — e o que se via era uma app com o aspecto da certa e um carimbo que
+não dava. Agora a bandeira vive no `sessionStorage`, morre com o separador, e
+o código que a demonstração gera começa por `D1` em vez de `C1`, para o balcão
+poder dizer «este código é de uma demonstração» em vez de «código inválido».
+
+Os dados da demonstração ficam noutro espaço de chaves, por isso não tocam na
+conta a sério — serve para mostrar o produto a um dono de café no próprio
+telemóvel, e é o chão onde as duas baterias correm.
 
 Para correr com a API a sério:
 

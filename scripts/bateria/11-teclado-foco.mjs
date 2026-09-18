@@ -370,11 +370,28 @@ export async function correr(palco, certo) {
   const ordem = (volta || []).map((f) => f.chave);
   certo(ordem[0] && ordem[0].includes('saltar'),
     'carteira: a primeira paragem é a ligação «Saltar para o conteúdo»', String(ordem[0]));
-  certo(ordem[1] && ordem[1].includes('botao-tema'),
-    'carteira: a segunda é o botão do cabeçalho, antes do conteúdo', String(ordem[1]));
-  certo(ordem.length > 5 && ordem[ordem.length - 1].includes('barra-item'),
+
+  /* A BARRA DA DEMONSTRAÇÃO CONTA, e é por isso que aparece aqui escrita.
+
+     Esta bateria corre sobre a demonstração — é de lá que vêm os cartões — e
+     nela há mais um controlo no topo do ecrã: o «Sair» do aviso. Ele entra
+     entre a ligação de saltar e o cabeçalho, que é onde está no ecrã, e a
+     ordem é essa. O `filter` abaixo tira-o para as afirmações seguintes
+     poderem falar do produto e não do palco. */
+  const eDaDemo = (c) => String(c).includes('barra-demo');
+  certo(ordem.filter(eDaDemo).length === 1,
+    'carteira: o «Sair» da demonstração está na tabulação, uma vez só',
+    ordem.filter(eDaDemo).join(' | ') || 'nenhuma vez');
+  certo(ordem[1] && eDaDemo(ordem[1]),
+    'carteira: e vem logo a seguir a «Saltar», que é onde está no ecrã — antes do cabeçalho',
+    String(ordem[1]));
+
+  const semDemo = ordem.filter((c) => !eDaDemo(c));
+  certo(semDemo[1] && semDemo[1].includes('botao-tema'),
+    'carteira: a segunda é o botão do cabeçalho, antes do conteúdo', String(semDemo[1]));
+  certo(semDemo.length > 5 && semDemo[semDemo.length - 1].includes('barra-item'),
     'carteira: a barra de navegação fica para o fim, como está no ecrã',
-    String(ordem[ordem.length - 1]));
+    String(semDemo[semDemo.length - 1]));
 
   /* Dentro do conteúdo, a ordem de tabulação tem de descer pela página. Um
      salto para trás quer dizer que o que se lê e o que se tabula divergiram —

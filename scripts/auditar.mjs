@@ -575,6 +575,68 @@ console.log('\nContraste');
 }
 
 /* =========================================================================
+   O balcao sabe explicar tudo o que o carimbar recusa
+
+   O carimbar devolve um `codigo` por cada maneira de correr mal, e o balcao
+   tem uma tabela que o transforma numa frase que se le em voz alta ao
+   cliente. O que nao estiver na tabela cai num «Nao deu» generico com a
+   mensagem crua por baixo.
+
+   Foi o que aconteceu ao `demonstracao`: durante meses, um codigo de
+   demonstracao apresentava-se ao balcao como «este codigo e de outra coisa
+   qualquer» — uma frase que manda procurar o defeito na camara, no leitor e
+   no cartao, quando o que estava errado era a app do outro lado.
+
+   Le-se o corpo das DUAS implementacoes do carimbar — a do Worker e o espelho
+   da demonstracao — porque as regras sao as mesmas e os codigos tambem tem de
+   ser. Um codigo que so exista de um dos lados ja e, por si, um defeito.
+   ========================================================================= */
+{
+  console.log('\nO balcão explica tudo o que recusa');
+
+  /* O corpo de uma funcao, do cabecalho ate a chaveta que fecha na coluna que
+     a abriu. Chega para isto: os dois carimbar sao funcoes de topo do seu
+     nivel, e o que se procura sao literais. */
+  const corpoDe = (texto, cabecalho, fecho) => {
+    const i = texto.indexOf(cabecalho);
+    if (i < 0) return null;
+    const j = texto.indexOf(fecho, i);
+    return j < 0 ? null : texto.slice(i, j);
+  };
+
+  const worker = readFileSync(join(RAIZ, 'worker', 'src', 'index.js'), 'utf8');
+  const api = readFileSync(join(RAIZ, '_fonte', 'js', 'api.js'), 'utf8');
+  const balcao = readFileSync(join(RAIZ, '_fonte', 'balcao', 'balcao.js'), 'utf8');
+
+  const noWorker = corpoDe(worker, 'async function carimbar(env, pedido, operador) {', '\n}\n');
+  const naDemo = corpoDe(api, 'async carimbar({', '\n    },\n');
+  const tabela = corpoDe(balcao, 'function mostrarErro(e) {', '\n  };');
+
+  if (!noWorker || !naDemo || !tabela) {
+    falhar('não encontrei um dos três sítios (carimbar do Worker, carimbar da demonstração, tabela do balcão) — '
+      + 'algum deles mudou de forma, e esta guarda deixou de estar a olhar para o que julga');
+  } else {
+    const codigos = new Set([
+      ...[...noWorker.matchAll(/codigo: '([a-z0-9-]+)'/g)].map((m) => m[1]),
+      ...[...naDemo.matchAll(/err\.codigo = '([a-z0-9-]+)'/g)].map((m) => m[1]),
+    ]);
+    /* A tabela escreve as chaves das duas maneiras que o JavaScript permite:
+       `arrefecimento:` e `'sem-cartao':`. */
+    const explicados = new Set([
+      ...[...tabela.matchAll(/^\s*'([a-z0-9-]+)':/gm)].map((m) => m[1]),
+      ...[...tabela.matchAll(/^\s*([a-z][a-z0-9]*):/gm)].map((m) => m[1]),
+    ]);
+    const orfaos = [...codigos].filter((c) => !explicados.has(c)).sort();
+    if (orfaos.length) {
+      falhar('o balcão não tem frase para: ' + orfaos.join(', ')
+        + ' — cai no «Não deu» genérico, e quem está ao balcão fica sem saber o que fazer');
+    } else {
+      bem(`${codigos.size} maneiras de o carimbar recusar, todas com uma frase escrita para o balcão`);
+    }
+  }
+}
+
+/* =========================================================================
    Nada é carregado de fora
 
    A pagina de privacidade promete, a letra: «nao carrega tipos de letra,

@@ -746,6 +746,16 @@ async function carimbar(env, pedido, operador) {
        isso que permite revogar um passe fotografado sem mexer no cartão da
        pessoa. */
     porPasse = partes[1].toUpperCase();
+  } else if (partes[0] === 'D1') {
+    /* UM CÓDIGO DE DEMONSTRAÇÃO. Ele nunca poderia ser carimbado aqui — é
+       assinado com outro segredo, e o cliente dele não existe nesta base —,
+       mas até haver este prefixo dizia-se-lhe a mesma coisa que a um código
+       forjado: «não é de um cartão Carimbo Digital». Quem estava do outro lado
+       do balcão ficava sem saber o que tinha feito de errado, e a resposta é
+       simples: a app dele está em demonstração. */
+    throw new Falha('Este código é de uma DEMONSTRAÇÃO, e não de um cartão a '
+      + 'sério. Na app do cliente, sai da demonstração no aviso lá de cima.',
+    { codigo: 'demonstracao' });
   } else {
     throw new Falha('Este código não é de um cartão Carimbo Digital.', { codigo: 'formato' });
   }
@@ -5178,6 +5188,21 @@ export default {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM codigos_usados WHERE usado_em < ?').bind(ontem),
       env.DB.prepare('DELETE FROM sessoes WHERE expira_em < ?').bind(agora()),
+      /* E AS QUE APONTAM PARA NINGUÉM. Uma sessão de um cliente ou de um
+         operador que já não existe não faz mal a ninguém — lê-se como sessão
+         inválida e a app volta a registar-se —, mas é uma linha que mente a
+         quem um dia contar sessões para saber quantas pessoas há.
+
+         O produto não as faz: o `apagarCliente` e o `apagarOperador` levam-nas
+         atrás. Faz-nas a mão que apaga uma conta de prova com um DELETE
+         escrito à mão, e foram trinta e seis antes de isto existir. A varredura
+         é aqui porque a próxima mão apressada vai ser igual à anterior. */
+      env.DB.prepare(
+        `DELETE FROM sessoes WHERE sujeito LIKE 'cliente:%'
+           AND NOT EXISTS (SELECT 1 FROM clientes c WHERE 'cliente:' || c.id = sessoes.sujeito)`),
+      env.DB.prepare(
+        `DELETE FROM sessoes WHERE sujeito LIKE 'operador:%'
+           AND NOT EXISTS (SELECT 1 FROM operadores o WHERE 'operador:' || o.id = sessoes.sujeito)`),
       env.DB.prepare('DELETE FROM entradas WHERE expira_em < ?').bind(agora()),
       env.DB.prepare('DELETE FROM envios WHERE em < ?')
         .bind(new Date(Date.now() - 86400000).toISOString()),
