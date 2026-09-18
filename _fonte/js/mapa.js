@@ -350,12 +350,44 @@ export function criarMapa({ dados, pontos = [], aoEscolher = () => {},
         /* Se o dedo arrastou, isto foi um gesto de mapa e não um toque num
            sítio. Abrir o estabelecimento aqui seria abrir-lhe a ficha porque
            ele estava no caminho. */
-        aoClick: () => { if (!arrastou) aoEscolher(p); },
+        aoClick: (ev) => { if (!arrastou) aoEscolher(maisPertoDoDedo(p, ev)); },
       }, el('span', { class: 'mapa-pino-ponto' }));
       if (p.cor) botao.style.setProperty('--pino', p.cor);
       camadaPinos.append(botao);
       botoes.push({ p, botao });
     }
+  }
+
+  /**
+   * Qual dos alfinetes é que o dedo queria, quando eles estão em cima uns dos
+   * outros.
+   *
+   * DOIS CAFÉS NA MESMA RUA DÃO DOIS ALFINETES SOBREPOSTOS, e o clique vai
+   * sempre ao que está por cima — o de baixo era inalcançável a dedo, por mais
+   * que se tentasse. Afastá-los no ecrã não serve: um alfinete afastado para
+   * caber é um alfinete a mentir sobre onde fica o café.
+   *
+   * O que se faz é olhar para onde o dedo caiu e escolher o alfinete cujo
+   * CENTRO está mais perto dele. Com dois pontos a dois píxeis um do outro
+   * continua a ser uma moeda ao ar — mas a partir de uns poucos píxeis a
+   * pessoa consegue escolher, que é o que faltava.
+   *
+   * O TECLADO NÃO ENTRA AQUI. Um `click` vindo do Enter não tem coordenadas
+   * (`detail === 0`), e escolher «o mais perto do ponto zero» abria sempre o
+   * alfinete do canto superior esquerdo a quem navega por teclado.
+   */
+  function maisPertoDoDedo(escolhido, ev) {
+    if (!ev || ev.detail === 0) return escolhido;
+    let melhor = escolhido, menor = Infinity;
+    for (const { p, botao } of botoes) {
+      if (botao.hidden) continue;
+      const r = botao.getBoundingClientRect();
+      const d = Math.hypot(ev.clientX - (r.x + r.width / 2),
+        ev.clientY - (r.y + r.height / 2));
+      /* Só conta quem está debaixo do dedo: 22 px é metade do alvo de toque. */
+      if (d <= 22 && d < menor) { menor = d; melhor = p; }
+    }
+    return melhor;
   }
 
   function colocarPinos() {

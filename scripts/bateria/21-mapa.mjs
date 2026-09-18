@@ -455,6 +455,33 @@ export async function correr(palco, certo) {
     + 'sítios ou é o mesmo?»',
     `${juntos} px no princípio, ${separados} px no tecto`);
 
+  /* E MESMO SOBREPOSTOS, O DEDO ESCOLHE. Volta-se ao enquadramento de
+     abertura, onde os dois de Ovar ficam em cima um do outro, e toca-se ao
+     lado de cada um: o que abre tem de ser o mais perto do dedo, e não o que
+     calhou ficar por cima. Sem isto, o de baixo é inalcançável a dedo. */
+  await palco.tecla('0');
+  await dormir(palco, 500);
+  const escolhas = await palco.js(`
+    const alvos = [...document.querySelectorAll('#mapa-descobrir .mapa-pino')]
+      .filter((b) => /Torrado|Camélia/.test(b.getAttribute('title') || ''));
+    const saida = [];
+    for (const alvo of alvos) {
+      const r = alvo.getBoundingClientRect();
+      document.querySelectorAll('.cartao-apontado')
+        .forEach((c) => c.classList.remove('cartao-apontado'));
+      /* Um clique com coordenadas mesmo em cima do centro daquele alfinete. */
+      alvo.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1,
+        clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
+      await new Promise((r2) => setTimeout(r2, 350));
+      const c = document.querySelector('.cartao-apontado');
+      saida.push({ pedi: alvo.getAttribute('title'),
+                   abriu: c ? c.querySelector('.cartao-nome')?.textContent : null });
+    }
+    return saida;`);
+  certo(escolhas.length === 2 && escolhas.every((e) => e.pedi === e.abriu),
+    'e com os dois sobrepostos, tocar em cima de um abre ESSE — o de baixo '
+    + 'deixa de ser inalcançável a dedo', JSON.stringify(escolhas));
+
   /* --- 10. E O MAPA DO BALCÃO, QUE É ONDE O PONTO SE MARCA -------------- */
   /* É o ecrã onde os dois piores defeitos deste trabalho viviam: o painel
      abria no centro do país e o botão de gravar movia o estabelecimento
