@@ -960,9 +960,20 @@ grupo('Recuperar a conta noutro telemóvel');
      sempre contra o cliente da sessão em curso — e no telemóvel novo esse é
      uma conta vazia acabada de criar. A pessoa confirmava, ouvia «os cartões
      já não se perdem», e ficava a olhar para uma carteira sem nada. */
-  const correio = 'recupera@exemplo.pt';
+  /* UMA MORADA NOVA A CADA CORRIDA, e não uma escrita à mão.
+
+     Era `recupera@exemplo.pt`, com um `UPDATE clientes SET email = NULL` à
+     frente a tentar limpar a corrida anterior. Não limpava: a morada vive
+     TAMBÉM na tabela `identidades`, e é por lá que o `entrar` resolve quem é
+     que ela é. À segunda corrida sobre a mesma base, o que devia ser uma
+     adesão era uma recuperação, e cinco afirmações deste grupo reprovavam.
+
+     Só se via sem `--limpo` — que é o comportamento por omissão de quem
+     desenvolve, e nunca o do CI. Ou seja: o caminho que este projecto diz
+     querer provar, o das migrações sobre uma base que já existe, era o único
+     em que a bateria não passava duas vezes seguidas. */
+  const correio = `recupera-${Date.now()}@exemplo.pt`;
   sql(`DELETE FROM entradas`); sql(`DELETE FROM envios`);
-  sql(`UPDATE clientes SET email = NULL, email_verificado = 0 WHERE email = '${correio}'`);
 
   /* Telemóvel A: conta com um cartão, e a morada confirmada. */
   const a = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
@@ -1512,6 +1523,33 @@ grupo('Contas paradas');
     certo(existe(r.dados.cliente.id), 'a leitura da base funciona (senão o resto não prova nada)');
     await pedir('/v1/cliente', { metodo: 'DELETE', sessao: r.dados.sessao });
     certo(!existe(r.dados.cliente.id), 'e vê a diferença quando a conta desaparece');
+  }
+
+  /* --- as sessões que ficam a apontar para ninguém --- */
+  {
+    /* NÃO É O PRODUTO QUE AS FAZ: é a mão que apaga uma conta de prova com um
+       `DELETE FROM clientes` escrito à mão, em vez do caminho que a API usa —
+       que leva sessões, cartões, movimentos e mais cinco tabelas à frente.
+       Foram trinta e seis na base de produção, e a limpeza diária passou a
+       varrê-las porque a próxima mão apressada vai ser igual à anterior.
+
+       Não davam erro: um bilhete que aponta para uma conta que não existe
+       lê-se como sessão inválida. Mentem à pergunta mais óbvia que se faz a
+       esta base — «quantas pessoas há?». */
+    const r = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    const id = r.dados.cliente.id;
+    const sessoes = () => umValor(
+      `SELECT COUNT(*) n FROM sessoes WHERE sujeito = 'cliente:${id}'`);
+
+    certo(sessoes() === 1, 'a conta acabada de nascer tem uma sessão (o teste é válido)');
+
+    sql(`DELETE FROM clientes WHERE id = '${id}'`);
+    certo(sessoes() === 1,
+      'apagar a conta à mão deixa a sessão para trás — é exactamente este o defeito');
+
+    await limpeza();
+    certo(sessoes() === 0,
+      'e a limpeza diária varre-a, sem ninguém ter de se lembrar dela');
   }
 
   /* --- abrir a app conta como sinal de vida --- */
