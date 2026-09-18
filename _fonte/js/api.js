@@ -228,6 +228,7 @@ const SEMENTE = {
       id: 'n-torrado', slug: 'cafe-torrado', nome: 'Café Torrado',
       categoria: 'Café', cor: '#3B2417', localidade: 'Ovar',
       morada: 'Rua Dr. Oliveira Salazar 12', telefone: '234 000 000',
+      latitude: 40.85944, longitude: -8.62528, geoFonte: 'mao',
       programas: [{
         id: 'p-torrado', nome: 'Cartão do café', tipo: 'carimbos', selo: 'chavena',
         objetivo: 10, premio: 'Um café por conta da casa', arrefecimento: 3600,
@@ -238,6 +239,7 @@ const SEMENTE = {
       id: 'n-navalha', slug: 'barbearia-navalha', nome: 'Barbearia Navalha',
       categoria: 'Barbearia', cor: '#12232E', localidade: 'Aveiro',
       morada: 'Praça do Peixe 4', telefone: '234 000 001',
+      latitude: 40.64231, longitude: -8.65390, geoFonte: 'gps',
       programas: [{
         id: 'p-navalha', nome: 'Corte a corte', tipo: 'carimbos', selo: 'navalha',
         objetivo: 8, premio: 'Corte + barba grátis', arrefecimento: 43200,
@@ -248,6 +250,7 @@ const SEMENTE = {
       id: 'n-camelia', slug: 'salao-camelia', nome: 'Salão Camélia',
       categoria: 'Cabeleireiro', cor: '#B0446A', localidade: 'Ovar',
       morada: 'Avenida do Bom Reitor 88', telefone: '234 000 002',
+      latitude: 40.86420, longitude: -8.61790, geoFonte: 'gps',
       programas: [{
         id: 'p-camelia', nome: 'Clube Camélia', tipo: 'pontos', selo: 'flor',
         objetivo: 600, premio: 'Tratamento de hidratação',
@@ -265,6 +268,7 @@ const SEMENTE = {
       id: 'n-forno', slug: 'padaria-do-forno', nome: 'Padaria do Forno',
       categoria: 'Padaria', cor: '#C9821F', localidade: 'Esmoriz',
       morada: 'Rua 21 n.º 3', telefone: '234 000 003',
+      latitude: 40.96010, longitude: -8.63640, geoFonte: 'mao',
       programas: [{
         id: 'p-forno', nome: 'Pão nosso', tipo: 'carimbos', selo: 'bolo',
         objetivo: 12, premio: 'Bolo-rei ou pão de ló', arrefecimento: 3600,
@@ -275,6 +279,10 @@ const SEMENTE = {
       id: 'n-patas', slug: 'patas-felizes', nome: 'Patas Felizes',
       categoria: 'Banhos e tosquias', cor: '#1E7A6B', localidade: 'Santa Maria da Feira',
       morada: 'Rua das Laranjeiras 51', telefone: '256 000 004',
+      /* Este ficou pelo centróide do concelho — de propósito, para a
+         demonstração mostrar também o alfinete oco, que é o que a app usa
+         quando só sabe «algures neste concelho». */
+      latitude: 40.92710, longitude: -8.54470, geoFonte: 'concelho',
       programas: [{
         id: 'p-patas', nome: 'Cartão do cão', tipo: 'carimbos', selo: 'pata',
         objetivo: 6, premio: 'Banho e tosquia grátis', arrefecimento: 86400,
@@ -285,6 +293,7 @@ const SEMENTE = {
       id: 'n-gelato', slug: 'gelataria-luar', nome: 'Gelataria Luar',
       categoria: 'Gelataria', cor: '#5AAEE0', localidade: 'Espinho',
       morada: 'Marginal 2', telefone: '227 000 005',
+      latitude: 41.00730, longitude: -8.64520, geoFonte: 'gps',
       programas: [{
         id: 'p-gelato', nome: 'Bola a bola', tipo: 'carimbos', selo: 'gelado',
         objetivo: 9, premio: 'Taça de três bolas', arrefecimento: 1800,
@@ -399,6 +408,10 @@ function criarDemo() {
       return e.negocios.map((n) => ({
         id: n.id, slug: n.slug, nome: n.nome, cor: n.cor, categoria: n.categoria,
         localidade: n.localidade, morada: n.morada, telefone: n.telefone,
+        /* Onde fica, para o mapa. A demonstração tem-nas escritas à mão na
+           semente, com um dos negócios de propósito ao nível do concelho. */
+        latitude: n.latitude ?? null, longitude: n.longitude ?? null,
+        geoFonte: n.geoFonte || null,
         programas: n.programas.map((p) => ({
           id: p.id, nome: p.nome, tipo: p.tipo, selo: p.selo,
           objetivo: p.objetivo, premio: p.premio, regras: p.regras,
@@ -628,7 +641,13 @@ function criarDemo() {
       const e = estado();
       const o = e.operadores.find((x) => x.id === operadorId) || e.operadores[0];
       const n = e.negocios.find((x) => x.id === o.negocioId);
-      return { operador: o, negocio: n };
+      /* O aviso da morada vem TAMBÉM daqui, como no servidor: é este o pedido
+         que o balcão faz a cada abertura, e é o que faz o aviso sobreviver a
+         fechar a app. */
+      const arrumar = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      const moradaMudou = Boolean(typeof n.latitude === 'number'
+        && n.geoMorada && n.morada && arrumar(n.geoMorada) !== arrumar(n.morada));
+      return { operador: o, negocio: { ...n, moradaMudou } };
     },
 
     async resumo(negocioId) {
@@ -703,7 +722,34 @@ function criarDemo() {
     async guardarNegocio(negocioId, dados) {
       const e = estado();
       const n = e.negocios.find((x) => x.id === negocioId);
-      Object.assign(n, dados);
+      const limpo = { ...dados };
+      if (limpo.apagarPonto) {
+        delete limpo.apagarPonto;
+        Object.assign(n, { latitude: null, longitude: null, geoFonte: null,
+                           geoEm: null, geoMorada: null });
+        gravar(e);
+        return n;
+      }
+      /* AS MESMAS REGRAS DO SERVIDOR, e não uma versão mais simpática. A
+         demonstração existe para ensinar a app que existe: se aqui uma
+         coordenada trocada passasse, ensinava o contrário do que o produto
+         faz. Arredonda-se às mesmas cinco casas (1,11 m) e recusa-se o que cai
+         fora de Portugal — que é o que acontece a um par trocado. */
+      if (limpo.latitude !== undefined && limpo.latitude !== null) {
+        const a = Number(limpo.latitude), o = Number(limpo.longitude);
+        if (!Number.isFinite(a) || !Number.isFinite(o)) throw new Error('As coordenadas têm de ser dois números.');
+        if (a === 0 && o === 0) throw new Error('(0, 0) não é um sítio.');
+        if (a < 32.3 || a > 42.3 || o < -31.4 || o > -6.1) {
+          throw new Error(o >= 32.3 && o <= 42.3 && a >= -31.4 && a <= -6.1
+            ? 'A latitude e a longitude estão trocadas.'
+            : 'Esse ponto fica fora de Portugal.');
+        }
+        limpo.latitude = Math.round(a * 1e5) / 1e5;
+        limpo.longitude = Math.round(o * 1e5) / 1e5;
+        limpo.geoEm = agora();
+        limpo.geoMorada = limpo.morada ?? n.morada ?? null;
+      }
+      Object.assign(n, limpo);
       gravar(e);
       return n;
     },

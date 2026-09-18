@@ -4497,6 +4497,123 @@ grupo('Quem está ao balcão');
   sql(`DELETE FROM operadores WHERE negocio_id = 'n1' AND id != 'o1'`);
 }
 
+grupo('Onde fica o estabelecimento');
+{
+  /* O par de números que põe o negócio no mapa. O que aqui se persegue não é
+     «grava e lê» — é o que esta coluna tem de caro:
+
+     · A TROCA. Escrever a longitude no campo da latitude é o engano mais comum
+       de quem mexe nisto à mão, e em Portugal o resultado cai no Golfo da
+       Guiné. Um mapa com um café no meio do Atlântico não se lê como um erro
+       de dados: lê-se como uma app avariada.
+     · A MORADA A ENVELHECER. O dono muda de porta, grava a morada nova, e a
+       coordenada fica a apontar para a anterior — calada, plausível, errada.
+     · E APAGAR. Está prometido por escrito na página de privacidade. */
+
+  sql(`UPDATE negocios SET latitude = NULL, longitude = NULL, geo_fonte = NULL,
+       geo_em = NULL, geo_morada = NULL, morada = 'Rua das Provas 1' WHERE id = 'n1'`);
+
+  const por = (corpo) => pedir('/v1/balcao/negocio',
+    { metodo: 'PUT', sessao: sessaoBalcao, corpo });
+
+  /* --- o que se recusa, e porquê ---------------------------------------- */
+  const trocada = await por({ latitude: -8.49, longitude: 40.88 });
+  certo(trocada.estado === 400 && trocada.dados.codigo === 'geo-trocada',
+    'a latitude e a longitude trocadas são recusadas — e a mensagem diz que é isso',
+    JSON.stringify(trocada.dados));
+
+  const nula = await por({ latitude: 0, longitude: 0 });
+  certo(nula.estado === 400 && nula.dados.codigo === 'geo-nulo',
+    '(0, 0) é recusado em separado: é o que fica quando não se sabe onde é');
+
+  const fora = await por({ latitude: 48.85, longitude: 2.35 });
+  certo(fora.estado === 400 && fora.dados.codigo === 'geo-fora',
+    'e Paris também — este mapa é de Portugal');
+
+  const lixo = await por({ latitude: 'aqui', longitude: 'ali' });
+  certo(lixo.estado === 400 && lixo.dados.codigo === 'geo-numeros',
+    'e texto não é uma coordenada');
+
+  certo(linhas(`SELECT latitude FROM negocios WHERE id = 'n1'`)[0].latitude === null,
+    'e nenhuma das recusas deixou nada gravado');
+
+  /* --- o que se aceita --------------------------------------------------- */
+  const bom = await por({ latitude: 40.8594412345, longitude: -8.6252787654, geoFonte: 'gps' });
+  certo(bom.estado === 200, 'um ponto em Ovar entra', JSON.stringify(bom.dados).slice(0, 120));
+  const gravado = linhas(`SELECT latitude, longitude, geo_fonte, geo_morada FROM negocios WHERE id = 'n1'`)[0];
+  certo(gravado.latitude === 40.85944 && gravado.longitude === -8.62528,
+    'ARREDONDADO A CINCO CASAS — a 40° de latitude vale 1,11 m, e o telemóvel '
+    + 'devolve mais casas do que sabe',
+    `${gravado.latitude}, ${gravado.longitude}`);
+  certo(gravado.geo_fonte === 'gps', 'e a fonte fica registada');
+  certo(gravado.geo_morada === 'Rua das Provas 1',
+    'e a morada que gerou o ponto fica agarrada a ele', String(gravado.geo_morada));
+
+  const inventada = await por({ latitude: 40.86, longitude: -8.62, geoFonte: 'adivinhei' });
+  certo(inventada.estado === 200
+    && linhas(`SELECT geo_fonte FROM negocios WHERE id = 'n1'`)[0].geo_fonte === 'mao',
+    'uma fonte que não existe cai em «mao» — é a mais modesta das três, e não '
+    + 'se inventa precisão que não se tem');
+
+  /* --- a morada a envelhecer --------------------------------------------- */
+  const mudou = await por({ morada: 'Avenida Outra Qualquer 99' });
+  certo(mudou.estado === 200 && mudou.dados.moradaMudou === true,
+    'mudar a morada com o ponto marcado devolve um aviso',
+    JSON.stringify(mudou.dados.moradaMudou));
+  certo(linhas(`SELECT latitude FROM negocios WHERE id = 'n1'`)[0].latitude === 40.86,
+    'E NÃO APAGA O PONTO. Pode ter sido uma gralha corrigida com o alfinete já '
+    + 'certo, e apagar o trabalho por causa de um acento era pior do que o problema');
+
+  /* E AGORA A COMPARAÇÃO A SÉRIO. Marca-se o ponto outra vez, o que prende o
+     ponto à morada ACTUAL, e escreve-se a mesma morada com outra caixa e
+     outros espaços. Um aviso a disparar por causa de uma maiúscula seria um
+     aviso que se aprende a ignorar — e um aviso ignorado não é um aviso.
+
+     (A primeira versão deste teste afirmava isto sem voltar a marcar o ponto,
+     e falhava com razão: a `geo_morada` ainda era a de três linhas acima.) */
+  await por({ latitude: 40.86, longitude: -8.62, geoFonte: 'mao' });
+  const mesmaMorada = await por({ morada: '  avenida   OUTRA qualquer 99 ' });
+  certo(mesmaMorada.dados.moradaMudou === false,
+    'a mesma morada escrita com outra caixa e outros espaços não é uma morada nova',
+    JSON.stringify({ morada: mesmaMorada.dados.morada, geo: mesmaMorada.dados.geo_morada }));
+
+  /* O AVISO TEM DE SOBREVIVER A FECHAR A APP. Só na resposta ao PUT, ele
+     aparecia uma vez e desaparecia à primeira recarga — e um aviso que não
+     sobrevive a fechar a app é um aviso que ninguém chega a ler. */
+  const aoAbrir = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
+  certo(aoAbrir.dados.moradaMudou === false,
+    'o ecrã do balcão também traz o aviso da morada, e agora diz que não há nada',
+    JSON.stringify(aoAbrir.dados.moradaMudou));
+  await por({ morada: 'Rua de Outra Coisa 7' });
+  const comAviso = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
+  certo(comAviso.dados.moradaMudou === true,
+    'e depois de a morada mudar, o aviso está lá a cada abertura do ecrã — não '
+    + 'só na resposta a quem gravou', JSON.stringify(comAviso.dados.moradaMudou));
+
+  /* --- e apagar ----------------------------------------------------------- */
+  const apagou = await por({ apagarPonto: true });
+  const vazio = linhas(`SELECT latitude, longitude, geo_fonte, geo_em, geo_morada FROM negocios WHERE id = 'n1'`)[0];
+  certo(apagou.estado === 200 && vazio.latitude === null && vazio.longitude === null
+    && vazio.geo_fonte === null && vazio.geo_em === null && vazio.geo_morada === null,
+    'tirar do mapa leva as cinco colunas — está prometido na privacidade',
+    JSON.stringify(vazio));
+
+  /* --- e o que o «Descobrir» mostra --------------------------------------- */
+  await por({ latitude: 40.85944, longitude: -8.62528, geoFonte: 'gps' });
+  const lista = await pedir('/v1/descobrir');
+  const meu = lista.dados.find((n) => n.id === 'n1');
+  certo(meu && meu.latitude === 40.85944 && meu.longitude === -8.62528 && meu.geoFonte === 'gps',
+    'o «Descobrir» leva o ponto — sem um pedido novo por abertura da app',
+    JSON.stringify(meu && { lat: meu.latitude, lon: meu.longitude, f: meu.geoFonte }));
+
+  sql(`UPDATE negocios SET latitude = NULL, longitude = NULL, geo_fonte = NULL WHERE id = 'n1'`);
+  const semPonto = await pedir('/v1/descobrir');
+  const agoraSem = semPonto.dados.find((n) => n.id === 'n1');
+  certo(agoraSem && agoraSem.latitude === null && agoraSem.geoFonte === null,
+    'e um negócio sem ponto continua na lista, com os campos a null — nunca em (0, 0)',
+    JSON.stringify(agoraSem && { lat: agoraSem.latitude, f: agoraSem.geoFonte }));
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

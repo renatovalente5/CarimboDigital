@@ -357,10 +357,47 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   push pela APNs; é trabalho de dias, não de horas, e o que está publicado
   hoje diz a verdade sobre a limitação em vez de a esconder (no painel de
   apagar a conta e no email de conta parada).
-- **Descobrir estabelecimentos por perto.** POR FAZER, e tem uma decisão pelo
-  meio: pedir a localização traz um aviso de permissão e uma linha nova na
-  política de privacidade. Hoje o «Descobrir» é uma lista, e ordená-la por
-  distância é o que a torna útil numa cidade.
+- ~~Descobrir estabelecimentos num mapa~~ — **feito a 18 de Setembro de 2026.**
+  O «Descobrir» ganhou um mapa com os aderentes, por cima da lista.
+
+  > **A decisão foi entre ruas e uma promessa, e ganhou a promessa.** A página
+  > de privacidade diz, à letra, que «não carrega tipos de letra, **mapas** ou
+  > scripts de terceiros» — a palavra já lá estava. Qualquer mapa com ruas
+  > obriga a ir buscar mosaicos a um servidor alheio, e nesse instante o IP de
+  > cada pessoa que abre a app chega lá e aquela frase passa a ser falsa.
+  > Foi posta ao dono do produto, com as três saídas, e a escolha foi: sem
+  > ruas, promessa intacta.
+  >
+  > O mapa é desenhado dentro da app, a partir das fronteiras dos 308
+  > concelhos (100 KB no casco do service worker). Zero domínios novos, zero
+  > bibliotecas, e **funciona sem rede** — o contrário exacto do que acontece
+  > com mosaicos de terceiro. Três folhas, porque os Açores numa caixa ao
+  > canto do continente ficam ilegíveis.
+  >
+  > **As coordenadas vêm do GPS de quem está ao balcão**, e não de um
+  > geocodificador: para a barbearia que já cá está, o Nominatim devolve o
+  > centro da rua. O balcão é usado ao balcão; um botão «Estou no
+  > estabelecimento» dá a porta.
+  >
+  > **Uma revisão adversarial em quatro lentes deu 48 achados, 33 sobreviveram
+  > à refutação, e dois deles eram graves:** o enquadramento de abertura
+  > escondia estabelecimentos (com negócios de Viana a Faro, o alfinete de Faro
+  > nascia fora do ecrã, e nenhum gesto o trazia de volta), e o painel do
+  > balcão descartava o ponto que o negócio já tinha — carregar em «Guardar»
+  > sem tocar em nada movia o estabelecimento 150 km. Os dois estão corrigidos
+  > e os dois têm agora uma afirmação na bateria, provada a repor o defeito.
+  >
+  > Pelo meio saiu uma falta que não era do mapa: **o balcão nunca pôde
+  > corrigir a própria morada.** Era escrita ao fundar o negócio e ficava assim
+  > para sempre, na página pública dele. Agora há campo.
+  >
+  > O que fica por fazer, e é honesto dizê-lo: **ordenar por distância** com a
+  > `Geolocation API` — que é a pergunta «qual é o mais perto de mim» dentro de
+  > uma cidade, onde todos os alfinetes caem no mesmo concelho. **Dois
+  > estabelecimentos na mesma rua sobrepõem-se** no enquadramento de abertura;
+  > separam-se ao aproximar, e isso está provado, mas um toque no de cima é o
+  > único que abre. E as ruas, se um dia a densidade justificar, alojadas por
+  > nós.
 - **Convites entre clientes** («cada cliente traz outro, e ganham os dois»).
   POR FAZER. Os `convites` que existem hoje são de NEGÓCIO — para fundar um
   balcão — e não têm nada que ver com isto.

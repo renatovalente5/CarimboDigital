@@ -574,6 +574,132 @@ console.log('\nContraste');
   if (!mal) bem(`${chamadas} chamadas a API, todas com quem as atenda`);
 }
 
+/* =========================================================================
+   Nada é carregado de fora
+
+   A pagina de privacidade promete, a letra: «nao carrega tipos de letra,
+   MAPAS ou scripts de terceiros. Por isso nao veras aqui nenhum aviso de
+   cookies a pedir-te autorizacao — nao ha nada para autorizar.»
+
+   Isso e uma afirmacao verificavel, e ate aqui nada a verificava. Um
+   `<script src>` de um CDN, um tipo de letra do Google, um `url()` numa folha
+   de estilos ou — o caso que esta guarda nasceu a pensar — os mosaicos de um
+   servidor de mapas, e a frase passa a ser falsa sem ninguem dar por isso.
+
+   O QUE CONTA E O QUE O BROWSER VAI BUSCAR SOZINHO: `script src`, `link href`,
+   `img src`, `iframe src`, `url()` e `@import`. Um `<a href>` para fora NAO
+   conta — e uma ligacao que so e seguida se alguem lhe tocar, e o site tem-nas
+   de proposito (o Livro de Reclamacoes, o Mapa das reclamacoes, o «Como
+   chegar» de cada estabelecimento).
+   ========================================================================= */
+{
+  console.log('\nNada é carregado de fora');
+
+  /* Atributos que o browser resolve por sua conta, com a etiqueta a que
+     pertencem — para a mensagem dizer o que e que estava a carregar o quê. */
+  /* UMA ATITUDE, E NAO UMA LISTA DE ETIQUETAS.
+
+     A primeira versao desta guarda enumerava `script src`, `link href`, `img
+     src` e pouco mais, com as aspas obrigatorias. Uma revisao adversarial
+     mostrou quinze maneiras de a contornar sem esforço nenhum: um `srcset`, um
+     `poster`, um `<use href>` dentro de um SVG, um `<image href>`, um
+     `xlink:href`, um `<object data>`, um `image-set()`, um atributo sem aspas,
+     um `fetch()` escrito em JavaScript.
+
+     Uma guarda que enumera formas de errar perde sempre para quem inventa a
+     decima sexta. Agora a pergunta e ao contrario: **em qualquer ficheiro que
+     vai publicado, ha algum endereco de outro dominio?** Um `<a href>` e a
+     unica excepcao, porque e uma ligacao que so e seguida se alguem lhe tocar
+     — e o site tem-nas de proposito (o Livro de Reclamacoes, o «Como chegar»).
+
+     Assim, um endereco de terceiro novo tem de ser DECLARADO aqui para passar,
+     em vez de descoberto. */
+  const LIGACAO = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+  /* Os enderecos que podem aparecer num ficheiro publicado sem serem um
+     carregamento. Cada linha e uma decisao, e esta aqui para se poder discutir
+     — que e o contrario de uma excepcao escondida numa expressao regular. */
+  const PERMITIDOS = [
+    /* Namespaces de XML. Nao sao carregados: sao identificadores. */
+    'http://www.w3.org/2000/svg',
+    'http://www.w3.org/1999/xlink',
+    'http://www.w3.org/1999/xhtml',
+    /* Vocabulario de dados estruturados, lido por motores de busca. */
+    'https://schema.org',
+    'http://schema.org',
+    /* A NOSSA PROPRIA API. E outro dominio, mas nao e um terceiro: e o Worker
+       deste produto, e a app fala com ele o tempo todo. Esta na seccao 5 da
+       politica de privacidade, com a Cloudflare nomeada. Sai da configuracao e
+       nao escrito a mao — escrito a mao, esta guarda deixava de servir no dia
+       em que o endereco mudasse. */
+    config.api,
+    /* O «Como chegar». Sao os dois LIGACOES, dentro de um `<a href>` montado
+       em JavaScript — por isso a limpeza dos `<a>` la em cima nao lhes chega.
+       Nada e pedido a nenhum deles enquanto ninguem lhes tocar, e ambos estao
+       escritos na seccao 4 da politica de privacidade, com nome. */
+    'https://maps.apple.com/',
+    'https://www.openstreetmap.org/',
+  ].filter(Boolean);
+
+  /* O NOSSO PROPRIO DOMINIO NAO E UM TERCEIRO. As paginas trazem o endereco
+     absoluto em alguns sitios — e a mesma origem, e nao ha nada a declarar
+     numa politica de privacidade sobre uma pagina ir buscar-se a si propria.
+     O dominio sai da configuracao, e nao escrito a mao: escrito a mao, esta
+     guarda deixava de servir no dia em que ele mudasse. */
+  const nosso = new Set([config.dominio, `www.${config.dominio}`].filter(Boolean));
+
+  /* O `data:` e o `blob:` nao saem do browser; o `#` e a propria pagina. */
+  const deFora = (endereco) => {
+    const e = endereco.trim();
+    if (!e || e.startsWith('data:') || e.startsWith('blob:') || e.startsWith('#')) return null;
+    let host = null;
+    if (/^https?:\/\//i.test(e)) host = new URL(e).host;
+    else if (e.startsWith('//')) host = e.slice(2).split('/')[0];
+    else return null;                  /* relativo: e nosso */
+    return nosso.has(host) ? null : host;
+  };
+
+  let olhados = 0, achados = 0, ligacoes = 0;
+  for (const ficheiro of listar(SAIDA)) {
+    if (!/\.(html|css|js|webmanifest|svg|json)$/i.test(ficheiro)) continue;
+    olhados++;
+    let texto = readFileSync(ficheiro, 'utf8');
+
+    /* Tiram-se primeiro os `<a href>`, que sao ligacoes e nao carregamentos.
+       Substituem-se por espacos para as posicoes nao mudarem. */
+    texto = texto.replace(LIGACAO, (todo, aspas, apostrofe, nu) => {
+      const endereco = aspas ?? apostrofe ?? nu ?? '';
+      if (deFora(endereco)) ligacoes++;
+      return ' '.repeat(todo.length);
+    });
+
+    /* E agora TODOS os enderecos que sobram. */
+    for (const m of texto.matchAll(/(?:https?:)?\/\/[A-Za-z0-9._-]+\.[A-Za-z]{2,}[^\s"'`)<>\\]*/g)) {
+      const endereco = m[0];
+      const host = deFora(endereco);
+      if (!host) continue;
+      if (PERMITIDOS.some((bom) => endereco.startsWith(bom))) continue;
+      /* A linha, para quem tiver de a ir ver. */
+      const linha = texto.slice(0, m.index).split('\n').length;
+      falhar(`${ficheiro.slice(SAIDA.length + 1)}:${linha}: endereço de ${host} `
+        + `num ficheiro publicado — ${endereco.slice(0, 70)}`);
+      achados++;
+    }
+  }
+
+  /* E a guarda tem de se poder provar a si própria: se um dia ela deixar de
+     olhar para ficheiro nenhum, este numero cai para zero e o «✓» continuava
+     a aparecer, a dizer que esta tudo bem sobre uma verificacao que nao
+     correu. E o erro de uma guarda que inverte e desaparece. */
+  if (olhados < 10) {
+    falhar(`a guarda do «nada de fora» só olhou para ${olhados} ficheiros — `
+      + 'alguma coisa está errada nela, não no site');
+  } else if (!achados) {
+    bem(`${olhados} ficheiros publicados, nenhum carrega nada de fora `
+      + `(${ligacoes} ligações para fora, que só são seguidas se alguém lhes tocar)`);
+  }
+}
+
 /* --- resumo ------------------------------------------------------------- */
 console.log(`\n${erros ? '✗' : '✓'} ${erros} erros, ${avisos} avisos.\n`);
 process.exit(erros ? 1 : 0);

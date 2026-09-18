@@ -24,6 +24,19 @@ CREATE TABLE IF NOT EXISTS negocios (
   localidade   TEXT,
   telefone     TEXT,
   sitio        TEXT,
+  -- Onde fica, para o mapa do «Descobrir». Graus decimais WGS84, arredondados
+  -- a cinco casas na escrita (a 40° de latitude, a quinta casa vale 1,11 m).
+  latitude     REAL,
+  longitude    REAL,
+  -- 'gps' | 'mao' | 'concelho'. O mapa desenha-os DIFERENTE: um ponto ao metro
+  -- e o centróide de um concelho inteiro não são a mesma promessa.
+  geo_fonte    TEXT,
+  geo_em       TEXT,
+  -- A morada exacta que gerou o ponto. Quando o dono corrige a morada, o
+  -- servidor compara e AVISA — em vez de deixar a coordenada a apontar em
+  -- silêncio para a porta anterior, ou de apagar o trabalho dele por causa de
+  -- um acento.
+  geo_morada   TEXT,
   estado       TEXT NOT NULL DEFAULT 'ativo',   -- ativo | suspenso
   criado_em    TEXT NOT NULL,
   convite      TEXT,                               -- de que convite nasceu

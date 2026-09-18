@@ -179,6 +179,28 @@ const ECRAS = [
     guiao: `document.querySelector('#bv-saltar').click();
             ${ATE('#painel .btn-google, #painel #campo-email')}`,
   },
+  /* O mapa do «Descobrir», que é a razão de este ecrã ter mudado. */
+  {
+    nome: '17-mapa-descobrir', espera: '#mapa-descobrir .mapa-pino',
+    url: '/app/?demo=1', largura: 402, altura: 1100, limpar: true,
+    guiao: `${ABRIR_APP}
+            document.querySelectorAll('.barra-item')[1].click();
+            ${ATE('#mapa-descobrir .mapa-pino')}
+            await new Promise((r)=>setTimeout(r,700));`,
+  },
+  /* E o ecrã onde o dono marca onde fica o estabelecimento. */
+  {
+    nome: '18-onde-fica', espera: '.ponto-alvo',
+    url: '/balcao/?demo=1', largura: 402, altura: 1100, limpar: true,
+    guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
+            await new Promise((r)=>setTimeout(r,1600));
+            document.querySelectorAll('.barra-item')[3].click();
+            ${ATE('#linha-onde-fica .linha b')}
+            document.querySelector('#linha-onde-fica .linha').click();
+            ${ATE('.ponto-alvo')}
+            await new Promise((r)=>setTimeout(r,1000));`,
+  },
+
   /* E o mesmo painel pelo outro lado: guardar em vez de recuperar. NÃO se
      carrega em porta nenhuma aqui — fora da demonstração, tocar na Google sai
      do site e a captura acaba noutro ecrã com o nome deste. */
@@ -279,8 +301,12 @@ for (const ecra of ECRAS) {
       })()`, returnByValue: true,
     }, sessionId).catch(() => null);
     const c = caixa?.result?.value;
+    /* O `maus++` fica para a linha de baixo, que é quem o conta uma vez só.
+       Estava aqui também, e uma captura que falhasse o recorte contava duas —
+       o resumo chegou a dizer «-1/16 capturas na página certa», que é um
+       número que não quer dizer nada. */
     if (c) clip = { ...c, scale: 2 };
-    else { maus++; certo = false; porque = `não há «${ecra.recorte}» para recortar`; }
+    else { certo = false; porque = `não há «${ecra.recorte}» para recortar`; }
   }
 
   const { data } = await enviar('Page.captureScreenshot',

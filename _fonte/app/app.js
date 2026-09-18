@@ -10,6 +10,7 @@ import {
 import { api, MODO, DEMO_FORCADO, CRACHA_APPLE, gerarCodigo, JANELA, guardarSegredo,
          temSegredo, esquecerSegredo, guardarDesvio } from '../js/api.js';
 import { qrParaSVG } from '../js/qr.js';
+import { carregarPortugal, criarMapa, comoChegar } from '../js/mapa.js';
 
 const estado = {
   cliente: null,
@@ -648,6 +649,25 @@ async function ecraDescobrir(principal) {
     return;
   }
 
+  /* --- o mapa -------------------------------------------------------------
+     A LISTA NÃO SAI. O mapa responde a «isto é aqui ao pé?» e fica em cima,
+     que é a primeira pergunta de quem abre este ecrã; a lista continua por
+     baixo, inteira, porque é ela o caminho a sério — funciona com leitor de
+     ecrã, funciona num ecrã de 320 px, e é onde estão os botões de juntar o
+     cartão. Substituir uma pela outra seria trocar uma pergunta por outra.
+
+     E O MAPA NÃO SEGURA O ECRÃ. Os desenhos dos concelhos são cem kilobytes que
+     chegam num pedido próprio; se o ecrã esperasse por eles, quem abre o
+     «Descobrir» via um ecrã em branco por causa de uma coisa que está no fim.
+     Pinta-se a lista, e o mapa aparece quando estiver pronto. */
+  const comPonto = negocios.filter((n) =>
+    typeof n.latitude === 'number' && typeof n.longitude === 'number');
+  const caixaDoMapa = el('div', { id: 'mapa-descobrir' });
+  if (comPonto.length) {
+    principal.append(caixaDoMapa);
+    pintarMapaDoDescobrir(caixaDoMapa, comPonto);
+  }
+
   const meus = new Set(estado.cartoes.map((c) => c.programa.id));
   const lista = el('div', { class: 'pilha' });
 
@@ -671,7 +691,21 @@ async function ecraDescobrir(principal) {
             el('div', {},
               el('div', { class: 'cartao-rotulo', texto: p.tipo === 'pontos'
                 ? 'Programa de pontos' : `${p.objetivo} carimbos` }),
-              el('div', { class: 'cartao-premio', texto: p.premio })),
+              el('div', { class: 'cartao-premio', texto: p.premio }),
+              /* COMO CHEGAR. O nosso mapa diz «é neste concelho, aqui»; a
+                 pergunta a seguir é «como é que lá chego», e essa responde-se
+                 com a app de mapas que a pessoa já tem e já sabe usar. É uma
+                 ligação: não sai pedido nenhum enquanto ninguém lhe tocar, e o
+                 que abre é o telemóvel dela — nós não ficamos a saber. */
+              (typeof n.latitude === 'number' && typeof n.longitude === 'number')
+                ? el('a', {
+                  class: 'cartao-chegar', target: '_blank', rel: 'noopener',
+                  href: comoChegar({ lat: n.latitude, lon: n.longitude, nome: n.nome }),
+                  'aria-label': `Como chegar a ${n.nome}`,
+                  aoClick: (ev) => ev.stopPropagation(),
+                }, el('span', { html: icone('mapa', { tamanho: 14 }) }),
+                el('span', { texto: 'Como chegar' }))
+                : null),
             el('button', {
               class: 'cartao-selo', type: 'button',
               'aria-label': tenho ? `Já tens o cartão de ${n.nome}` : `Juntar o cartão de ${n.nome}`,
@@ -699,6 +733,12 @@ async function ecraDescobrir(principal) {
                 irPara('carteira');
               },
             }))));
+      /* O alfinete do mapa leva a este cartão, e é por ID que o encontra —
+         nunca pela posição na lista. Um negócio com dois programas dá dois
+         cartões, e indexar pela posição punha o alfinete a abrir o vizinho.
+         Foi esse o defeito que noutro projecto desta casa passou semanas com
+         sessenta e seis testes a passar por cima dele. */
+      cartao.dataset.negocio = n.id;
       pintarCartao(cartao, n.cor);
       lista.append(cartao);
     }
@@ -708,6 +748,57 @@ async function ecraDescobrir(principal) {
   principal.append(el('div', { class: 'folha caixa-texto', style: 'margin-top:24px' },
     el('p', { html: '<b>Tens um negócio?</b> O Carimbo Digital é gratuito para quem carimba. '
       + `Cria o teu cartão em <a href="${base()}/balcao/" class="ligacao">carimbodigital.pt/balcao</a>.` })));
+}
+
+/**
+ * O mapa do «Descobrir», pintado depois do resto.
+ *
+ * NÃO ATIRA. Corre fora do caminho de quem está a ver a lista: se os dados do
+ * mapa não chegarem — primeira abertura sem rede, ficheiro por publicar — o
+ * que acontece é não haver mapa, e não um ecrã a dizer «não deu para
+ * carregar» por cima de uma lista que está ali inteira e a funcionar.
+ */
+async function pintarMapaDoDescobrir(caixa, negocios) {
+  let dados;
+  try {
+    dados = await carregarPortugal(base());
+  } catch {
+    caixa.remove();
+    return;
+  }
+  /* O ecrã pode ter mudado enquanto isto vinha a caminho. */
+  if (!caixa.isConnected) return;
+
+  const pontos = negocios.map((n) => ({
+    id: n.id, nome: n.nome, lat: n.latitude, lon: n.longitude,
+    fonte: n.geoFonte || null, cor: n.cor,
+  }));
+
+  const mapa = criarMapa({
+    dados,
+    pontos,
+    rotulo: pontos.length === 1
+      ? 'Mapa com um estabelecimento'
+      : `Mapa com ${pontos.length} estabelecimentos`,
+    /* Tocar num alfinete leva ao cartão daquele negócio, lá em baixo. Abrir um
+       balão por cima do mapa era construir uma segunda versão do cartão, com o
+       botão de juntar duplicado — e duas versões da mesma coisa afastam-se
+       sempre. */
+    aoEscolher: (ponto) => {
+      const cartao = $(`[data-negocio="${CSS.escape(ponto.id)}"]`);
+      if (!cartao) return;
+      const suave = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+      cartao.scrollIntoView({ block: 'center', behavior: suave ? 'smooth' : 'auto' });
+      cartao.classList.add('cartao-apontado');
+      setTimeout(() => cartao.classList.remove('cartao-apontado'), 1600);
+    },
+  });
+
+  caixa.append(mapa.elemento);
+  /* Um negócio fora do continente e dos arquipélagos não existe — mas se a
+     base tiver um ponto estragado, ele fica na lista e não no mapa, e não se
+     inventa um alfinete a meio do Atlântico. */
+  if (!mapa.pinos && pontos.length) caixa.remove();
 }
 
 /* =========================================================================

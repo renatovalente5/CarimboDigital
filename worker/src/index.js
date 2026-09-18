@@ -1659,6 +1659,7 @@ rota('GET', '/v1/descobrir', async (env) => {
      base para os deitar fora à linha seguinte. */
   const negocios = (await env.DB.prepare(
     `SELECT id, slug, nome, cor, categoria, localidade, morada, telefone,
+            latitude, longitude, geo_fonte,
             logotipo_em, (logotipo IS NOT NULL) AS tem_logotipo
        FROM negocios
       WHERE estado = 'ativo' AND demonstracao = 0
@@ -1682,6 +1683,12 @@ rota('GET', '/v1/descobrir', async (env) => {
     saida.push({
       id: n.id, slug: n.slug, nome: n.nome, cor: n.cor, categoria: n.categoria,
       localidade: n.localidade, morada: n.morada, telefone: n.telefone,
+      /* Onde fica, para o mapa. Vai `null` quando o negócio ainda não tem
+         ponto — e nunca (0, 0), que seria pô-lo no Golfo da Guiné. A `fonte`
+         vai junto porque o mapa desenha DIFERENTE um ponto ao metro e o
+         centróide de um concelho inteiro. */
+      latitude: n.latitude ?? null, longitude: n.longitude ?? null,
+      geoFonte: n.geo_fonte || null,
       /* Só se HÁ, e a data — nunca a imagem. Esta lista é pedida a cada
          abertura da app por toda a gente, e mandar os logótipos todos lá
          dentro seria mandar megabytes para desenhar uns quadrados. */
@@ -3232,6 +3239,10 @@ rota('GET', '/v1/balcao/negocio', async (env, pedido) => {
   const { logotipo, ...semImagem } = negocio;
   return {
     operador: { id: op.id, nome: op.nome, papel: op.papel },
+    /* Vai TAMBÉM aqui, e não só na resposta ao PUT: é este o pedido que o
+       balcão faz a cada abertura, e é o que faz o aviso da morada sobreviver a
+       fechar a app. */
+    moradaMudou: moradaEnvelheceu(negocio),
     /* O `demonstracao` vai a booleano para o balcão poder dizer ao dono porque
        é que ele não aparece na lista pública. Um negócio fora da lista sem
        explicação nenhuma é um bilhete de suporte à espera de acontecer. */
@@ -3241,6 +3252,56 @@ rota('GET', '/v1/balcao/negocio', async (env, pedido) => {
     },
   };
 });
+
+/* =========================================================================
+   Onde fica o estabelecimento
+
+   O mapa do «Descobrir» é desenhado dentro da app, a partir das fronteiras dos
+   concelhos guardadas no próprio site — daqui só vai o par de números.
+   ========================================================================= */
+
+/* A caixa de Portugal, e é generosa de propósito: do Corvo (-31,4) a Miranda
+   do Douro (-6,1), e da Madeira (32,3) a Melgaço (42,3). */
+const PORTUGAL = { latMin: 32.3, latMax: 42.3, lonMin: -31.4, lonMax: -6.1 };
+const GEO_FONTES = new Set(['gps', 'mao', 'concelho']);
+
+/**
+ * Um par de coordenadas, ou uma falha que explica qual das duas está mal.
+ *
+ * O ERRO QUE INTERESSA APANHAR NÃO É O VALOR ABSURDO — é a TROCA. Escrever a
+ * longitude no campo da latitude é o engano mais comum de quem mexe nisto à
+ * mão, e em Portugal um par trocado dá latitude -8 e longitude 40: cai no
+ * Golfo da Guiné, a 3000 km da costa, e sai sempre desta caixa. O par (0,0) é
+ * o outro clássico — a «Ilha Nula» — e diz-se em separado, porque quem o
+ * manda quase sempre quer dizer «não sei».
+ *
+ * E ARREDONDA-SE A CINCO CASAS. A 40° de latitude a quinta casa vale 1,11 m;
+ * o telemóvel devolve catorze, e as outras nove são ruído com ar de medição.
+ */
+function lerCoordenadas(lat, lon) {
+  const a = Number(lat), o = Number(lon);
+  if (!Number.isFinite(a) || !Number.isFinite(o)) {
+    throw new Falha('As coordenadas têm de ser dois números.',
+      { estado: 400, codigo: 'geo-numeros' });
+  }
+  if (a === 0 && o === 0) {
+    throw new Falha('(0, 0) não é um sítio: é o que fica quando não se sabe onde é.',
+      { estado: 400, codigo: 'geo-nulo' });
+  }
+  if (a < PORTUGAL.latMin || a > PORTUGAL.latMax
+      || o < PORTUGAL.lonMin || o > PORTUGAL.lonMax) {
+    /* A mensagem diz o que quase sempre aconteceu, em vez de repetir os
+       números que quem os mandou já viu. */
+    const trocado = o >= PORTUGAL.latMin && o <= PORTUGAL.latMax
+      && a >= PORTUGAL.lonMin && a <= PORTUGAL.lonMax;
+    throw new Falha(trocado
+      ? 'A latitude e a longitude estão trocadas.'
+      : 'Esse ponto fica fora de Portugal.',
+    { estado: 400, codigo: trocado ? 'geo-trocada' : 'geo-fora' });
+  }
+  const casas = (n) => Math.round(n * 1e5) / 1e5;
+  return { latitude: casas(a), longitude: casas(o) };
+}
 
 rota('PUT', '/v1/balcao/negocio', async (env, pedido, _p, ctx) => {
   const op = await exigirOperador(env, pedido);
@@ -3262,18 +3323,88 @@ rota('PUT', '/v1/balcao/negocio', async (env, pedido, _p, ctx) => {
     throw new Falha('O nome do negócio tem de ter pelo menos dois caracteres.');
   }
 
+  /* --- onde fica ---------------------------------------------------------
+     Vem do telemóvel de quem está ao balcão, ou do alfinete arrastado à mão.
+     Guarda-se com a morada que a gerou, para se poder avisar quando a morada
+     mudar e o ponto ficar a apontar para a porta anterior. */
+  let geo = null;
+  if (d.latitude !== undefined && d.latitude !== null) {
+    const { latitude, longitude } = lerCoordenadas(d.latitude, d.longitude);
+    const fonte = GEO_FONTES.has(d.geoFonte) ? d.geoFonte : 'mao';
+    /* A morada que fica agarrada ao ponto é a que o negócio VAI ter depois
+       desta gravação — não a que tinha antes. Gravar a antiga punha o aviso da
+       morada a disparar no pedido seguinte, sozinho. */
+    const antes = await env.DB.prepare(
+      'SELECT morada FROM negocios WHERE id = ?').bind(op.negocio_id).first();
+    geo = {
+      latitude, longitude, fonte,
+      morada: corta(d.morada, 120) ?? (antes && antes.morada) ?? null,
+    };
+  }
+
+  /* TIRAR DO MAPA é um pedido próprio, e não um `latitude: null` — com o
+     `COALESCE` do UPDATE, mandar `null` quer dizer «não mexas nisto», que é o
+     que faz o resto desta rota funcionar. Um campo que quer dizer duas coisas
+     opostas conforme o contexto é o género de coisa que se descobre tarde.
+
+     E CORRE DEPOIS DE TUDO ESTAR VALIDADO, não antes. Estava em cima, e um
+     pedido com `apagarPonto` mais uma coordenada trocada apagava o ponto e
+     respondia 400 — a pessoa lia «a latitude e a longitude estão trocadas» e
+     ficava sem o que já lá estava. Nada se escreve antes de tudo passar. */
+  if (d.apagarPonto) {
+    await env.DB.prepare(
+      `UPDATE negocios SET latitude = NULL, longitude = NULL, geo_fonte = NULL,
+              geo_em = NULL, geo_morada = NULL WHERE id = ?`
+    ).bind(op.negocio_id).run();
+  }
+
   await env.DB.prepare(
     `UPDATE negocios SET nome = COALESCE(?, nome), cor = COALESCE(?, cor),
             morada = COALESCE(?, morada), localidade = COALESCE(?, localidade),
-            telefone = COALESCE(?, telefone) WHERE id = ?`
+            telefone = COALESCE(?, telefone),
+            latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
+            geo_fonte = COALESCE(?, geo_fonte), geo_em = COALESCE(?, geo_em),
+            geo_morada = COALESCE(?, geo_morada)
+      WHERE id = ?`
   ).bind(nome, cor, corta(d.morada, 120), corta(d.localidade, 60),
-         corta(d.telefone, 30), op.negocio_id).run();
+         corta(d.telefone, 30),
+         geo && geo.latitude, geo && geo.longitude,
+         geo && geo.fonte, geo && agora(), geo && geo.morada,
+         op.negocio_id).run();
   /* O nome e a cor vivem também na classe da Wallet. Sem isto, quem já tem o
      passe guardado fica a ver o nome antigo para sempre — e não volta a abrir
      a app para descobrir que mudou. */
   await espelharClassesDoNegocio(env, op.negocio_id, pedido, ctx);
-  return env.DB.prepare('SELECT * FROM negocios WHERE id = ?').bind(op.negocio_id).first();
+  const depois = await env.DB.prepare(
+    'SELECT * FROM negocios WHERE id = ?').bind(op.negocio_id).first();
+
+  /* A MORADA MUDOU E O PONTO FICOU. Não se apaga a coordenada — o dono pode
+     ter corrigido uma gralha com o alfinete já no sítio certo, e apagar-lhe o
+     trabalho por causa de um acento seria pior do que o problema. Diz-se, e
+     quem sabe decide. Compara-se com a folga de quem escreve à mão: sem
+     maiúsculas e sem espaços a mais. */
+  return { ...depois, moradaMudou: moradaEnvelheceu(depois) };
 });
+
+/**
+ * A morada mudou desde que o ponto foi marcado?
+ *
+ * VIVE À PARTE porque tem de ser respondida nos DOIS sítios: na resposta ao
+ * `PUT`, que é quando acontece, e no `GET` do negócio, que é o que o balcão
+ * pede sempre que alguém abre o ecrã. Só na resposta do `PUT`, o aviso
+ * aparecia uma vez e desaparecia à primeira recarga — e um aviso que não
+ * sobrevive a fechar a app é um aviso que ninguém chega a ler.
+ *
+ * Compara-se com a folga de quem escreve à mão: sem maiúsculas e sem espaços a
+ * mais. Um aviso a disparar por causa de um acento é um aviso que se aprende a
+ * ignorar.
+ */
+function moradaEnvelheceu(negocio) {
+  const arrumar = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return Boolean(negocio.latitude !== null && negocio.latitude !== undefined
+    && negocio.geo_morada && negocio.morada
+    && arrumar(negocio.geo_morada) !== arrumar(negocio.morada));
+}
 
 /** Segundos entre dois carimbos no mesmo cartão. Zero é válido: quer dizer
     «sem arrefecimento». Lixo não é, e o tecto é um dia. */

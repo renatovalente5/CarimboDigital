@@ -890,3 +890,215 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 
 /* Dois botões de porta seguidos respiram. */
 .btn-google + .btn-apple, .btn-apple + .btn-google { margin-top: var(--e-3); }
+
+/* =========================================================================
+   O mapa do «Descobrir»
+
+   Desenhado dentro da app, a partir das fronteiras dos concelhos. Não há
+   mosaicos de servidor nenhum — por isso também não há nada aqui a tratar de
+   imagens a carregar, a piscar ou a faltar.
+   ========================================================================= */
+
+.mapa-caixa { margin-top: var(--e-4); }
+
+/* O MAR E A TERRA TÊM CORES PRÓPRIAS, e não as do papel. Com os tokens
+   genéricos, a terra era `--papel-2` e o mar `--papel-3` — e no tema escuro
+   esses dois trocam de ordem: a terra ficava mais escura do que o mar, e o
+   mapa lia-se ao contrário. Um mapa em que não se percebe o que é terra não é
+   um mapa. Aqui a terra é sempre a mais clara dos dois, nos dois temas. */
+.mapa {
+  --mapa-mar: #E3E8EC;
+  --mapa-terra: #FBFAF7;
+  --mapa-fronteira: #B4B0A6;
+  /* O ARO DO ALFINETE É CLARO NOS DOIS TEMAS, e não a cor da terra. Com a cor
+     da terra, uma barbearia de marca azul-escura ficava um ponto escuro dentro
+     de um aro escuro em cima de terra escura: existia, e não se via. O aro
+     claro é o que garante que qualquer cor de negócio se lê — é a mesma razão
+     por que os alfinetes dos mapas a sério têm sempre um contorno branco. */
+  --mapa-aro: #FFFFFF;
+  /* O anel de fora, que é quem desenha a fronteira do alfinete contra a terra.
+     NO TEMA CLARO ELE É INDISPENSÁVEL — o aro branco sobre a terra
+     quase branca mede 1,04:1, ou seja, não separa nada. Com ele, 3,92:1.
+     No tema escuro é ao contrário: quem separa é o aro claro, a 13:1 sobre a
+     terra escura, e o anel de fora fica só a assentar a forma. */
+  --mapa-contorno: rgba(23, 22, 28, .55);
+  position: relative;
+  aspect-ratio: 3 / 4;
+  max-height: 62vh;
+  border-radius: var(--r-3);
+  border: 1px solid var(--linha);
+  background: var(--mapa-mar);
+  overflow: hidden;
+  /* O QUE IMPEDE A PÁGINA DE ROLAR POR BAIXO DO DEDO. Sem isto, dentro de uma
+     PWA instalada num iPhone, arrastar o mapa arrasta a app. */
+  touch-action: none;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mapa:active { cursor: grabbing; }
+.mapa:focus-visible {
+  outline: 3px solid var(--marca);
+  outline-offset: 2px;
+}
+
+.mapa-desenho { display: block; width: 100%; height: 100%; }
+.mapa-desenho path {
+  fill: var(--mapa-terra);
+  stroke: var(--mapa-fronteira);
+  stroke-width: .9px;
+  stroke-linejoin: round;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) .mapa {
+    --mapa-mar: #0B1016;
+    --mapa-terra: #2A2833;
+    --mapa-fronteira: #4A4757;
+    --mapa-aro: #F4F2F7;
+    --mapa-contorno: rgba(0, 0, 0, .45);
+  }
+}
+:root[data-tema="escuro"] .mapa {
+  --mapa-mar: #0B1016;
+  --mapa-terra: #2A2833;
+  --mapa-fronteira: #4A4757;
+  --mapa-aro: #F4F2F7;
+  --mapa-contorno: rgba(0, 0, 0, .45);
+}
+
+/* --- os alfinetes ---------------------------------------------------------
+   Uma camada de botões por cima do desenho. O `pointer-events: none` na camada
+   e `auto` em cada botão é o que deixa arrastar o mapa a partir do espaço
+   entre eles — senão a camada apanhava o arrasto todo. */
+.mapa-pinos {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+.mapa-pino {
+  position: absolute;
+  /* O botão tem 44 px de lado — o alvo de toque mínimo — e o ponto que se vê
+     tem 16. O resto é margem invisível, que é o que faz um alfinete pequeno
+     ser fácil de acertar. */
+  width: 44px; height: 44px;
+  margin: -22px 0 0 -22px;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  --pino: var(--marca);
+}
+.mapa-pino-ponto {
+  width: 16px; height: 16px;
+  border-radius: var(--r-max);
+  background: var(--pino);
+  border: 2.5px solid var(--mapa-aro);
+  /* O ARO BRANCO NÃO SEPARA NADA DE UMA TERRA QUASE BRANCA: medido, dá 1,04:1
+     contra o `--mapa-terra` do tema claro. O que desenha a fronteira do
+     alfinete é este anel escuro por fora — 4:1 sobre a terra —, e é ele que
+     faz um alfinete de cor clara continuar a ser um alfinete. A sombra fica,
+     mas a sombra é profundidade e não contraste. */
+  box-shadow: 0 0 0 1px var(--mapa-contorno), 0 1px 4px rgba(23, 22, 28, .45);
+  transition: transform .12s ease;
+}
+.mapa-pino:hover .mapa-pino-ponto,
+.mapa-pino:focus-visible .mapa-pino-ponto { transform: scale(1.35); }
+/* DOIS CAFÉS NA MESMA RUA DÃO DOIS ALFINETES SOBREPOSTOS, e não se lhes mexe
+   na posição — um alfinete afastado para caber é um alfinete a mentir. O que
+   se faz é trazer para cima o que está a ser apontado ou a receber foco,
+   para que o que está por baixo continue a ser alcançável pelo teclado. */
+.mapa-pino:hover, .mapa-pino:focus-visible { z-index: 2; }
+.mapa-pino:focus-visible {
+  outline: 3px solid var(--marca);
+  outline-offset: -8px;
+  border-radius: var(--r-max);
+}
+
+/* O ponto que veio do centróide do concelho não pode ter o mesmo ar de um
+   ponto medido ao metro: é uma promessa diferente. Fica oco e com um halo,
+   que é como um mapa diz «algures por aqui». */
+.mapa-pino-aproximado .mapa-pino-ponto {
+  background: var(--mapa-aro);
+  border-color: var(--pino);
+  box-shadow: 0 0 0 1px var(--mapa-contorno),
+              0 0 0 7px color-mix(in srgb, var(--pino) 18%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mapa-pino-ponto { transition: none; }
+}
+
+/* --- trocar de arquipélago ------------------------------------------------ */
+.mapa-folhas {
+  display: flex; gap: var(--e-2);
+  margin-top: var(--e-3);
+  flex-wrap: wrap;
+}
+.mapa-folha-botao {
+  border: 1px solid var(--linha-forte);
+  background: var(--papel-2);
+  color: var(--tinta-2);
+  border-radius: var(--r-max);
+  padding: 7px var(--e-4);
+  font: inherit;
+  font-size: .875rem;
+  font-weight: 600;
+  min-height: 36px;
+  cursor: pointer;
+}
+.mapa-folha-botao[aria-pressed="true"] {
+  background: var(--marca);
+  border-color: var(--marca);
+  color: var(--marca-texto);
+}
+
+.mapa-fonte {
+  margin-top: var(--e-2);
+  font-size: .75rem;
+  color: var(--tinta-3);
+}
+
+/* O cartão para onde o alfinete do mapa apontou. Um realce curto, que diz
+   «é este» sem obrigar a procurar. */
+.cartao-apontado {
+  outline: 3px solid var(--marca);
+  outline-offset: 3px;
+  border-radius: var(--r-3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cartao-apontado { transition: outline-color .2s ease; }
+}
+
+/* «Como chegar» dentro do cartão do «Descobrir». Herda a tinta do cartão —
+   a cor do negócio muda debaixo dele, e um azul fixo ficava ilegível em
+   metade deles. */
+.cartao-chegar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--e-2);
+  /* 44 px DE ALTURA, e não 32. É o alvo de toque mínimo desta casa, e a
+     bateria mede-o: um «Como chegar» de 32 px é um link que só acerta quem
+     tem o dedo fino. O texto continua pequeno; o que cresce é o alvo. */
+  padding: 10px 0;
+  min-height: 44px;
+  font-size: .8125rem;
+  font-weight: 600;
+  color: inherit;
+  opacity: .82;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cartao-chegar:hover { opacity: 1; }
+.cartao-chegar svg { display: block; }
+
+/* Como se conduz o mapa. Está ligado à caixa por `aria-describedby`: quem
+   chega lá com o teclado ouve-o, e quem vê lê-o. */
+.mapa-ajuda {
+  margin-top: var(--e-2);
+  font-size: .75rem;
+  color: var(--tinta-3);
+}

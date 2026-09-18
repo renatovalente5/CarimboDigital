@@ -45,7 +45,7 @@ const BASE = existsSync(CNAME) ? '' : '/CarimboDigital';
    Muda quando o código muda, e só então. */
 function versao() {
   const h = createHash('sha256');
-  for (const pasta of ['estilos', 'js', 'app', 'balcao']) {
+  for (const pasta of ['estilos', 'js', 'app', 'balcao', 'dados']) {
     const p = join(FONTE, pasta);
     if (!existsSync(p)) continue;
     for (const f of listar(p).sort()) h.update(readFileSync(f));
@@ -409,6 +409,20 @@ for (const app of ['app', 'balcao']) {
     ...(app === 'balcao' ? [`${BASE}/estilos/balcao.css?v=${VERSAO}`] : []),
     `${BASE}/js/nucleo.js?v=${VERSAO}`,
     `${BASE}/js/api.js?v=${VERSAO}`,
+    /* O MAPA VAI NO CASCO DAS DUAS APPS, e não só na do cliente.
+
+       O balcão IMPORTA o `mapa.js` no topo do ficheiro — precisa dele para o
+       ecrã de marcar onde fica o estabelecimento. Um `import` que falha não dá
+       um ecrã degradado: dá um módulo que nunca corre, e o balcão fica numa
+       página em branco. Sem esta linha, o balcão deixava de abrir sem rede, e
+       foi assim que a bateria o apanhou.
+
+       E os desenhos dos concelhos também, que são os 100 KB que tornam
+       verdadeira a frase de que o mapa funciona sem rede. É menos do que os
+       mosaicos de um mapa de servidor gastariam num único ecrã — e esses não
+       ficariam guardados. */
+    `${BASE}/js/mapa.js?v=${VERSAO}`,
+    `${BASE}/dados/portugal.json?v=${VERSAO}`,
     ...(app === 'app'
       ? [`${BASE}/js/qr.js?v=${VERSAO}`,
          /* Os crachás das carteiras. Vão no casco para estarem lá à primeira
@@ -523,6 +537,17 @@ self.addEventListener('fetch', (ev) => {
   })());
 });
 `);
+}
+
+/* --- dados ---------------------------------------------------------------
+   Hoje é só o mapa de Portugal: as fronteiras dos 308 concelhos, já
+   projectadas. Vai para o site como qualquer outro ficheiro — e é por isso que
+   o mapa funciona sem rede e não contacta servidor nenhum.
+
+   `cpSync` da pasta INTEIRA e sem filtro: recusar uma pasta num filtro deita
+   fora a subárvore toda em silêncio, e já custou caro nesta casa. */
+if (existsSync(join(FONTE, 'dados'))) {
+  cpSync(join(FONTE, 'dados'), join(SAIDA, 'dados'), { recursive: true });
 }
 
 /* --- ícones -------------------------------------------------------------- */

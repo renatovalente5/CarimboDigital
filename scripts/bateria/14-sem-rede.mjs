@@ -246,11 +246,38 @@ export async function correr(palco, certo) {
   await palco.clicar('#folha-codigo .codigo-fechar');
   await palco.sumir('#folha-codigo', 4000);
 
-  /* A prova mais forte de todas: não houve pedido nenhum a fazer. */
+  /* A prova mais forte de todas: a demonstração não fala com servidor nenhum.
+     Nem com a nossa API, nem com ninguém.
+
+     A AFIRMAÇÃO MUDOU DE FORMA, e vale a pena dizer porquê. Era «zero pedidos»,
+     e isso deixou de ser a mesma coisa que a promessa no dia em que o mapa
+     entrou: os desenhos dos concelhos são um ficheiro ESTÁTICO DO PRÓPRIO
+     SITE, guardado no casco do service worker como o `app.js` que trouxe a
+     app. Pedi-lo não é falar com um servidor — é a app a ir buscar-se a si
+     própria, e com a rede cortada ele vem da cache na mesma.
+
+     O que continua a não poder acontecer, e é isso que se afirma agora: nenhum
+     pedido para fora da nossa origem, e nenhum pedido à API. */
   const pedidos = await pedidosVistos(palco);
-  certo(pedidos.length === 0,
-    'demonstração: a app não chega a pedir nada à rede',
-    `${pedidos.length} pedidos: ${pedidos.slice(0, 3).join(', ')}`);
+  /* A origem vem da PÁGINA e não daqui: este módulo corre no Node, onde não há
+     `location` nenhum — e um `location.href` escrito aqui rebentava o módulo a
+     meio, a dizer uma coisa que nada tinha que ver com a app. */
+  const origem = await palco.js('return location.origin');
+  const foraDaOrigem = pedidos.filter((u) => {
+    try { return new URL(u, origem).origin !== origem; } catch { return false; }
+  });
+  const aApi = pedidos.filter((u) => /\/v1\//.test(u));
+  certo(foraDaOrigem.length === 0,
+    'demonstração: nada é pedido a um servidor de fora — nem mosaicos de mapa, '
+    + 'nem tipos de letra, nem estatísticas',
+    JSON.stringify(foraDaOrigem).slice(0, 160));
+  certo(aApi.length === 0,
+    'demonstração: e nada é pedido à API — a demonstração inteira vive no telemóvel',
+    JSON.stringify(aApi).slice(0, 160));
+  certo(pedidos.every((u) => /^(\/|https?:\/\/[^/]*)/.test(u)),
+    'e o que foi pedido são ficheiros do próprio site, que estão no casco do '
+    + 'service worker',
+    JSON.stringify(pedidos).slice(0, 200));
 
   /* =======================================================================
      ACTO 2 — A demonstração, sem rede, do lado do balcão

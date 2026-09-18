@@ -71,6 +71,7 @@ e põe `"api": "http://localhost:8787"` em `_fonte/config.json`.
 ## Provar
 
 ```bash
+node scripts/mapa-portugal.mjs                           # redesenha o mapa dos concelhos (raro; ver «O mapa»)
 node scripts/verificar-qr.mjs                            # 320 matrizes lidas por um descodificador independente
 node scripts/verificar-leitor.mjs                        # o leitor, contra códigos tortos e desfocados
 node scripts/com-worker.mjs worker/testes.mjs --limpo    # a API, contra um Worker e uma base a sério
@@ -190,6 +191,51 @@ string de propósito: o que está depois do `#` não entra no cabeçalho `Refere
 nem nos registos de servidor nenhum, e o balcão limpa-o da barra de endereço
 mal o lê.
 
+### O mapa
+
+O «Descobrir» tem um mapa com os estabelecimentos aderentes, e ele é
+**desenhado dentro da app**: as fronteiras dos 308 concelhos, já projectadas,
+vivem em `_fonte/dados/portugal.json` (100 KB) e vão no casco do service
+worker como qualquer outro ficheiro do site.
+
+Não há mosaicos de servidor nenhum, não há chave de API, não há um único
+domínio novo. É isso que deixa a página de privacidade continuar a dizer, à
+letra, que *«não carrega tipos de letra, mapas ou scripts de terceiros»* — e é
+isso que faz o mapa funcionar sem rede. O `auditar.mjs` tem uma guarda que
+reprova se algum ficheiro publicado passar a carregar o que quer que seja de
+fora.
+
+**O que ele não tem: ruas.** Mostra a forma do concelho e onde o
+estabelecimento cai lá dentro; responde a «isto é perto de mim?» e não a «é
+naquela esquina?». A segunda responde-se com o «Como chegar» de cada cartão,
+que abre a aplicação de mapas do próprio telemóvel. O zoom trava onde o
+desenho ainda diz alguma coisa — os contornos foram simplificados para a
+escala do país, e deixar aproximar mais era prometer precisão que não existe.
+
+Três folhas: continente, Açores e Madeira, cada uma com a sua escala. Os
+Açores medem 570 km de ponta a ponta; numa caixa ao canto do continente, São
+Miguel ficava com 26 unidades e a Graciosa com três. O mapa abre na folha onde
+estão os negócios e só oferece as outras quando houver negócios nelas.
+
+Para regenerar o desenho (só se a Carta Administrativa mudar):
+
+```bash
+node scripts/mapa-portugal.mjs
+```
+
+O mapa não come a roda do rato: aproximar pede `ctrl`/`⌘` mais roda, ou uma
+pinça. Um mapa no meio de uma página que rola e que apanha a roda simples é
+uma armadilha. As setas do teclado arrastam-no, o mais e o menos aproximam, o
+zero reenquadra — e isso está escrito por baixo dele e ligado por
+`aria-describedby`, porque ninguém adivinha.
+
+**As coordenadas vêm do telemóvel de quem está ao balcão**, em «O cartão ›
+Onde fica» — não de um geocodificador. O balcão é usado ao balcão, e um botão
+«Estou no estabelecimento» dá precisão ao nível da porta; perguntar a morada
+ao Nominatim ou ao Photon devolve o centro da rua, a oitenta metros, porque o
+número de porta não está no OpenStreetMap. Daria pior, e acrescentava um
+domínio à política de privacidade para dar pior.
+
 ### Quem carimba
 
 Um café com três turnos tem três pessoas a atender, e junta-se cada uma em
@@ -211,6 +257,21 @@ faz sobreviver a quem sai do café — e é por isso que:
 
 Só o dono junta e tira, não se pode tirar a si próprio nem despromover-se
 sendo o último, e cabem dez pessoas por balcão.
+
+### Nada é carregado de fora
+
+O `auditar.mjs` tem uma guarda que faz esta promessa falhar em teste e não em
+produção, e ela pergunta ao contrário do que é costume: **existe algum
+endereço de outro domínio num ficheiro publicado?** Não enumera etiquetas —
+uma lista de `script src`, `img src` e afins perde sempre para a décima sexta
+maneira de a contornar, e uma revisão adversarial encontrou quinze (um
+`srcset`, um `poster`, um `<use href>`, um atributo sem aspas, um `fetch()`
+escrito em JavaScript).
+
+A única excepção automática é o `<a href>`, que é uma ligação e não um
+carregamento. Tudo o resto tem de ser **declarado** na lista `PERMITIDOS`, com
+a razão escrita ao lado — hoje são os namespaces de XML, o schema.org, a nossa
+própria API, e os dois destinos do «Como chegar».
 
 > **Isto era um segredo do Worker, o `CODIGO_FUNDADOR`** — um código igual para
 > toda a gente, com usos infinitos, sem validade, sem registo de quem o usou, e

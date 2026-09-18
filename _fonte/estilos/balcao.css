@@ -333,3 +333,39 @@
 }
 .aviso-demo b { font-size: .875rem; }
 .aviso-demo span { font-size: .8125rem; color: var(--tinta-2); }
+
+/* =========================================================================
+   Marcar onde fica o estabelecimento
+
+   O alfinete não se arrasta: fica quieto no meio e move-se o mapa por baixo
+   dele. É o gesto de qualquer app de mapas, e evita a briga entre «arrastar
+   o alfinete» e «arrastar o mapa» num ecrã onde o dedo tapa os dois.
+   ========================================================================= */
+
+.ponto-mapa { position: relative; }
+.ponto-mapa .mapa { aspect-ratio: 1 / 1; max-height: 46vh; }
+
+.ponto-alvo {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 34px; height: 34px;
+  margin: -17px 0 0 -17px;
+  /* NÃO APANHA O DEDO. Está no meio do mapa, que é exactamente onde alguém
+     vai pousar o dedo para arrastar; sem isto, o alvo comia o gesto. */
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+.ponto-alvo::before,
+.ponto-alvo::after {
+  content: '';
+  position: absolute;
+  background: var(--marca);
+}
+/* Uma cruz fina, e um anel à volta. A cruz diz o ponto exacto; o anel é o que
+   a torna visível em cima de qualquer cor de mapa. */
+.ponto-alvo::before { width: 2px; height: 34px; }
+.ponto-alvo::after { width: 34px; height: 2px; }
+.ponto-alvo {
+  filter: drop-shadow(0 0 2px var(--papel-2)) drop-shadow(0 0 2px var(--papel-2));
+}

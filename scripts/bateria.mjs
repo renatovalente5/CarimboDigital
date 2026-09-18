@@ -284,6 +284,53 @@ class Palco {
     await esperar(150);
   }
 
+  /**
+   * Arrasta a partir do centro de um elemento.
+   *
+   * COM `pointerType: 'mouse'`, e isto não é um enfeite: o que o mapa ouve são
+   * eventos de PONTEIRO — um caminho só para o rato, o dedo e a caneta —, e o
+   * Chrome só os emite a partir de um `dispatchMouseEvent` que diga de que
+   * tipo de ponteiro se trata. Sem esta linha, o arrasto não acontece e o
+   * teste reprova a dizer que o mapa não se mexe, quando o que não se mexeu
+   * foi o ponteiro.
+   *
+   * E EM VÁRIOS PASSOS, e não de um salto: um `mouseMoved` sozinho é um salto
+   * que nenhum dedo faz, e mascara um mapa que só reage ao primeiro
+   * movimento.
+   */
+  async arrastar(seletor, dx, dy, { passos = 8 } = {}) {
+    const caixa = await this.medir(seletor);
+    if (!caixa) throw new Error(`«${seletor}» não tem tamanho — não há por onde o arrastar`);
+    const x0 = Math.round(caixa.centroX), y0 = Math.round(caixa.centroY);
+    const rato = (type, x, y, buttons) => this.enviar('Input.dispatchMouseEvent',
+      { type, x, y, button: 'left', buttons, clickCount: 1, pointerType: 'mouse' }, this.sessao);
+    await rato('mousePressed', x0, y0, 1);
+    for (let i = 1; i <= passos; i++) {
+      await rato('mouseMoved',
+        Math.round(x0 + (dx * i) / passos), Math.round(y0 + (dy * i) / passos), 1);
+    }
+    await rato('mouseReleased', Math.round(x0 + dx), Math.round(y0 + dy), 0);
+    await esperar(160);
+  }
+
+  /**
+   * Roda a roda do rato por cima do centro de um elemento.
+   *
+   * O `ctrl` existe porque um mapa que come a roda simples é uma armadilha
+   * numa página que rola — a ampliação pede `ctrl`/`⌘` mais roda, que é
+   * também o que uma pinça de trackpad envia. Sem isto, um teste que quisesse
+   * ampliar rolava a página e depois acusava o mapa de não ampliar.
+   */
+  async roda(seletor, deltaY, { ctrl = false } = {}) {
+    const caixa = await this.medir(seletor);
+    if (!caixa) throw new Error(`«${seletor}» não tem tamanho — a roda não lhe chega`);
+    await this.enviar('Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x: Math.round(caixa.centroX), y: Math.round(caixa.centroY),
+      deltaX: 0, deltaY, pointerType: 'mouse', modifiers: ctrl ? 2 : 0,
+    }, this.sessao);
+    await esperar(200);
+  }
+
   /** Escreve num campo como uma pessoa escreve: foco, teclas, eventos. */
   async escrever(seletor, texto) {
     await this.esperar(seletor);
@@ -312,13 +359,37 @@ class Palco {
     if (seletor) {
       await this.js(`document.querySelector(${JSON.stringify(seletor)}).focus(); return true`);
     }
+    /* UM `text` SÓ EXISTE PARA TECLAS QUE ESCREVEM. O ramo por omissão mandava
+       `text: chave` para tudo — e para uma tecla com nome, como a `ArrowRight`,
+       isso é um `text` de dez caracteres, que o Chrome recusa com «Invalid
+       'text' parameter». O teste rebentava a dizer uma coisa que não tinha nada
+       que ver com o que estava a provar.
+
+       Aqui: as teclas com nome vão pelo nome e sem `text`; um caractere vai
+       como caractere. */
     const codigos = {
       Enter: { windowsVirtualKeyCode: 13, code: 'Enter', key: 'Enter', text: '\r' },
       Escape: { windowsVirtualKeyCode: 27, code: 'Escape', key: 'Escape' },
       Tab: { windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' },
       Backspace: { windowsVirtualKeyCode: 8, code: 'Backspace', key: 'Backspace' },
+      Delete: { windowsVirtualKeyCode: 46, code: 'Delete', key: 'Delete' },
+      ArrowLeft: { windowsVirtualKeyCode: 37, code: 'ArrowLeft', key: 'ArrowLeft' },
+      ArrowUp: { windowsVirtualKeyCode: 38, code: 'ArrowUp', key: 'ArrowUp' },
+      ArrowRight: { windowsVirtualKeyCode: 39, code: 'ArrowRight', key: 'ArrowRight' },
+      ArrowDown: { windowsVirtualKeyCode: 40, code: 'ArrowDown', key: 'ArrowDown' },
+      Home: { windowsVirtualKeyCode: 36, code: 'Home', key: 'Home' },
+      End: { windowsVirtualKeyCode: 35, code: 'End', key: 'End' },
+      PageUp: { windowsVirtualKeyCode: 33, code: 'PageUp', key: 'PageUp' },
+      PageDown: { windowsVirtualKeyCode: 34, code: 'PageDown', key: 'PageDown' },
+      ' ': { windowsVirtualKeyCode: 32, code: 'Space', key: ' ', text: ' ' },
     };
-    const k = codigos[chave] || { key: chave, text: chave };
+    if (!codigos[chave] && String(chave).length > 1) {
+      throw new Error(`o palco não sabe a tecla «${chave}» — acrescenta-a ao mapa `
+        + 'das teclas em vez de a mandar como texto');
+    }
+    const k = codigos[chave] || {
+      key: chave, text: chave, windowsVirtualKeyCode: chave.toUpperCase().charCodeAt(0),
+    };
     await this.enviar('Input.dispatchKeyEvent', { type: 'keyDown', ...k }, this.sessao);
     await this.enviar('Input.dispatchKeyEvent', { type: 'keyUp', ...k }, this.sessao);
     await esperar(120);
