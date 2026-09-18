@@ -369,3 +369,20 @@
 .ponto-alvo {
   filter: drop-shadow(0 0 2px var(--papel-2)) drop-shadow(0 0 2px var(--papel-2));
 }
+
+/* «Veio por um convite», no ecrã do carimbo. Quem está ao balcão tem de
+   perceber porque é que o cartão saltou dois carimbos em vez de um. */
+.resultado-amigo {
+  display: flex;
+  align-items: center;
+  gap: var(--e-2);
+  margin: var(--e-3) 0 0;
+  padding: var(--e-3) var(--e-4);
+  border-radius: var(--r-2);
+  background: var(--marca-fundo);
+  color: var(--tinta);
+  font-size: .875rem;
+  font-weight: 600;
+  text-align: left;
+}
+.resultado-amigo svg { display: block; flex: none; }

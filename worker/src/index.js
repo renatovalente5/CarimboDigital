@@ -336,6 +336,167 @@ async function exigirOperador(env, pedido) {
 }
 
 /* =========================================================================
+   Traz um amigo
+
+   «Cada cliente traz outro, e ganham os dois.» O convite é um endereço que a
+   app partilha; quem o abre adere ao cartão e fica ligado a quem o mandou.
+
+   TRÊS COISAS SEGURAM ISTO, e cada uma fecha uma porta diferente:
+
+   · O CONVITE VAI ASSINADO. Leva o número público de quem convida mais uma
+     assinatura da chave-mestra. Sem ela, bastava saber um número público — que
+     é dito em voz alta ao balcão todos os dias — para atribuir convites a quem
+     nunca convidou ninguém.
+   · A RECOMPENSA SÓ ACONTECE NO PRIMEIRO CARIMBO A SÉRIO. Não na adesão. É a
+     defesa que segura tudo o resto: criar contas vazias não dá nada, porque é
+     preciso alguém ir ao balcão, mostrar o código e ser carimbado por uma
+     pessoa.
+   · E HÁ UM TECTO POR PROGRAMA. Cinco convites premiados por cliente é muito
+     para quem convida a família e pouco para quem faz disto um negócio.
+   ========================================================================= */
+
+/** A assinatura de um convite. Curta: é para caber num endereço partilhado. */
+async function assinaturaDeAmigo(env, publico, programaId) {
+  const mestra = deBase64url(env.CHAVE_MESTRA);
+  const bytes = await hmac(mestra, `amigo:${publico}:${programaId}`);
+  return base64url(bytes).slice(0, 16);
+}
+
+/** O código que a app partilha: `<publico>.<assinatura>`. */
+async function codigoDeAmigo(env, publico, programaId) {
+  return `${publico}.${await assinaturaDeAmigo(env, publico, programaId)}`;
+}
+
+/**
+ * Quem é que mandou este convite — ou `null`, se ele não prestar.
+ *
+ * DEVOLVE `null` PARA TUDO O QUE CORRE MAL, e de propósito: um convite que não
+ * presta não é um erro de quem o abriu. Quem chega por um link partilhado quer
+ * juntar o cartão de um café, e é isso que acontece — só não fica ligado a
+ * ninguém. Mandar-lhe um ecrã de erro por causa de um código que outra pessoa
+ * lhe deu seria castigá-lo por uma coisa que não fez.
+ */
+async function lerConviteDeAmigo(env, codigo, programaId) {
+  if (typeof codigo !== 'string' || !codigo.includes('.')) return null;
+  const [publico, assinatura] = codigo.split('.');
+  if (!publico || !assinatura) return null;
+  const esperada = await assinaturaDeAmigo(env, publico, programaId);
+  /* Comparação de comprimento constante, como em todo o resto desta casa. */
+  if (assinatura.length !== esperada.length) return null;
+  let diferenca = 0;
+  for (let i = 0; i < esperada.length; i++) {
+    diferenca |= assinatura.charCodeAt(i) ^ esperada.charCodeAt(i);
+  }
+  if (diferenca !== 0) return null;
+  return env.DB.prepare(
+    'SELECT id, publico FROM clientes WHERE publico = ? AND fundida_em IS NULL'
+  ).bind(publico).first();
+}
+
+/**
+ * Paga o convite, se houver um por pagar.
+ *
+ * Corre DEPOIS de o carimbo estar gravado, dentro do `carimbar`. Não atira: um
+ * convite que não se consegue pagar não pode fazer um carimbo falhar — o
+ * carimbo é o que a pessoa foi ali fazer, e o convite é um extra.
+ *
+ * Devolve o que houver para dizer, para o balcão e a app o mostrarem.
+ */
+async function pagarConviteDeAmigo(env, { cartao, programa, clienteId }) {
+  const oferta = {
+    convidador: programa.amigo_convidador || 0,
+    convidado: programa.amigo_convidado || 0,
+  };
+  if (!oferta.convidador && !oferta.convidado) return null;
+
+  let convite;
+  try {
+    convite = await env.DB.prepare(
+      `SELECT id, convidador FROM amigos
+        WHERE convidado = ? AND programa_id = ? AND premiado_em IS NULL`
+    ).bind(clienteId, programa.id).first();
+  } catch (erro) {
+    console.error('amigos: não deu para ler o convite', String(erro));
+    return null;
+  }
+  if (!convite) return null;
+
+  /* O TECTO CONTA-SE NA HORA DE PAGAR, e não na hora de convidar. Quem convida
+     não controla quando os amigos aparecem, e travar o convite à sexta pessoa
+     quando as cinco primeiras ainda não foram ao café seria travar o que
+     interessa. Aqui já se sabe. */
+  const premiados = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM amigos
+      WHERE convidador = ? AND programa_id = ? AND premiado_em IS NOT NULL`
+  ).bind(convite.convidador, programa.id).first()).n;
+  const tecto = programa.amigo_max === undefined || programa.amigo_max === null
+    ? 5 : programa.amigo_max;
+
+  const quando = agora();
+  const instrucoes = [
+    env.DB.prepare('UPDATE amigos SET premiado_em = ? WHERE id = ?')
+      .bind(quando, convite.id),
+  ];
+  const saida = { convidador: 0, convidado: 0, tectoCheio: premiados >= tecto };
+
+  /* Quem chegou ganha sempre — não é ele que tem tecto nenhum. */
+  if (oferta.convidado) {
+    saida.convidado = oferta.convidado;
+    instrucoes.push(...instrucoesDeBonus(env, cartao.id, oferta.convidado,
+      programa, 'Traz um amigo: bem-vindo', quando));
+  }
+
+  /* E quem convidou, se ainda tiver lugar e se tiver cartão deste programa —
+     pode tê-lo apagado entretanto, e um bónus num cartão que já não existe é
+     um `UPDATE` que não muda nada e um movimento órfão. */
+  let cartaoDele = null;
+  if (oferta.convidador && !saida.tectoCheio) {
+    cartaoDele = await env.DB.prepare(
+      'SELECT * FROM cartoes WHERE cliente_id = ? AND programa_id = ?'
+    ).bind(convite.convidador, programa.id).first();
+    if (cartaoDele) {
+      saida.convidador = oferta.convidador;
+      instrucoes.push(...instrucoesDeBonus(env, cartaoDele.id, oferta.convidador,
+        programa, 'Traz um amigo: obrigado', quando));
+    }
+  }
+
+  try {
+    await env.DB.batch(instrucoes);
+  } catch (erro) {
+    console.error('amigos: não deu para pagar o convite', String(erro));
+    return null;
+  }
+  return { ...saida, cartaoDoConvidador: cartaoDele ? cartaoDele.id : null };
+}
+
+/**
+ * Os `UPDATE`/`INSERT` de um bónus de carimbos num cartão.
+ *
+ * NÃO FECHA CARTÕES AQUI. Somar carimbos e ver se o cartão ficou cheio é a
+ * conta do `carimbar`, com o arrefecimento, o tecto diário e o prémio — e
+ * duplicá-la era garantir que as duas cópias se afastavam. O bónus soma, e o
+ * carimbo seguinte fecha o cartão como fecharia de qualquer maneira.
+ *
+ * O que isto quer dizer, e está escrito no ecrã: um bónus pode deixar o cartão
+ * com mais carimbos do que o objectivo, e o prémio sai no carimbo a seguir.
+ */
+function instrucoesDeBonus(env, cartaoId, quantos, programa, nota, quando) {
+  const coluna = programa.tipo === 'pontos' ? 'pontos' : 'carimbos';
+  return [
+    env.DB.prepare(
+      `UPDATE cartoes SET ${coluna} = ${coluna} + ?,
+              total_carimbos = total_carimbos + ? WHERE id = ?`
+    ).bind(quantos, programa.tipo === 'pontos' ? 0 : quantos, cartaoId),
+    env.DB.prepare(
+      `INSERT INTO movimentos (id, cartao_id, tipo, quantidade, nota, em)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(id(), cartaoId, programa.tipo === 'pontos' ? 'pontos' : 'carimbo',
+           quantos, nota, quando),
+  ];
+}
+
+/* =========================================================================
    Leitura de programas e cartões
    ========================================================================= */
 
@@ -363,6 +524,13 @@ function moldarPrograma(p) {
     id: p.id, nome: p.nome, tipo: p.tipo, selo: p.selo,
     objetivo: p.objetivo, premio: p.premio, regras: p.regras,
     arrefecimento: p.arrefecimento, marcos: p.marcos || null,
+    /* «Traz um amigo». Vai sempre, mesmo a zero: é assim que a app sabe se há
+       alguma coisa para oferecer, sem um pedido a mais. */
+    amigo: {
+      convidador: p.amigo_convidador || 0,
+      convidado: p.amigo_convidado || 0,
+      max: p.amigo_max === undefined || p.amigo_max === null ? 5 : p.amigo_max,
+    },
   };
 }
 
@@ -647,6 +815,15 @@ async function carimbar(env, pedido, operador) {
     cartao = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartaoId).first();
   }
 
+  /* É ESTE O PRIMEIRO CARIMBO DESTE CARTÃO? Lê-se aqui, antes de o `ultimo_em`
+     ser escrito, porque é ele que responde.
+
+     E NÃO SERVE O `novo`, que quer dizer outra coisa: «o balcão criou o cartão
+     agora», que é o caminho de quem chega sem app. Quem vem por um convite JÁ
+     tem o cartão quando chega ao balcão — aderiu ao abrir o link —, e com o
+     `novo` o convite nunca seria pago a ninguém. */
+  const primeiroCarimbo = !cartao.ultimo_em;
+
   /* --- arrefecimento --- */
   if (cartao.ultimo_em && p.arrefecimento > 0) {
     const passou = (Date.now() - new Date(cartao.ultimo_em).getTime()) / 1000;
@@ -749,12 +926,25 @@ async function carimbar(env, pedido, operador) {
   }
   await env.DB.batch(instrucoes);
 
+  /* --- e o convite, se houver um por pagar -------------------------------
+     DEPOIS de o carimbo estar gravado, e nunca antes. É esta a regra que faz o
+     «traz um amigo» não ser uma máquina de carimbos: só quem foi mesmo ao
+     balcão e foi carimbado por uma pessoa é que o desbloqueia.
+
+     E só no PRIMEIRO carimbo — a linha do convite fica marcada como paga, e o
+     índice único impede uma segunda. */
+  const amigo = primeiroCarimbo
+    ? await pagarConviteDeAmigo(env, { cartao, programa: p, clienteId: cliente.id })
+    : null;
+
   const atualizado = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartao.id).first();
   return {
     cartao: await moldarCartao(env, atualizado),
     cliente: { publico: cliente.publico },
     ganhos: ganhos.map((g) => ({ id: g.id, descricao: g.descricao })),
     novo, quantidade, manual, movimentoId,
+    /* Vai `null` quando não houve convite nenhum — que é quase sempre. */
+    amigo,
   };
 }
 
@@ -1617,7 +1807,7 @@ rota('GET', /^\/v1\/cliente\/cartoes\/([\w-]+)$/, async (env, pedido, [cartaoId]
 
 rota('POST', '/v1/cliente/aderir', async (env, pedido) => {
   const clienteId = await exigirCliente(env, pedido);
-  const { programaId } = await corpoJSON(pedido);
+  const { programaId, amigo } = await corpoJSON(pedido);
   exigirTexto(programaId, 'programaId');
   const p = await programaCompleto(env, programaId);
   if (!p || !p.ativo) throw new Falha('Programa não encontrado', { estado: 404 });
@@ -1625,7 +1815,22 @@ rota('POST', '/v1/cliente/aderir', async (env, pedido) => {
   const ja = await env.DB.prepare(
     'SELECT * FROM cartoes WHERE cliente_id = ? AND programa_id = ?'
   ).bind(clienteId, programaId).first();
+  /* QUEM JÁ TEM O CARTÃO NÃO VEM DE UM CONVITE. Aderir outra vez pelo link de
+     um amigo seria a forma mais simples de o vigarizar: mando-lhe o meu link,
+     ele abre-o, e eu ganho carimbos por um cliente que o café já tinha. */
   if (ja) return moldarCartao(env, ja);
+
+  /* --- veio por um convite? ---------------------------------------------
+     Regista-se ANTES de o cartão existir? Não: o cartão primeiro, porque é ele
+     que a pessoa veio buscar, e o convite é um extra que não pode fazer a
+     adesão falhar. */
+  let convidador = null;
+  if (amigo && (p.amigo_convidador || p.amigo_convidado)) {
+    const quem = await lerConviteDeAmigo(env, amigo, programaId);
+    /* NINGUÉM SE CONVIDA A SI PRÓPRIO. Dois telemóveis e a mesma conta é o
+       primeiro sítio onde alguém vai bater. */
+    if (quem && quem.id !== clienteId) convidador = quem.id;
+  }
 
   const cartaoId = id();
   await env.DB.batch([
@@ -1636,8 +1841,70 @@ rota('POST', '/v1/cliente/aderir', async (env, pedido) => {
       'INSERT INTO movimentos (id, cartao_id, tipo, em) VALUES (?, ?, ?, ?)'
     ).bind(id(), cartaoId, 'adesao', agora()),
   ]);
+  /* O CONVITE FICA A DEVER, e paga-se no primeiro carimbo. O `INSERT` pode
+     falhar pelo índice único — este cliente já tinha sido convidado para este
+     programa —, e isso não é um erro: é a defesa a funcionar. Apanha-se e
+     segue-se, que o cartão é o que interessa. */
+  if (convidador) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO amigos (id, programa_id, convidador, convidado, criado_em)
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(id(), programaId, convidador, clienteId, agora()).run();
+    } catch (erro) {
+      console.error('amigos: convite não registado', String(erro));
+    }
+  }
+
   const c = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartaoId).first();
   return moldarCartao(env, c);
+});
+
+/**
+ * O meu convite para um programa.
+ *
+ * Só existe se o programa oferecer alguma coisa: um botão «traz um amigo» num
+ * café que não dá nada por isso é uma promessa que ninguém fez.
+ */
+rota('POST', '/v1/cliente/amigo', async (env, pedido) => {
+  const clienteId = await exigirCliente(env, pedido);
+  const { programaId } = await corpoJSON(pedido);
+  exigirTexto(programaId, 'programaId');
+  const p = await programaCompleto(env, programaId);
+  if (!p || !p.ativo) throw new Falha('Programa não encontrado', { estado: 404 });
+  if (!p.amigo_convidador && !p.amigo_convidado) {
+    throw new Falha('Este cartão não tem «traz um amigo».',
+      { estado: 404, codigo: 'amigo-desligado' });
+  }
+  /* E só a quem TEM o cartão: convidar para um sítio onde não se vai é
+     publicidade, e não uma recomendação. */
+  const cartao = await env.DB.prepare(
+    'SELECT id FROM cartoes WHERE cliente_id = ? AND programa_id = ?'
+  ).bind(clienteId, programaId).first();
+  if (!cartao) {
+    throw new Falha('Junta o cartão primeiro.', { estado: 403, codigo: 'sem-cartao' });
+  }
+
+  const cliente = await env.DB.prepare(
+    'SELECT publico FROM clientes WHERE id = ?').bind(clienteId).first();
+  const premiados = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM amigos
+      WHERE convidador = ? AND programa_id = ? AND premiado_em IS NOT NULL`
+  ).bind(clienteId, programaId).first()).n;
+  const aCaminho = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM amigos
+      WHERE convidador = ? AND programa_id = ? AND premiado_em IS NULL`
+  ).bind(clienteId, programaId).first()).n;
+
+  return {
+    codigo: await codigoDeAmigo(env, cliente.publico, programaId),
+    slug: p.negocio_slug,
+    convidador: p.amigo_convidador,
+    convidado: p.amigo_convidado,
+    max: p.amigo_max,
+    premiados,
+    aCaminho,
+  };
 });
 
 rota('GET', '/v1/descobrir', async (env) => {
@@ -2867,6 +3134,12 @@ async function apagarCliente(env, clienteId) {
        estiver é mandar uma notificação para o telemóvel de quem pediu para
        desaparecer, e isso não se deixa a um talvez. */
     env.DB.prepare('DELETE FROM subscricoes WHERE cliente_id = ?').bind(clienteId),
+    /* E os convites entre clientes, dos DOIS lados: os que esta conta fez e os
+       que a trouxeram. Quem convidou fica sem o registo de quem trouxe — é o
+       preço de o outro ter pedido para desaparecer, e o carimbo que já ganhou
+       não se lhe tira. */
+    env.DB.prepare('DELETE FROM amigos WHERE convidador = ? OR convidado = ?')
+      .bind(clienteId, clienteId),
     /* REDE A MAIS, e fica dito para ninguém a tomar por necessária: o
        `PRAGMA foreign_keys` está a 1 no D1, local e remoto — conferido — por
        isso o ON DELETE CASCADE da declaração já leva estas linhas à frente.
@@ -3452,7 +3725,24 @@ function camposDoPrograma(d, antigo = null) {
     selo,
     objetivo: Math.max(2, Math.min(30, Math.round(Number(d.objetivo)) || (antigo ? antigo.objetivo : 10))),
     arrefecimento: arrefecimentoValido(d.arrefecimento ?? (antigo ? antigo.arrefecimento : null)),
+    /* «Traz um amigo». Zero é ligado a zero — e é o valor de nascença: um
+       programa que dá coisas sem o dono ter dito quanto tira-lhe dinheiro do
+       bolso sem lhe perguntar. O tecto de três carimbos por lado não é gosto:
+       é o que impede que um engano de teclado — «30» em vez de «3» — ofereça
+       um cartão inteiro a cada amigo que entra pela porta. */
+    amigoConvidador: entre0e3(d.amigoConvidador, antigo ? antigo.amigo_convidador : 0),
+    amigoConvidado: entre0e3(d.amigoConvidado, antigo ? antigo.amigo_convidado : 0),
+    amigoMax: Math.max(1, Math.min(50,
+      Math.round(Number(d.amigoMax)) || (antigo ? antigo.amigo_max : 5) || 5)),
   };
+}
+
+/** Zero a três, com o valor antigo para quem não mandar nada. */
+function entre0e3(valor, antigo = 0) {
+  if (valor === undefined || valor === null || valor === '') return antigo || 0;
+  const n = Math.round(Number(valor));
+  if (!Number.isFinite(n)) return antigo || 0;
+  return Math.max(0, Math.min(3, n));
 }
 
 /* =========================================================================
@@ -4148,8 +4438,10 @@ rota('POST', '/v1/balcao/programas', async (env, pedido, _p, ctx) => {
   if (existente) {
     await env.DB.prepare(
       `UPDATE programas SET nome = ?, premio = ?, objetivo = ?, selo = ?, regras = ?,
-              arrefecimento = ? WHERE id = ?`
-    ).bind(c.nome, c.premio, c.objetivo, c.selo, c.regras, c.arrefecimento, existente.id).run();
+              arrefecimento = ?, amigo_convidador = ?, amigo_convidado = ?,
+              amigo_max = ? WHERE id = ?`
+    ).bind(c.nome, c.premio, c.objetivo, c.selo, c.regras, c.arrefecimento,
+           c.amigoConvidador, c.amigoConvidado, c.amigoMax, existente.id).run();
   } else {
     /* Um tecto ao número de cartões. Cada POST sem `id` criava mais um, sem
        fim — e cada um deles é um cartão pintado na lista pública de toda a
@@ -4164,10 +4456,13 @@ rota('POST', '/v1/balcao/programas', async (env, pedido, _p, ctx) => {
         { estado: 409, codigo: 'demasiados-programas' });
     }
     await env.DB.prepare(
-      `INSERT INTO programas (id, negocio_id, nome, tipo, selo, objetivo, premio, regras, arrefecimento, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO programas (id, negocio_id, nome, tipo, selo, objetivo, premio,
+                             regras, arrefecimento, criado_em,
+                             amigo_convidador, amigo_convidado, amigo_max)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(id(), op.negocio_id, c.nome, c.tipo, c.selo,
-           c.objetivo, c.premio, c.regras, c.arrefecimento, agora()).run();
+           c.objetivo, c.premio, c.regras, c.arrefecimento, agora(),
+           c.amigoConvidador, c.amigoConvidado, c.amigoMax).run();
   }
   const programas = (await env.DB.prepare(
     'SELECT * FROM programas WHERE negocio_id = ? AND ativo = 1'

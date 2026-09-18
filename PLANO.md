@@ -402,9 +402,30 @@ base — Café Maravilha (marcado `demonstracao`) e Titi BarberShop — e 23 con
   > separam-se ao aproximar, e isso está provado, mas um toque no de cima é o
   > único que abre. E as ruas, se um dia a densidade justificar, alojadas por
   > nós.
-- **Convites entre clientes** («cada cliente traz outro, e ganham os dois»).
-  POR FAZER. Os `convites` que existem hoje são de NEGÓCIO — para fundar um
-  balcão — e não têm nada que ver com isto.
+- ~~Convites entre clientes~~ — **feito a 18 de Setembro de 2026.** «Cada
+  cliente traz outro, e ganham os dois.» (Os `convites` que já existiam são de
+  NEGÓCIO — para fundar um balcão — e não têm nada que ver com isto; a tabela
+  nova chama-se `amigos`.)
+
+  > **Nasce desligado**, e é o ponto todo: quem paga os carimbos é o café, e um
+  > programa de fidelização que dá coisas sem o dono ter dito quanto tira-lhe
+  > dinheiro do bolso sem lhe perguntar. Três carimbos por lado é o tecto, para
+  > um «30» em vez de um «3» não oferecer um cartão inteiro a cada pessoa que
+  > entra pela porta.
+  >
+  > **A regra que segura tudo:** a recompensa só acontece no PRIMEIRO CARIMBO A
+  > SÉRIO, ao balcão, e nunca na adesão. Sem ela, «traz um amigo» seria uma
+  > máquina de fazer carimbos a partir de um telemóvel e paciência. Ao lado
+  > disso: o convite vai assinado (um número público é dito em voz alta ao
+  > balcão todos os dias), ninguém se convida a si próprio, quem já é cliente
+  > não conta, e há um tecto por programa — mas quem CHEGA ganha sempre, porque
+  > castigá-lo pelo amigo que convidou muita gente seria castigar a pessoa
+  > errada.
+  >
+  > Pelo caminho apareceu um defeito que não era deste trabalho: a limpeza do
+  > `?demo=1` deitava fora a query INTEIRA, e com ela o `?n=` do cartaz. Em
+  > produção nunca mordeu — lá não há `demo` para limpar —, mas mordia em cada
+  > link que alguém experimentasse na demonstração.
 
 ### O login
 

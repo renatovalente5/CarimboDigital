@@ -318,6 +318,17 @@ async function ecraCartao(principal) {
     principal.append(botaoWallet(cheio, 'apple'));
   }
 
+  /* TRAZ UM AMIGO. Só aparece se o café tiver ligado alguma coisa — um botão
+     que promete carimbos num sítio que não os dá é uma promessa que ninguém
+     fez. E é o café que paga, por isso é ele que decide. */
+  if (p.amigo && (p.amigo.convidador || p.amigo.convidado)) {
+    principal.append(el('button', {
+      class: 'btn btn-suave btn-bloco', style: 'margin-top:12px', id: 'traz-amigo',
+      html: icone('pessoas', { tamanho: 18 }) + '<span>Traz um amigo</span>',
+      aoClick: () => painelDoAmigo(cheio),
+    }));
+  }
+
   /* COMO ESTE CAFÉ TE TRATA. O balcão pode escrever uma alcunha no cartão para
      saber quem és quando lá chegas — nunca te é pedido nada, é ele que a
      escreve. Mas uma nota sobre uma pessoa que ela não pode ler é o contrário
@@ -891,6 +902,125 @@ async function pintarMapaDoDescobrir(caixa, negocios) {
      inventa um alfinete a meio do Atlântico. */
   if (!mapa.pinos && pontos.length) { caixa.remove(); return null; }
   return mapa;
+}
+
+/**
+ * O convite para um amigo.
+ *
+ * O QUE SE PARTILHA É UM ENDEREÇO, e não um código para escrever à mão: quem o
+ * abre cai na app com o cartão já a ser junto. Um código de seis letras dito
+ * ao telefone obriga a pessoa a escrevê-lo, e cada passo a mais é gente que
+ * desiste pelo caminho.
+ *
+ * E DIZ-SE QUANDO É QUE ISTO PAGA. «Assim que ele for carimbado pela primeira
+ * vez» não é letra pequena: é a diferença entre um convite que parece não ter
+ * funcionado e um convite que está à espera de alguém ir ao café.
+ */
+async function painelDoAmigo(cartao) {
+  const painel = abrirPainel('Traz um amigo');
+  painel.append(el('p', { class: 'subtexto', texto: 'A ver…' }));
+
+  let convite;
+  try {
+    convite = await api.meuConvite(cartao.programa.id);
+  } catch (e) {
+    painel.innerHTML = '';
+    painel.append(
+      el('h2', { style: 'margin-bottom:12px', texto: 'Traz um amigo' }),
+      el('p', { class: 'aviso-mau', texto: e.message || 'Não deu para preparar o convite.' }),
+      el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Fechar',
+        aoClick: fecharPainel }));
+    return;
+  }
+  if (!painel.isConnected) return;
+
+  const endereco = `${location.origin}${base()}/app/?n=${encodeURIComponent(convite.slug)}`
+    + `&a=${encodeURIComponent(convite.codigo)}`;
+  const nome = cartao.negocio.nome;
+  const carimbo = (n) => (n === 1 ? '1 carimbo' : `${n} carimbos`);
+
+  painel.innerHTML = '';
+  painel.append(el('h2', { style: 'margin-bottom:12px', texto: 'Traz um amigo' }));
+  painel.append(el('p', { class: 'subtexto', texto: convite.convidador && convite.convidado
+    ? `Manda este link a alguém. Quando ele for carimbado pela primeira vez em `
+      + `${nome}, ele ganha ${carimbo(convite.convidado)} `
+      /* «e tu também» quando são iguais, que é o caso normal: «ele ganha 1
+         carimbo e tu ganhas 1 carimbo» é a mesma coisa dita duas vezes. */
+      + (convite.convidador === convite.convidado
+        ? 'e tu também.'
+        : `e tu ganhas ${carimbo(convite.convidador)}.`)
+    : convite.convidado
+      ? `Manda este link a alguém. Quando ele for carimbado pela primeira vez em `
+        + `${nome}, começa com ${carimbo(convite.convidado)}.`
+      : `Manda este link a alguém. Quando ele for carimbado pela primeira vez em `
+        + `${nome}, ganhas ${carimbo(convite.convidador)}.` }));
+
+  /* O ENDEREÇO À VISTA, e não só dentro de um botão de partilha. Nem toda a
+     gente tem o menu do sistema, e quem quiser mandá-lo por onde quiser tem de
+     o poder ler e copiar. */
+  painel.append(el('div', { class: 'folha caixa-texto', style: 'margin-bottom:12px' },
+    el('p', { class: 'convite-endereco', id: 'convite-endereco', texto: endereco })));
+
+  painel.append(el('button', {
+    class: 'btn btn-cheio btn-bloco btn-grande', id: 'partilhar-convite',
+    html: icone('partilhar', { tamanho: 18 }) + '<span>Partilhar o link</span>',
+    aoClick: async (ev) => {
+      const texto = `Junta-te a mim no cartão de ${nome}.`;
+      /* O MENU DO SISTEMA PRIMEIRO, se existir: é onde estão o WhatsApp e as
+         mensagens, que é por onde isto vai mesmo. E o `share` ATIRA quando a
+         pessoa fecha o menu — isso não é um erro nem se avisa ninguém dele. */
+      try {
+        if (navigator.share) {
+          await navigator.share({ title: nome, text: texto, url: endereco });
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+      try {
+        await navigator.clipboard.writeText(endereco);
+        avisar('Link copiado. Cola-o onde quiseres.', 'bom');
+      } catch {
+        /* Sem menu e sem área de transferência — um browser antigo, ou uma
+           permissão negada. O endereço está no ecrã: selecciona-se. */
+        const alvo = $('#convite-endereco');
+        if (alvo) {
+          const intervalo = document.createRange();
+          intervalo.selectNodeContents(alvo);
+          const seleccao = getSelection();
+          seleccao.removeAllRanges();
+          seleccao.addRange(intervalo);
+          avisar('Copia o link que está seleccionado.', 'neutro');
+        }
+      }
+      ev.currentTarget.blur();
+    },
+  }));
+
+  /* QUANTOS JÁ VIERAM, e quantos estão a caminho. Sem isto, quem convidou três
+     pessoas e ainda não viu carimbo nenhum pensa que aquilo não funciona. */
+  const linhas = [];
+  if (convite.premiados) {
+    linhas.push(convite.premiados === 1
+      ? 'Já trouxeste 1 pessoa.'
+      : `Já trouxeste ${convite.premiados} pessoas.`);
+  }
+  if (convite.aCaminho) {
+    linhas.push(convite.aCaminho === 1
+      ? '1 pessoa juntou o cartão e ainda não foi carimbada.'
+      : `${convite.aCaminho} pessoas juntaram o cartão e ainda não foram carimbadas.`);
+  }
+  if (convite.convidador && convite.premiados >= convite.max) {
+    linhas.push(`Este café premeia até ${convite.max} convites por pessoa, e já `
+      + 'chegaste lá. Os teus amigos continuam a ganhar o deles.');
+  }
+  if (linhas.length) {
+    painel.append(el('p', { class: 'miudo', style: 'margin-top:12px',
+      texto: linhas.join(' ') }));
+  }
+
+  painel.append(el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno',
+    texto: 'Fechar', aoClick: fecharPainel }));
 }
 
 /* =========================================================================
@@ -3079,7 +3209,12 @@ async function entrar() {
  * pelo Descobrir.
  */
 async function seguirConvite() {
-  const slug = new URLSearchParams(location.search).get('n');
+  const parametros = new URLSearchParams(location.search);
+  const slug = parametros.get('n');
+  /* O `a` é o convite de um amigo, quando o link veio de alguém em vez de um
+     cartaz. Vai junto ao pedido de adesão — e é lido AQUI, antes de o endereço
+     ser limpo, senão perdia-se com ele. */
+  const amigo = parametros.get('a');
   if (!slug) return;
 
   /* Tira-se o parâmetro do endereço já: se a pessoa recarregar a página, ou
@@ -3087,6 +3222,7 @@ async function seguirConvite() {
      aderir a um negócio que ela pode entretanto ter apagado. */
   const limpo = new URL(location.href);
   limpo.searchParams.delete('n');
+  limpo.searchParams.delete('a');
   history.replaceState(null, '', limpo.pathname + limpo.search + limpo.hash);
 
   try {
@@ -3099,10 +3235,18 @@ async function seguirConvite() {
     const ja = estado.cartoes.find((c) => c.negocio.slug === slug);
     if (ja) { avisar(`Já tens o cartão de ${n.nome}.`, 'neutro'); return; }
 
-    await api.aderir(estado.cliente.id, n.programas[0].id);
+    await api.aderir(estado.cliente.id, n.programas[0].id, amigo);
     estado.cartoes = await api.cartoes(estado.cliente.id);
     vibrar(14);
-    avisar(`Cartão de ${n.nome} adicionado.`, 'bom');
+    /* QUEM VEIO POR UM AMIGO OUVE O QUE FALTA FAZER. «Cartão adicionado» e
+       mais nada deixava a pessoa sem saber que há um carimbo à espera dela —
+       e é esse carimbo que faz o convite valer alguma coisa para os dois. */
+    const oferta = n.programas[0].amigo;
+    const paraSi = amigo && oferta ? oferta.convidado : 0;
+    avisar(paraSi
+      ? `Cartão de ${n.nome} adicionado. Mostra o teu código lá e começas com `
+        + `${paraSi === 1 ? 'um carimbo' : `${paraSi} carimbos`}.`
+      : `Cartão de ${n.nome} adicionado.`, 'bom');
     await irPara('carteira');
   } catch (e) {
     avisar(e.message || 'Não deu para juntar o cartão. Tenta pelo Descobrir.', 'mau');

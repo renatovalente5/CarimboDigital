@@ -32,8 +32,19 @@ function pedidoDeDemo() {
       const liga = p.get('demo') !== '0';
       localStorage.setItem('carimbo:modo-demo', liga ? '1' : '0');
       /* Limpa-se o endereço, senão fica colado no histórico e no ecrã
-         principal do telemóvel. */
-      history.replaceState(null, '', location.pathname + location.hash);
+         principal do telemóvel.
+
+         SÓ O `demo`, E NÃO A QUERY TODA. Isto escrevia
+         `location.pathname + location.hash` e deitava fora tudo o resto —
+         incluindo o `?n=` do cartaz e o `&a=` de um convite de amigo, que são
+         lidos mais tarde, no arranque. Resultado: um link partilhado com
+         `?demo=1` juntava a demonstração e perdia o café. Em produção nunca
+         mordeu, porque lá não há `demo` nenhum para limpar; mordia em cada
+         link que alguém experimentasse na demonstração. */
+      p.delete('demo');
+      const resto = p.toString();
+      history.replaceState(null, '',
+        location.pathname + (resto ? `?${resto}` : '') + location.hash);
       return liga;
     }
     return localStorage.getItem('carimbo:modo-demo') === '1';
@@ -233,7 +244,12 @@ const SEMENTE = {
         id: 'p-torrado', nome: 'Cartão do café', tipo: 'carimbos', selo: 'chavena',
         objetivo: 10, premio: 'Um café por conta da casa', arrefecimento: 3600,
         regras: 'Um carimbo por visita. Válido em todas as bebidas quentes.',
+        /* Este tem «traz um amigo» ligado, para a demonstração o poder
+           mostrar. Os outros não — que é como nasce um programa, e é o que
+           alguém vê ao criar o seu. */
+        amigo: { convidador: 1, convidado: 1, max: 5 },
       }],
+
     },
     {
       id: 'n-navalha', slug: 'barbearia-navalha', nome: 'Barbearia Navalha',
@@ -416,16 +432,38 @@ function criarDemo() {
           id: p.id, nome: p.nome, tipo: p.tipo, selo: p.selo,
           objetivo: p.objetivo, premio: p.premio, regras: p.regras,
           marcos: p.marcos || null,
+          /* O «traz um amigo» vai sempre, mesmo a zero — é assim que a app
+             sabe o que dizer a quem chega por um convite, sem um pedido a
+             mais. O servidor faz o mesmo no `moldarPrograma`. */
+          amigo: p.amigo || { convidador: 0, convidado: 0, max: 5 },
         })),
       }));
     },
 
-    async aderir(clienteId, programaId) {
+    async aderir(clienteId, programaId, amigo = null) {
       const e = estado();
       const achado = programa(e, programaId);
       if (!achado) throw new Error('Programa não encontrado');
       const jaTem = e.cartoes.find((c) => c.clienteId === clienteId && c.programaId === programaId);
+      /* Quem já tem o cartão não vem de um convite: aderir outra vez pelo link
+         de um amigo seria a forma mais simples de o vigarizar. */
       if (jaTem) return comporCartao(e, jaTem);
+
+      /* O convite fica a DEVER, e paga-se no primeiro carimbo — as mesmas
+         regras do servidor, porque a demonstração existe para ensinar a app
+         que existe e não uma versão mais simpática dela. */
+      const p = achado.programa;
+      if (amigo && ((p.amigo && (p.amigo.convidador || p.amigo.convidado)))) {
+        const [publico] = String(amigo).split('.');
+        const quem = (e.clientes || []).find((c) => c.publico === publico);
+        e.amigos = e.amigos || [];
+        const repetido = e.amigos.some((a) =>
+          a.programaId === programaId && a.convidado === clienteId);
+        if (quem && quem.id !== clienteId && !repetido) {
+          e.amigos.push({ id: id(), programaId, convidador: quem.id,
+                          convidado: clienteId, criadoEm: agora(), premiadoEm: null });
+        }
+      }
       const cartao = {
         id: id(), clienteId, programaId, negocioId: achado.negocio.id,
         carimbos: 0, pontos: 0, totalCarimbos: 0, premiosGanhos: 0,
@@ -435,6 +473,31 @@ function criarDemo() {
       e.movimentos.push({ id: id(), cartaoId: cartao.id, tipo: 'adesao', quantidade: 0, em: agora() });
       gravar(e);
       return comporCartao(e, cartao);
+    },
+
+    async meuConvite(programaId) {
+      const e = estado();
+      const achado = programa(e, programaId);
+      if (!achado) throw new Error('Programa não encontrado');
+      const p = achado.programa;
+      if (!p.amigo || (!p.amigo.convidador && !p.amigo.convidado)) {
+        throw new Error('Este cartão não tem «traz um amigo».');
+      }
+      const eu = e.clientes[0];
+      const meus = (e.amigos || []).filter((a) =>
+        a.convidador === eu.id && a.programaId === programaId);
+      /* Na demonstração a assinatura é de mentira — não há chave-mestra deste
+         lado. O formato é o mesmo, para o resto do caminho ser o mesmo. */
+      return {
+        codigo: `${eu.publico}.demonstracao`,
+        slug: achado.negocio.slug,
+        convidador: p.amigo.convidador,
+        convidado: p.amigo.convidado,
+        max: p.amigo.max,
+        premiados: meus.filter((a) => a.premiadoEm).length,
+        aCaminho: meus.filter((a) => !a.premiadoEm).length,
+        demo: true,
+      };
     },
 
     /* O coração: um carimbo. As mesmas regras que o servidor aplica. */
@@ -506,6 +569,11 @@ function criarDemo() {
         }
       }
 
+      /* É este o primeiro carimbo deste cartão? Lê-se ANTES de o `ultimoEm`
+         ser escrito, e não serve o `novo` — quem vem por um convite já tem o
+         cartão quando chega ao balcão. */
+      const primeiroCarimbo = !cartao.ultimoEm;
+
       if (chaveUso) e.usados[chaveUso] = agora();
       cartao.ultimoEm = agora();
 
@@ -541,12 +609,48 @@ function criarDemo() {
       for (const g of ganhos) {
         e.movimentos.push({ id: id(), cartaoId: cartao.id, tipo: 'premio', quantidade: 0, nota: g.descricao, em: agora() });
       }
+      /* --- e o convite, se houver um por pagar ---------------------------
+         As mesmas regras do servidor: só no primeiro carimbo, uma vez só, com
+         tecto para quem convida e sem tecto para quem chega. */
+      let amigo = null;
+      if (primeiroCarimbo && p.amigo && (p.amigo.convidador || p.amigo.convidado)) {
+        const linha = (e.amigos || []).find((a) =>
+          a.convidado === cliente.id && a.programaId === p.id && !a.premiadoEm);
+        if (linha) {
+          linha.premiadoEm = agora();
+          const premiados = (e.amigos || []).filter((a) =>
+            a.convidador === linha.convidador && a.programaId === p.id && a.premiadoEm).length;
+          const tectoCheio = premiados - 1 >= (p.amigo.max ?? 5);
+          amigo = { convidador: 0, convidado: 0, tectoCheio };
+
+          const somar = (c, quantos, nota) => {
+            if (p.tipo === 'pontos') c.pontos += quantos;
+            else { c.carimbos += quantos; c.totalCarimbos += quantos; }
+            e.movimentos.push({ id: id(), cartaoId: c.id,
+              tipo: p.tipo === 'pontos' ? 'pontos' : 'carimbo',
+              quantidade: quantos, nota, em: agora() });
+          };
+          if (p.amigo.convidado) {
+            amigo.convidado = p.amigo.convidado;
+            somar(cartao, p.amigo.convidado, 'Traz um amigo: bem-vindo');
+          }
+          if (p.amigo.convidador && !tectoCheio) {
+            const dele = e.cartoes.find((c) =>
+              c.clienteId === linha.convidador && c.programaId === p.id);
+            if (dele) {
+              amigo.convidador = p.amigo.convidador;
+              somar(dele, p.amigo.convidador, 'Traz um amigo: obrigado');
+            }
+          }
+        }
+      }
+
       gravar(e);
 
       return {
         cartao: comporCartao(e, cartao),
         cliente: { publico: cliente.publico, nome: cliente.nome },
-        ganhos, novo, quantidade, manual, movimentoId,
+        ganhos, novo, quantidade, manual, movimentoId, amigo,
       };
     },
 
@@ -712,9 +816,31 @@ function criarDemo() {
       const e = estado();
       const n = e.negocios.find((x) => x.id === negocioId);
       if (!n) throw new Error('Negócio não encontrado');
+      /* O «traz um amigo» chega em campos soltos — é assim que o formulário os
+         manda — e vive num objecto. As mesmas travas do servidor: zero a três
+         por lado, e um tecto entre um e cinquenta. Um engano de teclado que
+         ofereça um cartão inteiro a cada amigo não pode passar num lado por o
+         outro o apanhar. */
+      const limpo = { ...dados };
+      const entre = (v, min, max, omissao) => {
+        if (v === undefined || v === null || v === '') return omissao;
+        const x = Math.round(Number(v));
+        return Number.isFinite(x) ? Math.max(min, Math.min(max, x)) : omissao;
+      };
+      if ('amigoConvidador' in limpo || 'amigoConvidado' in limpo || 'amigoMax' in limpo) {
+        const antes = (n.programas.find((p) => p.id === dados.id) || {}).amigo || {};
+        limpo.amigo = {
+          convidador: entre(limpo.amigoConvidador, 0, 3, antes.convidador || 0),
+          convidado: entre(limpo.amigoConvidado, 0, 3, antes.convidado || 0),
+          max: entre(limpo.amigoMax, 1, 50, antes.max ?? 5),
+        };
+        delete limpo.amigoConvidador;
+        delete limpo.amigoConvidado;
+        delete limpo.amigoMax;
+      }
       const existente = n.programas.find((p) => p.id === dados.id);
-      if (existente) Object.assign(existente, dados);
-      else n.programas.push({ ...dados, id: dados.id || id(), negocioId, ativo: 1, criadoEm: agora() });
+      if (existente) Object.assign(existente, limpo);
+      else n.programas.push({ ...limpo, id: limpo.id || id(), negocioId, ativo: 1, criadoEm: agora() });
       gravar(e);
       return n.programas;
     },
@@ -1108,7 +1234,14 @@ export const api = MODO === 'remoto'
       cartoes: () => remoto.pedir('/v1/cliente/cartoes'),
       cartao: (_, cartaoId) => remoto.pedir(`/v1/cliente/cartoes/${cartaoId}`),
       descobrir: () => remoto.pedir('/v1/descobrir'),
-      aderir: (_, programaId) => remoto.pedir('/v1/cliente/aderir', { metodo: 'POST', corpo: { programaId } }),
+      /* O `amigo` é o código de quem convidou, quando se chega por um link
+         partilhado. Vai no mesmo pedido: uma adesão que precisasse de dois
+         pedidos podia ficar a meio, com o cartão junto e o convite perdido. */
+      aderir: (_, programaId, amigo = null) => remoto.pedir('/v1/cliente/aderir',
+        { metodo: 'POST', corpo: amigo ? { programaId, amigo } : { programaId } }),
+      /* O meu convite para este cartão. */
+      meuConvite: (programaId) => remoto.pedir('/v1/cliente/amigo',
+        { metodo: 'POST', corpo: { programaId } }),
       carimbar: (dados) => remoto.pedir('/v1/balcao/carimbar', { metodo: 'POST', corpo: dados }),
       resgatar: (dados) => remoto.pedir('/v1/balcao/resgatar', { metodo: 'POST', corpo: dados }),
       anular: (dados) => remoto.pedir('/v1/balcao/anular', { metodo: 'POST', corpo: dados }),

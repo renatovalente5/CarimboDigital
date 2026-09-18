@@ -264,6 +264,34 @@ faz sobreviver a quem sai do café — e é por isso que:
 Só o dono junta e tira, não se pode tirar a si próprio nem despromover-se
 sendo o último, e cabem dez pessoas por balcão.
 
+### Traz um amigo
+
+«Cada cliente traz outro, e ganham os dois.» Cada cliente pode partilhar um
+link do cartão que já tem; quando a pessoa convidada for **carimbada pela
+primeira vez** naquele café, os dois ganham os carimbos que o café escolheu.
+
+**Nasce desligado** — zero carimbos dos dois lados. Quem paga é o café, e é o
+café que decide, em **O cartão › Traz um amigo**. O tecto de três carimbos por
+lado não é gosto: é o que impede que um «30» em vez de um «3» ofereça um
+cartão inteiro a cada pessoa que entra pela porta.
+
+Três coisas seguram isto, e cada uma fecha uma porta diferente:
+
+- **O convite vai assinado.** Leva o número público de quem convida mais uma
+  assinatura da chave-mestra. Sem ela, bastava saber um número público — que é
+  dito em voz alta ao balcão todos os dias — para atribuir convites a quem
+  nunca convidou ninguém.
+- **A recompensa só acontece no primeiro carimbo a sério.** Não na adesão.
+  Criar contas vazias não dá nada, porque é preciso alguém ir ao balcão e ser
+  carimbado por uma pessoa.
+- **Ninguém se convida a si próprio**, nem convida quem já é cliente, e há um
+  tecto de convites premiados por pessoa. Quem *chega* ganha sempre, mesmo com
+  o tecto cheio: castigá-lo pelo amigo que convidou muita gente seria castigar
+  a pessoa errada.
+
+O balcão vê «veio por um convite» no ecrã do carimbo — um cartão que salta
+dois carimbos sem explicação parece um erro da app.
+
 ### Nada é carregado de fora
 
 O `auditar.mjs` tem uma guarda que faz esta promessa falhar em teste e não em

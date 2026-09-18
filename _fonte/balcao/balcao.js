@@ -307,6 +307,25 @@ function mostrarResultado(r) {
       ? `+${r.quantidade} pontos · ${cartao.pontos} no total`
       : `${cartao.carimbos} de ${p.objetivo} · faltam ${p.objetivo - cartao.carimbos}` }));
 
+  /* VEIO POR UM AMIGO. Quem está ao balcão tem de perceber porque é que o
+     cartão saltou dois carimbos em vez de um — senão parece um erro da app, e
+     a primeira coisa que alguém faz com um número que não percebe é
+     desconfiar dele. */
+  if (r.amigo && (r.amigo.convidado || r.amigo.convidador)) {
+    const pecas = [];
+    if (r.amigo.convidado) {
+      pecas.push(`+${r.amigo.convidado} para quem chegou`);
+    }
+    if (r.amigo.convidador) {
+      pecas.push(`+${r.amigo.convidador} para quem o trouxe`);
+    } else if (r.amigo.tectoCheio) {
+      pecas.push('quem o trouxe já chegou ao limite de convites premiados');
+    }
+    caixa.append(el('div', { class: 'resultado-amigo' },
+      el('span', { html: icone('pessoas', { tamanho: 18 }) }),
+      el('span', { texto: `Veio por um convite — ${pecas.join(', ')}.` })));
+  }
+
   /* O cartão do cliente, com o carimbo novo a assentar. */
   const mini = el('div', { class: 'cartao resultado-cartao' },
     el('div', { class: 'cartao-corpo' },
@@ -1190,6 +1209,39 @@ async function ecraPrograma(principal) {
       el('span', { texto: 'Regras (a letra pequena)' }),
       el('textarea', { id: 'f-regras', maxlength: '240' }, p.regras || '')));
 
+  /* --- traz um amigo ----------------------------------------------------
+     O CAFÉ É QUE PAGA, e por isso é o café que decide — e nasce a zero, que é
+     desligado. Carimbos, e não prémios: um prémio dado de repente a quem tem
+     o cartão a meio é uma conversa difícil ao balcão; carimbos somam-se à
+     regra que já existe e, se calhar, fecham o cartão.
+
+     O tecto de três por lado não é gosto: é o que impede que um engano de
+     teclado — «30» em vez de «3» — ofereça um cartão inteiro a cada pessoa
+     que entra pela porta. */
+  const amigo = (p.amigo || { convidador: 0, convidado: 0, max: 5 });
+  principal.append(el('section', { class: 'seccao', id: 'seccao-traz-amigo' },
+    el('h2', { class: 'seccao-titulo', texto: 'Traz um amigo' }),
+    el('div', { class: 'folha caixa-texto' },
+      el('p', { class: 'miudo', texto:
+        'Cada cliente pode convidar quem conhece com um link. Quando a pessoa '
+        + 'convidada for carimbada pela primeira vez aqui, os dois ganham os '
+        + 'carimbos que escolheres. A zero, isto fica desligado.' }),
+      el('label', { class: 'campo', style: 'margin-top:12px' },
+        el('span', { texto: 'Carimbos para quem convida' }),
+        el('input', { id: 'f-amigo-convidador', type: 'number', min: '0', max: '3',
+                      step: '1', value: String(amigo.convidador || 0) })),
+      el('label', { class: 'campo' },
+        el('span', { texto: 'Carimbos para quem chega' }),
+        el('input', { id: 'f-amigo-convidado', type: 'number', min: '0', max: '3',
+                      step: '1', value: String(amigo.convidado || 0) })),
+      el('label', { class: 'campo' },
+        el('span', { texto: 'Convites premiados por cliente' }),
+        el('input', { id: 'f-amigo-max', type: 'number', min: '1', max: '50',
+                      step: '1', value: String(amigo.max ?? 5) })),
+      el('p', { class: 'miudo', texto:
+        'A recompensa só acontece no primeiro carimbo a sério, ao balcão — '
+        + 'juntar o cartão não dá nada a ninguém.' }))));
+
   /* --- Cor -------------------------------------------------------------
 
      DOZE CORES NÃO CHEGAM, e a falta não era visível até um negócio a sério
@@ -1305,6 +1357,9 @@ async function ecraPrograma(principal) {
         premio: $('#f-premio').value.trim() || p.premio,
         objetivo, selo: p.selo,
         regras: $('#f-regras').value.trim(),
+        amigoConvidador: $('#f-amigo-convidador').value,
+        amigoConvidado: $('#f-amigo-convidado').value,
+        amigoMax: $('#f-amigo-max').value,
       });
       const r = await api.negocioDoOperador(estado.operador.id);
       estado.negocio = r.negocio;

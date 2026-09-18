@@ -65,7 +65,14 @@ CREATE TABLE IF NOT EXISTS programas (
   validade_dias  INTEGER,                            -- NULL = não expira
   ativo          INTEGER NOT NULL DEFAULT 1,
   criado_em      TEXT NOT NULL,
-  wallet_classe  TEXT                               -- a classe na Google, por programa
+  wallet_classe  TEXT,                              -- a classe na Google, por programa
+  -- «Traz um amigo»: quantos carimbos vão para quem convida e para quem chega.
+  -- Nasce DESLIGADO — zero dos dois lados. Quem paga é que decide.
+  amigo_convidador INTEGER NOT NULL DEFAULT 0,
+  amigo_convidado  INTEGER NOT NULL DEFAULT 0,
+  -- Convites premiados por cliente. Cinco é muito para quem convida a família
+  -- e pouco para quem faz disto um negócio.
+  amigo_max        INTEGER NOT NULL DEFAULT 5
 );
 CREATE INDEX IF NOT EXISTS ix_programas_negocio ON programas(negocio_id);
 
@@ -210,6 +217,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_operadores_email_unico
 -- pessoa lê dois nomes iguais.
 CREATE UNIQUE INDEX IF NOT EXISTS ix_operadores_nome_unico
   ON operadores(negocio_id, lower(trim(nome))) WHERE ativo = 1;
+
+-- --- quem trouxe quem ----------------------------------------------------
+-- A recompensa só acontece no PRIMEIRO CARIMBO A SÉRIO do convidado, e não na
+-- adesão: é isso que impede que criar contas vazias dê carimbos a alguém.
+
+CREATE TABLE IF NOT EXISTS amigos (
+  id           TEXT PRIMARY KEY,
+  programa_id  TEXT NOT NULL REFERENCES programas(id) ON DELETE CASCADE,
+  convidador   TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  convidado    TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  criado_em    TEXT NOT NULL,
+  premiado_em  TEXT                                 -- NULL = ainda não foi ao balcão
+);
+-- Um convite por pessoa e por programa: sem isto, o mesmo par repetia-o
+-- tantas vezes quantas quisesse, apagando o cartão e voltando a aderir.
+CREATE UNIQUE INDEX IF NOT EXISTS ix_amigos_convidado
+  ON amigos(programa_id, convidado);
+CREATE INDEX IF NOT EXISTS ix_amigos_convidador ON amigos(convidador, programa_id);
+CREATE INDEX IF NOT EXISTS ix_amigos_por_premiar
+  ON amigos(convidado) WHERE premiado_em IS NULL;
 
 -- --- sessões ------------------------------------------------------------
 -- Guarda-se o resumo do testemunho, nunca o testemunho. Quem leve uma cópia

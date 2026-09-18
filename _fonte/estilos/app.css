@@ -1127,3 +1127,15 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
               0 0 0 8px color-mix(in srgb, var(--marca) 22%, transparent);
   pointer-events: none;
 }
+
+/* O endereço do convite, à vista para se poder ler e copiar à mão — nem toda
+   a gente tem o menu de partilha do sistema. */
+.convite-endereco {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .8125rem;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--tinta-2);
+  -webkit-user-select: all;
+  user-select: all;
+}

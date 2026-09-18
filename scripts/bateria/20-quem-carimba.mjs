@@ -98,9 +98,22 @@ export async function correr(palco, certo) {
      das definições do cartão. O que se prova é que se CHEGA lá com um deslize,
      e não que esteja à vista sem se mexer no ecrã. */
   certo(await palco.ver(JUNTAR), 'o dono tem por onde juntar quem carimba');
+  /* ESPERA-SE QUE A PÁGINA ASSENTE, e não trezentos milissegundos.
+     O `html` desta casa tem `scroll-behavior: smooth`, por isso um
+     `scrollIntoView` é uma animação e não um salto — e a distância cresce
+     sempre que este ecrã ganha uma secção nova. Medir a meio da animação
+     acusava o botão de estar fora do ecrã quando quem estava a meio do
+     caminho era a página. */
   await palco.js(`document.querySelector('#juntar-operador')
     .scrollIntoView({ block: 'center' });
-    await new Promise((r) => setTimeout(r, 300)); return true`);
+    let anterior = null;
+    for (let i = 0; i < 25; i++) {
+      const agora = Math.round(window.scrollY);
+      if (agora === anterior) break;
+      anterior = agora;
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    return true`);
   certo(await palco.visivel(JUNTAR),
     'e chega-se-lhe com um deslize — não está preso fora do ecrã');
   await palco.clicar(JUNTAR);

@@ -4614,6 +4614,156 @@ grupo('Onde fica o estabelecimento');
     JSON.stringify(agoraSem && { lat: agoraSem.latitude, f: agoraSem.geoFonte }));
 }
 
+grupo('Traz um amigo');
+{
+  /* «Cada cliente traz outro, e ganham os dois.» O que aqui se persegue não é
+     «o convite funciona» — é o que ele tem de recusar, porque um programa de
+     fidelização que se deixa vigarizar custa dinheiro ao café todos os dias:
+
+     · a RECOMPENSA SÓ NO PRIMEIRO CARIMBO A SÉRIO. Aderir não dá nada. É esta
+       a regra que impede uma máquina de fazer carimbos a partir de um
+       telemóvel e paciência;
+     · o CONVITE VAI ASSINADO — um número público é dito em voz alta ao balcão
+       todos os dias, e sem assinatura bastava sabê-lo;
+     · NINGUÉM SE CONVIDA A SI PRÓPRIO, nem convida quem já é cliente;
+     · e há um TECTO por programa. */
+
+  sql(`DELETE FROM amigos`);
+  sql(`UPDATE programas SET amigo_convidador = 2, amigo_convidado = 1, amigo_max = 2,
+       arrefecimento = 0 WHERE id = 'p1'`);
+
+  /* Quem convida: uma conta com o cartão e já carimbada. */
+  const anfitriao = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const anf = { id: anfitriao.dados.cliente.id, publico: anfitriao.dados.cliente.publico,
+                sessao: anfitriao.dados.sessao, segredo: anfitriao.dados.segredo };
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: anf.sessao, corpo: { programaId: 'p1' } });
+
+  const meu = await pedir('/v1/cliente/amigo',
+    { metodo: 'POST', sessao: anf.sessao, corpo: { programaId: 'p1' } });
+  certo(meu.estado === 200 && meu.dados.codigo.startsWith(`${anf.publico}.`),
+    'o convite leva o número público de quem convida',
+    JSON.stringify(meu.dados).slice(0, 120));
+  certo(meu.dados.codigo.split('.')[1].length === 16,
+    'e uma assinatura — sem ela, bastava saber um número público para atribuir '
+    + 'convites a quem nunca convidou ninguém', meu.dados.codigo);
+  certo(meu.dados.convidador === 2 && meu.dados.convidado === 1,
+    'e diz quanto é que cada lado ganha', JSON.stringify(meu.dados));
+
+  /* --- o que se recusa --------------------------------------------------- */
+  const forjado = `${anf.publico}.aaaaaaaaaaaaaaaa`;
+  const vitima = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: vitima.dados.sessao,
+    corpo: { programaId: 'p1', amigo: forjado } });
+  certo(linhas(`SELECT COUNT(*) AS n FROM amigos`)[0].n === 0,
+    'uma assinatura forjada não regista convite nenhum — e a adesão acontece na '
+    + 'mesma, que é o que a pessoa foi ali fazer');
+  certo(linhas(`SELECT COUNT(*) AS n FROM cartoes WHERE cliente_id = '${vitima.dados.cliente.id}'`)[0].n === 1,
+    'e o cartão ficou junto, apesar de o convite não prestar');
+
+  const euMesmo = await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: anf.sessao,
+    corpo: { programaId: 'p1', amigo: meu.dados.codigo } });
+  certo(euMesmo.estado === 200 && linhas(`SELECT COUNT(*) AS n FROM amigos`)[0].n === 0,
+    'ninguém se convida a si próprio — dois telemóveis e a mesma conta é o '
+    + 'primeiro sítio onde alguém vai bater');
+
+  /* --- e o que se aceita -------------------------------------------------- */
+  const amigo = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const am = { id: amigo.dados.cliente.id, publico: amigo.dados.cliente.publico,
+               sessao: amigo.dados.sessao, segredo: amigo.dados.segredo };
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: am.sessao,
+    corpo: { programaId: 'p1', amigo: meu.dados.codigo } });
+  const registado = linhas(`SELECT convidador, convidado, premiado_em FROM amigos`);
+  certo(registado.length === 1 && registado[0].convidador === anf.id
+    && registado[0].convidado === am.id,
+    'um convite bom fica registado', JSON.stringify(registado));
+  certo(registado[0].premiado_em === null,
+    'E ADERIR NÃO PAGA NADA. É esta a regra que impede uma máquina de fazer '
+    + 'carimbos a partir de um telemóvel e paciência');
+  certo(linhas(`SELECT carimbos FROM cartoes WHERE cliente_id = '${anf.id}'`)[0].carimbos === 0,
+    'quem convidou continua a zero carimbos');
+
+  /* Aderir OUTRA VEZ pelo mesmo link não duplica. */
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: am.sessao,
+    corpo: { programaId: 'p1', amigo: meu.dados.codigo } });
+  certo(linhas(`SELECT COUNT(*) AS n FROM amigos`)[0].n === 1,
+    'e aderir outra vez pelo mesmo link não duplica o convite');
+
+  /* --- o primeiro carimbo, que é onde tudo acontece ---------------------- */
+  const carimbo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(am.publico, am.segredo), programaId: 'p1' } });
+  certo(carimbo.estado === 200 && carimbo.dados.amigo,
+    'o primeiro carimbo do convidado paga o convite',
+    JSON.stringify(carimbo.dados.amigo));
+  certo(carimbo.dados.amigo.convidado === 1 && carimbo.dados.amigo.convidador === 2,
+    'e diz ao balcão quanto foi para cada lado — senão o cartão salta dois '
+    + 'carimbos e parece um erro da app', JSON.stringify(carimbo.dados.amigo));
+  certo(carimbo.dados.cartao.carimbos === 2,
+    'o convidado fica com o carimbo do balcão mais o do convite',
+    String(carimbo.dados.cartao.carimbos));
+  certo(linhas(`SELECT carimbos FROM cartoes WHERE cliente_id = '${anf.id}'`)[0].carimbos === 2,
+    'e quem convidou ganha os dele, sem ter de lá estar');
+  certo(linhas(`SELECT premiado_em FROM amigos`)[0].premiado_em !== null,
+    'e o convite fica marcado como pago');
+
+  /* --- e não se paga duas vezes ------------------------------------------ */
+  const segundo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(am.publico, am.segredo, 1), programaId: 'p1' } });
+  certo(segundo.estado === 200 && segundo.dados.amigo === null,
+    'o segundo carimbo já não paga nada — é uma vez, e uma vez só',
+    JSON.stringify(segundo.dados.amigo));
+  certo(linhas(`SELECT carimbos FROM cartoes WHERE cliente_id = '${anf.id}'`)[0].carimbos === 2,
+    'e quem convidou continua com os mesmos dois');
+
+  /* --- o tecto ------------------------------------------------------------ */
+  /* O `amigo_max` é 2. Já houve um convite premiado; falta um. */
+  const traz = async () => {
+    const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+    await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: c.dados.sessao,
+      corpo: { programaId: 'p1', amigo: meu.dados.codigo } });
+    return pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { codigo: codigoPara(c.dados.cliente.publico, c.dados.segredo), programaId: 'p1' } });
+  };
+  const segundoAmigo = await traz();
+  certo(segundoAmigo.dados.amigo && segundoAmigo.dados.amigo.convidador === 2,
+    'o segundo convite ainda paga a quem convidou',
+    JSON.stringify(segundoAmigo.dados.amigo));
+
+  const terceiroAmigo = await traz();
+  certo(terceiroAmigo.dados.amigo && terceiroAmigo.dados.amigo.convidador === 0
+    && terceiroAmigo.dados.amigo.tectoCheio === true,
+    'ao terceiro, o tecto do programa trava quem convida',
+    JSON.stringify(terceiroAmigo.dados.amigo));
+  certo(terceiroAmigo.dados.amigo.convidado === 1,
+    'MAS QUEM CHEGA GANHA SEMPRE — não é ele que tem tecto nenhum, e castigá-lo '
+    + 'pelo amigo que convidou muita gente seria castigar a pessoa errada');
+  certo(linhas(`SELECT carimbos FROM cartoes WHERE cliente_id = '${anf.id}'`)[0].carimbos === 4,
+    'e quem convidou fica nos quatro carimbos dos dois convites premiados',
+    String(linhas(`SELECT carimbos FROM cartoes WHERE cliente_id = '${anf.id}'`)[0].carimbos));
+
+  /* --- desligado é desligado ---------------------------------------------- */
+  sql(`UPDATE programas SET amigo_convidador = 0, amigo_convidado = 0 WHERE id = 'p1'`);
+  const desligado = await pedir('/v1/cliente/amigo',
+    { metodo: 'POST', sessao: anf.sessao, corpo: { programaId: 'p1' } });
+  certo(desligado.estado === 404 && desligado.dados.codigo === 'amigo-desligado',
+    'com a oferta a zero não há convite nenhum a dar — um botão que promete '
+    + 'carimbos num sítio que não os dá é uma promessa que ninguém fez');
+
+  /* --- e apagar a conta leva os convites ---------------------------------- */
+  sql(`UPDATE programas SET amigo_convidador = 2, amigo_convidado = 1 WHERE id = 'p1'`);
+  const antesDeApagar = linhas(`SELECT COUNT(*) AS n FROM amigos WHERE convidador = '${anf.id}'`)[0].n;
+  certo(antesDeApagar > 0, 'o anfitrião tem convites registados (o teste é válido)');
+  await pedir('/v1/cliente', { metodo: 'DELETE', sessao: anf.sessao });
+  certo(linhas(`SELECT COUNT(*) AS n FROM amigos WHERE convidador = '${anf.id}'`)[0].n === 0,
+    'e apagar a conta leva os convites dos dois lados — são dados de quem pediu '
+    + 'para desaparecer');
+
+  sql(`UPDATE programas SET amigo_convidador = 0, amigo_convidado = 0, amigo_max = 5,
+       arrefecimento = 3600 WHERE id = 'p1'`);
+  sql(`DELETE FROM amigos`);
+}
+
 /* --------------------------------------------------------------------- */
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

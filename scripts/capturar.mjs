@@ -201,6 +201,20 @@ const ECRAS = [
             await new Promise((r)=>setTimeout(r,1000));`,
   },
 
+  /* O convite para um amigo. */
+  {
+    nome: '19-traz-um-amigo', espera: '#convite-endereco',
+    url: '/app/?demo=1', largura: 402, altura: 1000, limpar: true,
+    guiao: `${ABRIR_APP}
+            const c = [...document.querySelectorAll('#principal .pilha > .cartao')]
+              .find((x) => x.textContent.includes('Café Torrado'));
+            c.click();
+            ${ATE('#traz-amigo')}
+            document.querySelector('#traz-amigo').click();
+            ${ATE('#convite-endereco')}
+            await new Promise((r)=>setTimeout(r,500));`,
+  },
+
   /* E o mesmo painel pelo outro lado: guardar em vez de recuperar. NÃO se
      carrega em porta nenhuma aqui — fora da demonstração, tocar na Google sai
      do site e a captura acaba noutro ecrã com o nome deste. */
