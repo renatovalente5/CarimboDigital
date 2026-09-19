@@ -899,7 +899,25 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
    imagens a carregar, a piscar ou a faltar.
    ========================================================================= */
 
-.mapa-caixa { margin-top: var(--e-4); }
+/* MARGEM DOS DOIS LADOS, e a de baixo é a que faltava.
+
+   O bloco do mapa — o mapa, a linha de ajuda e a atribuição da Carta
+   Administrativa — tinha `margin-top` e mais nada. Safava-se por acidente: no
+   «Descobrir» vinha a seguir a linha do «Ver os mais perto de mim», que traz a
+   sua própria margem de cima. Só que esse botão só existe com MAIS DO QUE UM
+   negócio com ponto no mapa (ver `ecraDescobrir`) — e em produção há um. Com
+   um negócio só, a frase «Fronteiras dos concelhos…» ficava encostada ao
+   cartão do negócio, sem um pixel entre as duas.
+
+   Ou seja: o espaçamento de um bloco dependia de outro bloco, opcional, que
+   por acaso vinha a seguir. Um componente que não fecha o seu próprio espaço
+   fica à mercê de quem o rodeia.
+
+   24 px, que é o passo que esta página já usa entre blocos (o `.subtexto`
+   fecha com 20, a caixa do fim abre com 24). Como o `#principal` é `block`, a
+   margem colapsa com a do vizinho seguinte em vez de somar — por isso o caso
+   que já estava bem não se mexe mais do que 8 px. */
+.mapa-caixa { margin-top: var(--e-4); margin-bottom: var(--e-6); }
 
 /* O MAR E A TERRA TÊM CORES PRÓPRIAS, e não as do papel. Com os tokens
    genéricos, a terra era `--papel-2` e o mar `--papel-3` — e no tema escuro

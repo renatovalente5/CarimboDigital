@@ -55,6 +55,44 @@ export async function correr(palco, certo) {
   await passarBoasVindas(palco);
   await palco.esperar('#barra .barra-item');
 
+  /* --- 0. O BLOCO DO MAPA FECHA O SEU PRÓPRIO ESPAÇO --------------------- */
+  /* Isto mede o caso que ninguém estava a olhar: o «Descobrir» com UM negócio.
+ 
+     O bloco do mapa tinha `margin-top` e mais nada. Safava-se por acidente,
+     porque a seguir vinha a linha do «Ver os mais perto de mim», que traz a sua
+     própria margem de cima — só que esse botão só existe com MAIS DO QUE UM
+     negócio com ponto no mapa. Em produção há um. Resultado: a frase
+     «Fronteiras dos concelhos…» encostada ao cartão do negócio, sem um pixel
+     entre as duas. Foi o dono do produto que o viu, no telemóvel dele.
+ 
+     Por isso a afirmação TIRA a linha do meio antes de medir: medir com ela lá
+     mede o espaço dela, não o do bloco do mapa. E é a versão sem ela que está
+     no ar. */
+  {
+    await palco.clicar('#barra .barra-item:nth-child(2)');
+    await palco.esperar('.mapa-fonte', 12000);
+    const folgas = await palco.js(`
+      const medir = () => {
+        const f = document.querySelector('.mapa-fonte');
+        const seguinte = document.querySelector('#principal .pilha');
+        if (!f || !seguinte) return null;
+        return Math.round(seguinte.getBoundingClientRect().top
+                        - f.getBoundingClientRect().bottom);
+      };
+      const com = medir();
+      document.querySelector('.perto-linha')?.remove();
+      return { com, sem: medir() };
+    `);
+    certo(folgas && folgas.sem >= 16,
+      'o bloco do mapa deixa espaço até ao que vem a seguir MESMO sem a linha '
+      + 'do «perto de mim» — que só existe com mais do que um negócio',
+      `sem a linha: ${folgas && folgas.sem}px`);
+    certo(folgas && folgas.com >= 16,
+      'e com a linha lá continua a haver espaço', `com a linha: ${folgas && folgas.com}px`);
+    await palco.ir('/app/?demo=1');
+    await palco.esperar('#barra .barra-item');
+  }
+
   /* --- 1. O MAPA NÃO SEGURA O ECRÃ -------------------------------------- */
   /* A LISTA NÃO ESPERA PELO MAPA, e a forma de o provar é SEGURAR o mapa.
 
