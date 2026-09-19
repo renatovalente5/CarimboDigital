@@ -22,6 +22,24 @@ import { abrirChrome, novoSeparador, esperarCarregada, encontrarChrome, esperar 
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const DESTINO = join(AQUI, '..', '_dev', 'capturas');
+/* AS FOTOGRAFIAS QUE VÃO PARA O SITE têm outro destino: são fonte, não são
+   documentação, e por isso vivem em `_fonte/imagens/` e entram no repositório.
+   Marcam-se com `paraOSite: true`. */
+const DESTINO_SITE = join(AQUI, '..', '_fonte', 'imagens');
+
+/* A BARRA DA DEMONSTRAÇÃO SAI DAS FOTOGRAFIAS DO SITE, e a razão é simples:
+   ela não faz parte do produto. É um aviso que só existe enquanto alguém corre
+   a demonstração, para não confundir o que é de mentira com o que é a sério.
+   Uma fotografia do produto mostra o produto.
+
+   O que ela NÃO faz é esconder outra coisa: os dados continuam a ser os da
+   demonstração — o «Café Torrado» e a «Gelataria Luar» são exemplos, e são os
+   mesmos nomes que a página inicial já desenha em HTML. Ninguém lê um exemplo
+   de interface como uma lista de clientes. */
+const SEM_BARRA = `
+  const b = document.querySelector('#barra-demo');
+  if (b) { b.remove(); document.documentElement.removeAttribute('data-demo'); }
+`;
 /* O prefixo sai do mesmo sítio que o do gerador: com domínio próprio o site
    vive na raiz, sem ele vive em /CarimboDigital/. Estava escrito à mão aqui,
    e no dia em que o domínio entrou as treze capturas passaram a ser de 404. */
@@ -236,6 +254,55 @@ const ECRAS = [
             document.querySelector('#principal .lista .linha').click();
             ${ATE('#painel .btn-google, #painel #campo-email')}`,
   },
+
+  /* ===================================================================== */
+  /* AS FOTOGRAFIAS DO SITE. Vão para `_fonte/imagens/` e entram no           */
+  /* repositório: o site não tinha UMA etiqueta <img>, e por isso não         */
+  /* aparecia no Google Imagens nem tinha o que mostrar quando alguém         */
+  /* partilha o link. Estas mostram o produto a funcionar, sem a barra da     */
+  /* demonstração — ver SEM_BARRA, lá em cima.                               */
+  /* ===================================================================== */
+  {
+    nome: 'produto-balcao-carimbado', paraOSite: true,
+    espera: '#resultado .resultado-titulo',
+    url: '/balcao/?demo=1', largura: 402, altura: 874, limpar: true,
+    recorte: '#resultado .resultado-caixa', folga: 0,
+    guiao: `const { api } = await import('../js/api.js');
+            const r = await api.registarCliente();
+            await api.semear(r.cliente.id);
+            document.querySelector('#entrada-acoes .btn-cheio').click();
+            await new Promise(res=>setTimeout(res,1700));
+            document.querySelector('#botao-manual').click();
+            await new Promise(res=>setTimeout(res,340));
+            document.querySelector('#campo-numero').value = r.cliente.publico;
+            document.querySelector('.painel-folha .btn-cheio').click();
+            await new Promise(res=>setTimeout(res,1600));`,
+  },
+  {
+    nome: 'produto-carteira', paraOSite: true,
+    espera: '#principal .pilha .cartao',
+    url: '/app/?demo=1', largura: 402, altura: 900, limpar: true,
+    guiao: `for (let i = 0; i < 6; i++) {
+              const b = document.querySelector('#boas-vindas .btn-cheio');
+              if (!b) break;
+              b.click(); await new Promise(r=>setTimeout(r,420));
+            }
+            await new Promise(r=>setTimeout(r,1200));`,
+  },
+  {
+    nome: 'produto-codigo', paraOSite: true,
+    espera: '#codigo-qr svg',
+    url: '/app/?demo=1', largura: 402, altura: 900, limpar: true,
+    recorte: '#folha-codigo .folha-caixa, #folha-codigo', folga: 0,
+    guiao: `for (let i = 0; i < 6; i++) {
+              const b = document.querySelector('#boas-vindas .btn-cheio');
+              if (!b) break;
+              b.click(); await new Promise(r=>setTimeout(r,420));
+            }
+            await new Promise(r=>setTimeout(r,900));
+            document.querySelectorAll('#barra .barra-item')[2].click();
+            await new Promise(r=>setTimeout(r,1400));`,
+  },
 ];
 
 /* --- a correr ------------------------------------------------------------ */
@@ -246,6 +313,7 @@ if (!encontrarChrome()) { console.error('Não encontrei o Chrome.'); process.exi
    fica lá e passa a parecer uma captura desta volta. */
 rmSync(DESTINO, { recursive: true, force: true });
 mkdirSync(DESTINO, { recursive: true });
+mkdirSync(DESTINO_SITE, { recursive: true });
 
 const { enviar, fechar } = await abrirChrome();
 const { targetId, sessionId } = await novoSeparador(enviar);
@@ -277,6 +345,13 @@ for (const ecra of ECRAS) {
       expression: `(async () => { ${ecra.guiao} })()`, awaitPromise: true,
     }, sessionId).catch((e) => console.warn(`  (guião de ${ecra.nome}: ${e.message})`));
     await esperar(450);
+  }
+  /* Depois do guião, e não antes: o guião navega e pinta, e a barra é posta de
+     novo a cada arranque. */
+  if (ecra.paraOSite) {
+    await enviar('Runtime.evaluate', { expression: `(() => { ${SEM_BARRA} })()` }, sessionId)
+      .catch(() => null);
+    await esperar(120);
   }
 
   /* Confirma-se onde é que se está antes de disparar. Uma captura da página
@@ -336,7 +411,8 @@ for (const ecra of ECRAS) {
   const { data } = await enviar('Page.captureScreenshot',
     clip ? { format: 'png', clip, captureBeyondViewport: true } : { format: 'png' },
     sessionId);
-  writeFileSync(join(DESTINO, `${ecra.nome}.png`), Buffer.from(data, 'base64'));
+  writeFileSync(join(ecra.paraOSite ? DESTINO_SITE : DESTINO, `${ecra.nome}.png`),
+    Buffer.from(data, 'base64'));
   console.log(`  ${certo ? ' ' : '✗'} ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}`
     + (certo ? '' : `  (${porque})`));
 }

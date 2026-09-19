@@ -175,6 +175,11 @@ const sim = (valor, onde) => {
 
 const SUBSTITUICOES = {
   '{{BASE}}': BASE,
+  /* O mesmo prefixo, mas como literal de JavaScript. Escrever `'{{BASE}}'` à
+     mão dentro de um script dava a cadeia vazia com domínio próprio — que
+     funciona — e partia-se em silêncio no dia em que o prefixo voltasse a ser
+     `/CarimboDigital`. Sai do JSON.stringify, e é sempre uma cadeia válida. */
+  '{{BASE_JSON}}': JSON.stringify(BASE),
   '{{VERSAO}}': VERSAO,
   /* Escapados pela mesma razão que o título e o resumo: os três vão parar a
      atributos, e o nome e a descrição vêm de um ficheiro de configuração que

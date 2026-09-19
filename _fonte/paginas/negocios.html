@@ -5,7 +5,8 @@ prioridade: 0.8
 classe: pagina-negocios
 ---
 <section class="heroi">
-  <div class="dentro">
+  <div class="dentro heroi-grelha">
+    <div>
     <span class="olho">Para negócios</span>
     <h1 class="chamada">O cartão de papel<br>já fez o que podia.</h1>
     <p class="entrada-texto">
@@ -28,6 +29,25 @@ classe: pagina-negocios
     <p class="heroi-nota">O Carimbo Digital está a abrir devagar, por convite,
       para eu conseguir acompanhar cada negócio que entra. Escreves-me, e
       respondo eu próprio — não há robô nenhum do outro lado.</p>
+    </div>
+    <!-- O ECRÃ VERDADEIRO DO BALCÃO, um segundo depois de carimbar. Não é um
+         desenho nem um ecrã de entrada: é o que o dono do café vai ver, com o
+         nome do cliente por preencher e o «Enganei-me — anular» lá em baixo.
+
+         Esta página não tinha UMA imagem. O site inteiro não tinha: era tudo
+         SVG desenhado, e por isso não havia nada no Google Imagens e nada para
+         mostrar a quem partilha o link.
+
+         `width` e `height` declarados porque sem eles o texto salta quando a
+         imagem chega — e é o primeiro ecrã. Sem `lazy`: está acima da dobra em
+         ecrã largo, e adiar o que se vê é atrasar o que se vê. -->
+    <figure class="heroi-ecra">
+      <img src="{{BASE}}/icones/produto-balcao-carimbado.png"
+           width="804" height="1350" decoding="async"
+           alt="O ecrã do balcão logo a seguir a carimbar: um visto verde,
+                «Carimbado», «8 de 10 · faltam 2», o cartão do café com oito
+                chávenas preenchidas, e um botão para anular.">
+    </figure>
   </div>
 </section>
 
@@ -162,8 +182,9 @@ classe: pagina-negocios
         <div class="pergunta-corpo">
           <p>É difícil. O código do cliente muda a cada 15 segundos, está
              assinado e só serve uma vez — uma fotografia não vale nada. Além
-             disso podes definir um tempo mínimo entre carimbos do mesmo
-             cartão (por omissão, uma hora) e um máximo por dia.</p>
+             disso o mesmo cartão não leva mais de quatro carimbos no mesmo
+             dia, e há uma hora de intervalo entre dois carimbos do mesmo
+             cliente.</p>
           <p>E se te enganares tu, tens dois minutos para anular.</p>
         </div>
       </details>

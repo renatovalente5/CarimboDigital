@@ -131,8 +131,12 @@ function id() {
   return bytesParaHex(crypto.getRandomValues(new Uint8Array(16)));
 }
 
-/* Alfabeto sem 0/O, 1/I/L, 5/S, 8/B: ao balcão estes números são ditos em voz
-   alta e escritos à mão, e cada confusão dessas é um cliente irritado. */
+/* Alfabeto sem 0/O, 1/I, 5/S, 8/B: ao balcão estes números são ditos em voz
+   alta e escritos à mão, e cada confusão dessas é um cliente irritado.
+
+   O `L` ESTÁ CÁ, e o comentário dizia que não. Um agente foi ler a regra ao
+   comentário em vez da constante e escreveu-a errada numa página do site.
+   Um comentário que mente sobre a linha seguinte engana toda a gente. */
 const ALFABETO = '234679ACDEFGHJKLMNPQRTUVWXYZ';
 function publicoNovo(n = 6) {
   const b = crypto.getRandomValues(new Uint8Array(n));
@@ -3691,7 +3695,25 @@ function moradaEnvelheceu(negocio) {
 
 /** Segundos entre dois carimbos no mesmo cartão. Zero é válido: quer dizer
     «sem arrefecimento». Lixo não é, e o tecto é um dia. */
+/**
+ * O intervalo mínimo entre dois carimbos do mesmo cartão, em segundos.
+ *
+ * «NÃO FOI DITO» NÃO É ZERO, e era o que acontecia. `Number(null)` é 0, que é
+ * finito e não é negativo — por isso escapava ao `if` e saía `Math.min(86400,
+ * 0)`. O primeiro cartão de um negócio escapava por sorte, porque a fundação
+ * escreve 3600 à mão; qualquer cartão criado DEPOIS nascia sem arrefecimento
+ * nenhum, e o balcão nunca envia o campo.
+ *
+ * Um cartão sem arrefecimento é um cartão que se carimba dez vezes seguidas
+ * com o telemóvel na mão. A defesa estava escrita, tinha nome, e devolvia o
+ * contrário do que o nome diz.
+ *
+ * Zero continua a valer zero quando é DITO: um negócio que queira carimbar
+ * sem intervalo manda `0`, e isso é uma escolha. O que não pode é o silêncio
+ * ser lido como escolha.
+ */
 function arrefecimentoValido(valor) {
+  if (valor === null || valor === undefined || valor === '') return 3600;
   const n = Number(valor);
   if (!Number.isFinite(n) || n < 0) return 3600;
   return Math.min(86400, Math.round(n));

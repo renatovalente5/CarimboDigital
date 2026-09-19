@@ -38,6 +38,65 @@
 <a class="saltar" href="#principal">Saltar para o conteúdo</a>
 {{CABECALHO}}
 <main id="principal" tabindex="-1">
+<!-- «JÁ ESTOU LÁ DENTRO» — a tira que aparece a quem já usa isto.
+
+     O pedido era «se o cliente estiver com sessão iniciada, abrir a app ao
+     entrar no site». Isso faz-se com um redireccionamento, e um
+     redireccionamento PRENDE: quem tem o balcão aberto no telemóvel nunca mais
+     conseguia LER o site — nem para o mostrar a outro dono de café, que é
+     exactamente o que vai acontecer amanhã. O estudo do Fresha vetou este
+     padrão pelo nome (a «página-garfo»), e com razão.
+
+     Isto faz o mesmo trabalho sem a armadilha: quem já tem sessão vê um
+     atalho, quem não tem não vê nada, e ninguém fica impedido de ler a página.
+
+     O `hidden` leva regra de CSS própria, porque o atributo não esconde nada
+     se alguma folha declarar `display` — já custou tempo neste projecto.
+
+     E o script é SÍNCRONO e está logo a seguir ao elemento: corre durante a
+     análise do documento, antes da primeira pintura, por isso não há salto de
+     disposição. Não vai buscar nada a lado nenhum, não regista nada e não põe
+     nada no armazenamento — só lê duas chaves que as apps já lá puseram. -->
+<aside class="continuar" id="continuar" hidden>
+  <p class="continuar-texto" id="continuar-texto"></p>
+  <span class="continuar-botoes" id="continuar-botoes"></span>
+</aside>
+<script>
+(function () {
+  try {
+    var ler = function (chave) {
+      var v = localStorage.getItem('carimbo:' + chave);
+      return v && v !== 'null' && v !== '""' ? v : null;
+    };
+    var cliente = ler('sessao');
+    var balcao = ler('sessao-balcao');
+    if (!cliente && !balcao) return;
+
+    var tira = document.getElementById('continuar');
+    var botoes = document.getElementById('continuar-botoes');
+    var base = {{BASE_JSON}};
+
+    /* Pelo DOM e não por cadeias de HTML. Não é preciosismo: escrito como
+       texto, um atributo de destino escrito dentro deste script aparecia ao
+       verificador de ligações do auditor como se fosse uma ligação da página,
+       e ele reprovava a publicação nas cinco páginas. */
+    var porta = function (destino, texto, classe) {
+      var a = document.createElement('a');
+      a.className = 'btn btn-pequeno ' + classe;
+      a.setAttribute('href', base + destino);
+      a.textContent = texto;
+      botoes.appendChild(a);
+    };
+    if (balcao) porta('/balcao/', 'Abrir o balcão', 'btn-cheio');
+    if (cliente) porta('/app/', 'Os meus cartões', balcao ? 'btn-contorno' : 'btn-cheio');
+    document.getElementById('continuar-texto').textContent = balcao && cliente
+      ? 'Neste telemóvel já tens o balcão e os teus cartões.'
+      : (balcao ? 'O teu balcão já está aberto neste telemóvel.'
+                : 'Já tens cartões guardados neste telemóvel.');
+    tira.removeAttribute('hidden');
+  } catch (e) { /* armazenamento trancado: a tira fica escondida, e é bem assim */ }
+}());
+</script>
 {{CORPO}}
 </main>
 {{RODAPE}}

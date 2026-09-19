@@ -28,7 +28,12 @@ Três coisas no mesmo repositório:
 | **Balcão** | O leitor de códigos do comerciante | `/balcao/` |
 | **API** | Cloudflare Worker + D1 | `worker/` |
 
-Tudo isto corre a **0 €/mês**. O único custo é o domínio.
+Tudo isto corre a **0 €/mês** nos planos gratuitos da Cloudflare e do GitHub
+Pages. Os custos fixos são dois, e nenhum é mensal: o domínio, e os 99 €/ano da
+conta de programador da Apple — sem ela um cartão não entra na Apple Wallet. A
+frase aqui dizia «o único custo é o domínio», e deixou de ser verdade a 16 de
+Setembro de 2026, no dia em que o passe da Apple entrou. Uma página do site
+copiou-a de cá.
 
 ## Como está feito
 

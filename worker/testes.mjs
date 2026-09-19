@@ -909,6 +909,36 @@ grupo('Rotas do balcão que nunca tinham sido tocadas');
       `objectivo ${JSON.stringify(mau)} acaba dentro de 2..30`, String(o));
   }
 
+  /* --- o segundo cartão nascia sem arrefecimento nenhum ------------------ */
+  {
+    /* O DEFEITO: `arrefecimentoValido(null)` devolvia ZERO, não 3600.
+       `Number(null)` é 0, que é finito e não é negativo — por isso escapava ao
+       `if` que devia apanhar o «não foi dito» e saía `Math.min(86400, 0)`.
+
+       O primeiro cartão de um negócio escapava por sorte: a fundação escreve
+       3600 à mão. Qualquer cartão criado DEPOIS — e o balcão nunca envia o
+       campo — nascia sem intervalo nenhum entre carimbos do mesmo cliente.
+       Ou seja: a defesa contra carimbar dez vezes seguidas estava escrita,
+       tinha nome, e devolvia o contrário do que o nome diz. */
+    const segundo = await pedir('/v1/balcao/programas', { metodo: 'POST', sessao: S,
+      corpo: { nome: 'Cartão do pão', selo: 'bolo', objetivo: 8, premio: 'Um pão' } });
+    const novo = (segundo.dados || []).find((p) => p.nome === 'Cartão do pão');
+    certo(!!novo, 'o segundo cartão é criado (o teste é válido)',
+      JSON.stringify(segundo.dados?.map?.((p) => p.nome)));
+    certo(novo && novo.arrefecimento === 3600,
+      'e nasce com uma hora de intervalo, como o primeiro — não com zero',
+      String(novo && novo.arrefecimento));
+
+    /* E ZERO CONTINUA A VALER ZERO QUANDO É DITO. Um negócio que queira
+       carimbar sem intervalo manda `0`, e isso é uma escolha; o que não pode
+       é o silêncio ser lido como escolha. */
+    const semIntervalo = await pedir('/v1/balcao/programas', { metodo: 'POST', sessao: S,
+      corpo: { id: novo.id, arrefecimento: 0 } });
+    const depois = (semIntervalo.dados || []).find((p) => p.id === novo.id);
+    certo(depois && depois.arrefecimento === 0,
+      'e um zero DITO em voz alta é respeitado', String(depois && depois.arrefecimento));
+  }
+
   /* --- cada balcão vê só o que é seu ------------------------------------ */
   const f2 = await pedir('/v1/balcao/fundar', { metodo: 'POST', corpo: {
     codigo: 'TESTE1', nome: 'Barbearia da Sonda', email: `outro-${Date.now()}@exemplo.pt` } });

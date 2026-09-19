@@ -108,6 +108,32 @@ body.pagina-negocios .porta-app {
   body.pagina-negocios .porta-app:hover    { background: var(--veu); }
 }
 
+/* --- a tira de «já estou lá dentro» -------------------------------------- */
+
+/* O atributo `hidden` não esconde nada se uma folha declarar `display` neste
+   elemento — regra explícita, e a primeira de todas, para o caso de alguém
+   vir a estilizar `.continuar` mais abaixo. */
+.continuar[hidden] { display: none; }
+/* A goteira é a mesma do `.dentro`, senão a tira ia de bordo a bordo enquanto
+   todo o resto da página está recuado — e lia-se como uma coisa colada por
+   cima, não como parte do ecrã. Mede-se a caixa de fora (a largura do
+   `.dentro`) e enche-se por dentro. */
+.continuar {
+  width: 100%;
+  max-width: calc(var(--coluna-larga) - var(--e-5) * 2);
+  margin: var(--e-5) auto 0;
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--e-3) var(--e-4);
+  padding: var(--e-4) var(--e-5);
+  border: 1.5px solid var(--linha-campo);
+  border-radius: var(--r-3);
+  background: var(--papel-2);
+}
+.continuar-texto { flex: 1; min-width: 200px; margin: 0; font-size: .9375rem; }
+.continuar-botoes { display: flex; flex-wrap: wrap; gap: var(--e-2); }
+@media (max-width: 1160px) { .continuar { max-width: calc(100% - var(--e-5) * 2); } }
+@media (max-width: 559px) { .continuar-botoes .btn { flex: 1; } }
+
 /* A linha que responde a uma objecção logo por baixo dos botões do herói.
    Pequena de propósito: não compete com a chamada, e quem a procura
    encontra-a onde a pergunta lhe nasce. */
@@ -153,6 +179,19 @@ body.pagina-negocios .porta-app {
 }
 @media (min-width: 900px) {
   .heroi-grelha { grid-template-columns: 1.05fr .95fr; gap: var(--e-8); }
+}
+
+/* A fotografia do ecrã do balcão, no herói da página de negócios. Limitada
+   em ALTURA e não em largura: é um ecrã de telemóvel, e o que estraga um
+   herói é a imagem empurrar o texto para fora da primeira dobra. */
+.heroi-ecra { margin: 0; display: flex; justify-content: center; }
+.heroi-ecra img {
+  width: auto; height: auto;
+  max-width: min(300px, 78vw);
+  max-height: 62vh;
+  border-radius: var(--r-4);
+  border: 1px solid var(--linha);
+  box-shadow: var(--sombra-3);
 }
 
 .heroi-cartoes {

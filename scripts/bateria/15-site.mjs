@@ -34,7 +34,7 @@
    armazenamento limpo elas param nas boas-vindas, sem tocar na rede.
    ========================================================================= */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,12 +78,25 @@ function cabecalhoDaFonte(ficheiro) {
   return meta;
 }
 
-const PAGINAS = [
-  { rota: '/', fonte: 'inicio.html' },
-  { rota: '/negocios/', fonte: 'negocios.html' },
-  { rota: '/privacidade/', fonte: 'privacidade.html' },
-  { rota: '/termos/', fonte: 'termos.html' },
-].map((p) => ({ ...p, esperado: cabecalhoDaFonte(p.fonte) }));
+/* A LISTA SAI DA PASTA, e não de quatro linhas escritas à mão.
+
+   Estava escrita à mão, e no dia em que entraram quatro páginas novas
+   aconteceram duas coisas: a afirmação do sitemap reprovou («anuncia 4» contra
+   8 reais), e — pior, porque é silencioso — as quatro páginas novas não foram
+   medidas por NADA do que este módulo faz. Canónico, título, descrição,
+   marcadores por resolver, contraste: tudo passava por cima delas.
+
+   Uma lista escrita à mão de coisas que crescem é uma lista que vai ficar
+   incompleta. A 404 fica de fora porque não tem endereço próprio — é a única
+   excepção, e está dita aqui em vez de estar espalhada. */
+const PAGINAS = readdirSync(join(RAIZ, '_fonte', 'paginas'))
+  .filter((f) => f.endsWith('.html') && f !== '404.html')
+  .sort()
+  .map((fonte) => ({
+    fonte,
+    rota: fonte === 'inicio.html' ? '/' : `/${fonte.replace(/\.html$/, '')}/`,
+    esperado: cabecalhoDaFonte(fonte),
+  }));
 
 /* AS PÁGINAS QUE SE MEDEM, que não são as mesmas que se auditam.
 
@@ -614,7 +627,15 @@ export async function correr(palco, certo) {
       `${p.rota}: o cabeçalho tem DUAS portas, uma por audiência`,
       JSON.stringify(portas));
 
-    const negocios = p.rota === '/negocios/';
+    /* A AUDIÊNCIA SAI DA CLASSE DA PÁGINA, e não da rota.
+ 
+       Estava escrito `p.rota === '/negocios/'`, e no dia em que entrou a
+       /precos/ — que é da mesma audiência e declara a mesma classe — a
+       afirmação reprovou duas vezes. O contrato não é «nesta rota»: é «o botão
+       iluminado é o da audiência DESTA página», e quem declara a audiência é o
+       `classe:` do cabeçalho do ficheiro. Ler a rota era ler o sintoma. */
+    const negocios = await palco.js(
+      "return document.body.classList.contains('pagina-negocios')");
     const destinos = portas.map((x) => x.href).join(' ');
     certo(destinos.includes(`${BASE}/app/`),
       `${p.rota}: uma leva à app do cliente`, destinos);
@@ -637,6 +658,50 @@ export async function correr(palco, certo) {
         `${p.rota}: a porta «${porta.texto}» tem alvo de dedo`, `${porta.altura}px`);
     }
   }
+
+  /* --- a tira de «já estou lá dentro» ------------------------------------
+ 
+     O pedido era «se o cliente tiver sessão, abrir a app ao entrar no site».
+     Um redireccionamento PRENDE: quem tem o balcão aberto nunca mais lê o
+     site, nem para o mostrar a outro dono de café. Isto faz o mesmo trabalho
+     sem a armadilha — e as afirmações são as três que importam: não aparece a
+     quem não tem sessão, aparece a quem tem, e NUNCA substitui a página. */
+  await palco.ir('/');
+  await palco.js("try { localStorage.clear(); } catch (e) {}");
+  await palco.ir('/');
+  certo(!(await palco.visivel('#continuar')),
+    'sem sessão nenhuma, a tira de atalho não existe no ecrã',
+    String(await palco.js("const c=document.getElementById('continuar');"
+      + "return c ? getComputedStyle(c).display : 'não há elemento'")));
+
+  for (const caso of [
+    { chave: 'sessao', espera: 'cartões', destino: `${BASE}/app/` },
+    { chave: 'sessao-balcao', espera: 'balcão', destino: `${BASE}/balcao/` },
+  ]) {
+    await palco.js(`try { localStorage.clear();`
+      + ` localStorage.setItem('carimbo:${caso.chave}', '"abc"'); } catch (e) {}`);
+    await palco.ir('/');
+    const tira = await palco.js(`
+      const c = document.getElementById('continuar');
+      if (!c || getComputedStyle(c).display === 'none') return null;
+      return { texto: c.textContent, destinos: [...c.querySelectorAll('a')]
+                 .map((a) => a.getAttribute('href')) };`);
+    certo(!!tira, `com «${caso.chave}», a tira aparece`, JSON.stringify(tira));
+    certo(tira && new RegExp(caso.espera, 'i').test(tira.texto),
+      `com «${caso.chave}», diz o que lá está`, tira ? tira.texto.trim() : '');
+    certo(tira && tira.destinos.includes(caso.destino),
+      `com «${caso.chave}», o atalho leva ao sítio certo`,
+      tira ? tira.destinos.join(' · ') : '');
+    /* A PÁGINA CONTINUA LÁ. Se um dia alguém trocar isto por um
+       `location.href`, esta afirmação cai — e é a que interessa. */
+    certo(await palco.js('return location.pathname') === `${BASE}/`,
+      `com «${caso.chave}», o site NÃO redirecciona — a página continua a ser lida`,
+      String(await palco.js('return location.pathname')));
+    certo(await palco.visivel('.heroi h1'),
+      `com «${caso.chave}», o herói continua no ecrã`);
+  }
+  await palco.js("try { localStorage.clear(); } catch (e) {}");
+  await palco.ir('/');
 
   /* E ÀS LARGURAS QUE INTERESSAM. A promessa é que as duas portas estão SEMPRE
      lá — o que cede são as palavras acessórias, nunca as portas. */

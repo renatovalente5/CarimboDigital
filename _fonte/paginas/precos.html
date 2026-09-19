@@ -1,0 +1,406 @@
+---
+titulo: Preços: um cartão de fidelidade grátis — Carimbo Digital
+resumo: Quanto custa o Carimbo Digital: nada, dos dois lados. Porque é gratuito, o que acontece se um dia deixar de ser, e os limites que existem mesmo.
+prioridade: 0.7
+classe: pagina-negocios
+---
+<!-- /precos/ — A PÁGINA DO ARGUMENTO, e não um cartaz de saldos.
+
+     O preço já estava na /negocios/, em segunda secção. Esta página existe
+     por duas razões que aquela não podia cumprir sem se desfocar:
+
+     · «cartão fidelidade digital grátis», «criar cartão fidelidade digital
+       grátis» e «app cartão fidelidade grátis» são três pesquisas com
+       sugestão directa no autocomplete (ver SEO.md). Um fragmento — a
+       secção #preco da /negocios/ — não pode ser resultado de pesquisa por
+       si próprio.
+     · «Grátis» sem explicação lê-se como «vais pagar depois» ou «o produto
+       és tu». A secção que responde a isso não cabia lá dentro, e é a que
+       vale mais do que tudo o resto junto.
+
+     A `classe: pagina-negocios` é a mesma da /negocios/: quem chega aqui está
+     a decidir se põe isto no balcão, e a barra de cima passa a ter o balcão
+     como porta cheia em vez da app do cliente. -->
+<section class="heroi">
+  <div class="dentro">
+    <span class="olho">Quanto custa</span>
+    <h1 class="chamada">Custa zero.<br>E a conta está toda aqui.</h1>
+    <p class="entrada-texto">
+      Um cartão de fidelidade digital, grátis para o negócio e grátis para o
+      cliente. Sem mensalidade, sem instalação, sem período experimental a
+      contar para trás e sem cartão de crédito — nem agora nem depois. Não há
+      publicidade nem venda de dados, que é a outra maneira de uma coisa
+      «grátis» se pagar.
+    </p>
+    <p class="entrada-texto">
+      Esta página diz-te de onde vem o dinheiro que isto não custa, o que
+      acontece se um dia deixar de chegar, e os limites que existem — antes de
+      os descobrires sozinho.
+    </p>
+    <div class="botoes">
+      <a class="btn btn-cheio btn-grande" href="mailto:{{CONTACTO}}?subject=Quero%20um%20convite%20para%20o%20Carimbo%20Digital">Pedir um convite</a>
+      <a class="btn btn-contorno btn-grande" href="{{BASE}}/balcao/">Já tenho um código</a>
+    </div>
+    <p class="heroi-nota">O Carimbo Digital está a abrir devagar, por convite,
+      para eu conseguir acompanhar cada negócio que entra. Ser por convite não
+      tem nada a ver com o preço: o convite também não se paga.</p>
+  </div>
+</section>
+
+<section class="faixa" id="comparacao">
+  <div class="dentro">
+    <span class="olho">A comparação</span>
+    <!-- O TÍTULO NÃO DIZ «A PARTIR DE 29 €», e a tentação era essa. Uma das
+         plataformas aqui em baixo tem mesmo um plano a 0 €; anunciar um piso
+         de 29 € com o contraditório três centímetros abaixo é a costura que
+         este site já apanhou uma vez nos «50 € por mês». O título fala do que
+         é verdade para todas: cobram por estabelecimento, e todos os meses. -->
+    <h2 class="seccao-titulo-grande">Cobram por estabelecimento.<br>E cobram todos os meses.</h2>
+    <p class="entrada-texto">
+      As plataformas de fidelização fazem o que isto faz — e algumas fazem
+      mais. Quase todas cobram desde o primeiro dia, e várias pedem uma
+      instalação à parte antes de sequer se saber se aquilo serve.
+    </p>
+    <div class="preco">
+      <div class="preco-caixa">
+        <div class="preco-rotulo">Plataformas de fidelização</div>
+        <div class="preco-valor">14,99–199 €<small> / mês</small></div>
+        <!-- DATADO E COM ÂMBITO, como na /negocios/. É uma comparação com
+             concorrentes reais num site comercial: sem a data e sem o âmbito
+             é indefensável ao abrigo do DL 57/2008, que os nossos próprios
+             termos citam. Os números estão destrinçados nas três caixas
+             abaixo, com o nome de cada um — rever de seis em seis meses. -->
+        <p class="preco-nota">Preços públicos dos planos PAGOS de quatro
+           plataformas de fidelização que vendem em Portugal, para um só
+           estabelecimento, consultados em setembro de 2026. Uma delas tem
+           também um plano gratuito, preso a um cartão e a um
+           estabelecimento.</p>
+        <div class="preco-lista">
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>Mensalidade desde o primeiro dia</span></div>
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>200 € de instalação, em vários planos</span></div>
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>O plano gratuito, onde existe, dá um cartão e um estabelecimento</span></div>
+        </div>
+      </div>
+      <div class="preco-caixa" data-nosso="sim">
+        <div class="preco-rotulo">Carimbo Digital</div>
+        <div class="preco-valor">0 €<small> / sempre</small></div>
+        <p class="preco-nota">Sem mensalidade, sem instalação e sem cartão de
+           crédito. Clientes, carimbos e prémios sem limite.</p>
+        <!-- AS DUAS ÚLTIMAS LINHAS SÃO NOSSAS E SÃO CRUZES.
+
+             Uma comparação que só admite defeitos do outro lado não aguenta
+             escrutínio nenhum. Estas duas são verificáveis no repositório:
+             não há uma única rota de campanha (só quatro emails, todos
+             transaccionais) e não há exportação de clientes para o negócio.
+             Quando houver, mudam-se. -->
+        <div class="preco-lista">
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Clientes, carimbos e prémios sem limite</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Cartaz para o balcão, pronto a imprimir</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Cartão na Apple Wallet e na Carteira do Google</span></div>
+          <div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4.5 12.5 5 5 10-11"/></svg><span>Até dez pessoas a carimbar, cada uma no seu telemóvel</span></div>
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>Campanhas por email ou SMS — não faço nenhuma</span></div>
+          <div class="nao"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>Exportar a lista de clientes — hoje não dá</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grelha-3">
+      <div class="tijolo">
+        <h3>Fidelize.pt</h3>
+        <p>29, 49, 99 e 199 € por mês, conforme o plano. Todos levam mais
+           200 € de instalação, pagos uma vez — menos o plano de topo.</p>
+      </div>
+      <div class="tijolo">
+        <h3>Loyal.pt</h3>
+        <p>Tem um plano a 0 €, e é justo dizê-lo em voz alta: é a comparação
+           mais dura que há para mim. Só que o plano gratuito dá um cartão e
+           um estabelecimento; a seguir são 29 € e 59 € por mês.</p>
+      </div>
+      <div class="tijolo">
+        <h3>E uma terceira</h3>
+        <!-- A FÓRMULA VEM DA /negocios/, à letra, e não se mexe: é a frase
+             que já foi escrita para ser defensável, e esta é a plataforma que
+             o site nunca nomeou. E não se escreve «50 € por mês» — quatro
+             semanas não são um mês, são treze pagamentos por ano, e essa
+             costura já foi apanhada uma vez. -->
+        <p>Preço público de uma das maiores plataformas de fidelização em
+           Portugal, para um só estabelecimento, consultado em setembro de
+           2026. Cerca de 650 € por ano — 49,95 € por cada quatro semanas,
+           que são treze pagamentos e não doze.</p>
+      </div>
+    </div>
+
+    <p class="entrada-texto miudo">
+      Os valores são os que cada plataforma publica no seu site, para um só
+      estabelecimento, consultados em setembro de 2026. Nem todas dizem se o
+      IVA está incluído. Revejo isto de seis em seis meses — uma comparação
+      desactualizada é pior do que nenhuma —, e se encontrares um número
+      errado escreve-me que eu corrijo.
+    </p>
+  </div>
+</section>
+
+<section class="faixa faixa-recuada" id="porque">
+  <div class="dentro">
+    <span class="olho">O senão</span>
+    <h2 class="seccao-titulo-grande">Porque é que isto é grátis.</h2>
+    <p class="entrada-texto">
+      A pergunta certa não é «é grátis?» — é «então quem paga?». A resposta é
+      que quase ninguém paga nada, porque isto custa quase nada a manter.
+    </p>
+    <div class="grelha-3">
+      <div class="tijolo">
+        <h3>Corre em planos gratuitos</h3>
+        <p>O site está no GitHub Pages. A parte que carimba é um Worker da
+           Cloudflare, com a base de dados ao lado, na União Europeia. Os três
+           têm planos gratuitos, e isto cabe lá dentro com folga.</p>
+      </div>
+      <div class="tijolo">
+        <h3>Não há nada para vender</h3>
+        <p>Sem publicidade, sem rastreio, sem cookies e sem dados à venda. Não
+           peço nome, telefone nem morada ao cliente — não tenho sequer o que
+           seria preciso para montar esse negócio.</p>
+      </div>
+      <div class="tijolo">
+        <h3>É uma pessoa, não uma empresa</h3>
+        <p>Não há escritório, não há equipa comercial e não há investidores à
+           espera de retorno. Os custos fixos são dois: o domínio e os 99 € por
+           ano da conta de programador da Apple, sem a qual um cartão não entra
+           na Apple Wallet.</p>
+      </div>
+    </div>
+    <p class="entrada-texto">
+      Os números, para não ficar pela palavra: o plano gratuito da Cloudflare
+      dá 100 000 pedidos por dia e 100 000 escritas por dia na base de dados.
+      Um carimbo escreve três linhas — dá cerca de <strong>30 000 carimbos por
+      dia</strong>. O GitHub Pages dá 100 GB de tráfego por mês, que um site
+      sem uma única imagem de fora não gasta. O email só serve para entrar e
+      recuperar contas, e por isso conta-se aos poucos por dia.
+    </p>
+  </div>
+</section>
+
+<section class="faixa" id="senao">
+  <div class="dentro">
+    <span class="olho">A pergunta a sério</span>
+    <h2 class="seccao-titulo-grande">E se um dia deixar de chegar?</h2>
+    <p class="entrada-texto">
+      Trinta mil carimbos por dia é muito mais do que isto vai ver tão cedo.
+      Mas a pergunta merece resposta escrita, e não um encolher de ombros —
+      até porque desde 1 de setembro de 2026 os limites do plano gratuito da
+      base de dados passaram a ser impostos a sério: passado o tecto, as
+      consultas falham até à meia-noite UTC.
+    </p>
+    <p class="entrada-texto">
+      <strong>Primeiro:</strong> o plano pago dos Workers custa cinco dólares
+      por mês. Se um dia for preciso, não é um problema de negócio — é uma
+      factura de café.
+    </p>
+    <p class="entrada-texto">
+      <strong>Segundo:</strong> se algum dia houver coisas pagas, serão
+      funcionalidades extra para negócios, nunca o cartão de quem o usa como
+      cliente. Não é uma intenção minha dita de passagem numa página: está
+      escrita no ponto 3 dos termos, que se leem antes de aderir.
+    </p>
+    <p class="entrada-texto">
+      <strong>Terceiro:</strong> o que não vai acontecer é a saída habitual —
+      passar a vender os dados dos teus clientes ou encher a app de
+      publicidade. Não recolho o que seria preciso para isso, e isso não se
+      muda com uma decisão de negócio: muda-se recomeçando a pedir dados que
+      hoje não peço a ninguém.
+    </p>
+    <div class="caixa-aviso">
+      <p>Dos termos, ponto 3: «Se um dia passarem a existir funcionalidades
+        pagas, serão sempre opcionais e claramente identificadas antes de
+        qualquer cobrança. O cartão de quem usa o Carimbo Digital como cliente
+        será sempre gratuito.» Está em <a class="ligacao" href="{{BASE}}/termos/">termos
+        de utilização</a>, e a <a class="ligacao" href="{{BASE}}/privacidade/">política
+        de privacidade</a> diz, com nomes, quem toca nos dados.</p>
+    </div>
+  </div>
+</section>
+
+<section class="faixa faixa-recuada" id="limites">
+  <div class="dentro">
+    <span class="olho">Sem letra pequena</span>
+    <h2 class="seccao-titulo-grande">Os limites, ditos à partida.</h2>
+    <p class="entrada-texto">
+      Um limite descoberto ao terceiro mês é pior do que um limite dito na
+      página dos preços. Estes são todos os que existem hoje, e saem do código
+      e não de um plano comercial.
+    </p>
+    <div class="grelha-3">
+      <div class="tijolo">
+        <h3>Sem limite nenhum</h3>
+        <p>Clientes, carimbos e prémios. Não há tecto, não há escalão, não há
+           nada que suba de preço quando chegares aos mil. E nem os carimbos
+           nem os prémios ganhos têm prazo de validade.</p>
+      </div>
+      <div class="tijolo">
+        <h3>Com tecto</h3>
+        <p>Até 12 cartões diferentes no mesmo negócio. Até 10 pessoas a
+           carimbar, cada uma com o email dela. Um cartão vai de 2 a 30 casas.
+           O logótipo até 256 KB, já reduzido pelo próprio balcão.</p>
+      </div>
+      <div class="tijolo">
+        <h3>Travas contra o abuso</h3>
+        <p>O código do cliente vive 15 segundos e só serve uma vez. O mesmo
+           cartão não leva mais de quatro carimbos no mesmo dia, e por omissão
+           passa uma hora entre dois. Enganaste-te? Tens dois minutos para
+           anular.</p>
+      </div>
+    </div>
+    <p class="entrada-texto">
+      Mais três coisas que só se notam com o uso. A lista de clientes no
+      balcão mostra os 300 mais recentes e o histórico de um cartão mostra os
+      últimos 100 movimentos — os dados estão lá todos, o que está limitado é
+      o que cabe no ecrã. A lista pública do «Descobrir» mostra até 200
+      negócios. E há uma trava de 60 cartões novos por hora vindos da mesma
+      ligação à internet: num dia normal nunca lá chegas, numa inauguração com
+      toda a gente no wi-fi da casa, talvez.
+    </p>
+    <p class="entrada-texto">
+      Um negócio é um estabelecimento. Uma cadeia com três lojas são três
+      balcões, cada um com o seu cartão e a sua lista — e continua a não
+      custar nada.
+    </p>
+  </div>
+</section>
+
+<section class="faixa" id="papel">
+  <div class="dentro">
+    <span class="olho">A comparação que ninguém faz</span>
+    <h2 class="seccao-titulo-grande">E quanto custa o cartão de papel?</h2>
+    <p class="entrada-texto">
+      «Cêntimos», costuma ser a resposta. Vale a pena fazer a conta, porque o
+      papel é a única coisa com que isto compete a sério.
+    </p>
+    <div class="grelha-2">
+      <div class="tijolo">
+        <h3>O que se compra uma vez</h3>
+        <p>Um carimbo de fidelização automático custava entre 12,53 € e
+           53,49 € numa loja online que vende em Portugal, e 13,49 € noutra.
+           Mais a almofada de tinta, que seca e se volta a comprar.</p>
+      </div>
+      <div class="tijolo">
+        <h3>O que se compra outra vez, e outra</h3>
+        <p>Um kit com carimbo automático e 100 cartões custava 33,95 €. Cem
+           cartões acabam — e quando acabam, a encomenda repete-se, com o
+           mesmo desenho ou com o desenho que já não corresponde ao prémio que
+           mudaste entretanto.</p>
+      </div>
+    </div>
+    <p class="entrada-texto">
+      A conta que não aparece na factura é a outra: o cartão que o cliente
+      perde a meio custa duas vezes — o papel, e os carimbos que ele já lá
+      tinha e que não voltam. No fim do ano, nenhum destes cartões te diz
+      quantas pessoas chegaram ao prémio, quantas ficaram a dois e quantas
+      deixaram de aparecer.
+    </p>
+    <p class="entrada-texto miudo">
+      Preços consultados em setembro de 2026 em lojas online de impressão que
+      vendem em Portugal, para encomendas avulso: «Carimbos
+      para cartões de fidelização», 13,49 €; «Carimbo Fidelização»,
+      12,53–53,49 €; «Kit Completo de Fidelização — Carimbo Automático + 100
+      Cartões», 33,95 €.
+    </p>
+  </div>
+</section>
+
+<section class="faixa faixa-recuada" id="perguntas">
+  <div class="dentro estreito">
+    <span class="olho">Perguntas</span>
+    <h2 class="seccao-titulo-grande">O que se costuma perguntar a seguir.</h2>
+    <div style="margin-top:32px">
+      <details class="pergunta">
+        <summary>Tenho de dar o cartão de crédito?</summary>
+        <div class="pergunta-corpo">
+          <p>Não, e não é por simpatia: não há onde o pôr. O Carimbo Digital
+             não tem pagamentos, não tem carrinho, não tem página de compra e
+             não fala com nenhum sistema de pagamentos. Não existe no código
+             uma linha que aceite um número de cartão.</p>
+        </div>
+      </details>
+      <details class="pergunta">
+        <summary>É grátis durante quanto tempo?</summary>
+        <div class="pergunta-corpo">
+          <p>Não há período experimental, porque não há nada que acabe. Não há
+             uma data marcada no calendário nem um contador a correr. Se um
+             dia existirem funcionalidades pagas, serão opcionais e ditas
+             antes de qualquer cobrança — está nos termos, ponto 3.</p>
+        </div>
+      </details>
+      <details class="pergunta">
+        <summary>Porque é que é por convite, se é grátis?</summary>
+        <div class="pergunta-corpo">
+          <p>Porque quem responde a cada negócio que entra sou eu. Abrir a
+             porta a toda a gente de uma vez era prometer um acompanhamento
+             que não consigo dar — e no primeiro mês é exactamente disso que
+             um balcão precisa. Escreves-me a dizer que negócio tens e onde,
+             e mando-te um código.</p>
+        </div>
+      </details>
+      <details class="pergunta">
+        <summary>Que negócios é que já usam isto?</summary>
+        <div class="pergunta-corpo">
+          <p>Neste momento há <strong>um</strong> negócio a usar o Carimbo
+             Digital todos os dias. É um só — e é melhor dizê-lo do que fingir
+             que são cem.</p>
+        </div>
+      </details>
+      <details class="pergunta">
+        <summary>Se eu sair, levo a minha lista de clientes?</summary>
+        <div class="pergunta-corpo">
+          <p>Hoje não levas, e prefiro dizê-lo aqui do que deixar que
+             descubras mais tarde: não há exportação da lista de clientes para
+             o negócio. Vês tudo no balcão, mas não há um botão que te dê um
+             ficheiro.</p>
+          <p>Do lado do cliente existe: cada pessoa descarrega tudo o que há
+             sobre ela, num ficheiro, a partir do perfil — é o artigo 20.º do
+             RGPD e está feito. Se a exportação do lado do negócio for
+             decisiva para ti, diz-mo antes de entrares.</p>
+        </div>
+      </details>
+      <details class="pergunta">
+        <summary>Quem me responde às nove da manhã de um sábado?</summary>
+        <div class="pergunta-corpo">
+          <p>Eu, quando acordar. Não há linha de apoio, não há turno de
+             fim-de-semana e não há robô a fingir que é gente. Escreves para
+             <a class="ligacao" href="mailto:{{CONTACTO}}">{{CONTACTO}}</a> e
+             responde uma pessoa — mas não te prometo minutos, prometo-te que
+             é sempre a mesma pessoa.</p>
+        </div>
+      </details>
+      <details class="pergunta">
+        <summary>Isto ainda existe daqui a um ano?</summary>
+        <div class="pergunta-corpo">
+          <p>Não te sei prometer o futuro, e desconfia de quem to prometer. O
+             que te posso mostrar é a conta: isto corre em planos gratuitos e
+             os custos fixos são o domínio e os 99 € por ano da Apple, por isso
+             não há nenhuma factura a pressionar-me a desligar seja o que
+             for.</p>
+          <p>E há uma coisa que vale a pena dizer em voz alta: o Carimbo
+             Digital não é parte no teu programa de fidelização. Quem promete
+             o décimo café és tu, e é a ti que o cliente o pede — está nos
+             termos, ponto 2. Se isto desaparecesse amanhã, o programa
+             continuava a ser teu; o que perdias era a contagem.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="faixa">
+  <div class="dentro">
+    <div class="apelo">
+      <h2>Zero euros é fácil de decidir.</h2>
+      <p>Escreves-me a dizer que negócio tens e onde, e eu mando-te um código.
+         Não há formulário de dez campos, não há comercial a ligar, e não
+         pedimos cartão de crédito — nem agora nem depois.</p>
+      <div class="botoes">
+        <a class="btn btn-cheio btn-grande" href="mailto:{{CONTACTO}}?subject=Quero%20um%20convite%20para%20o%20Carimbo%20Digital">Pedir um convite</a>
+        <a class="btn btn-contorno btn-grande" href="{{BASE}}/negocios/">O que muda no balcão</a>
+      </div>
+    </div>
+  </div>
+</section>

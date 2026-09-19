@@ -67,9 +67,24 @@ console.log('Marcadores');
    do que um com dez e nenhuma. */
 console.log('\nLigações');
 {
+  /* COMENTÁRIOS E SCRIPTS FORA, antes de procurar ligações.
+
+     Esta busca é um `matchAll` sobre o ficheiro inteiro, e apanhava duas
+     coisas que não são ligações: um destino escrito dentro de um comentário —
+     um comentário que EXPLIQUE uma ligação passa a reprovar a publicação — e
+     um destino montado dentro de um `<script>`, que não é um endereço, é
+     código. As duas aconteceram no mesmo dia.
+
+     Deitar fora um destino comentado é o que se quer: um endereço dentro de um
+     comentário não leva ninguém a lado nenhum, e portanto não pode estar
+     morto. */
+  const semComentariosNemScripts = (html) => html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '');
+
   let mortas = 0, total = 0;
   for (const pagina of paginas) {
-    const texto = readFileSync(pagina, 'utf8');
+    const texto = semComentariosNemScripts(readFileSync(pagina, 'utf8'));
     const daPagina = '/' + dirname(pagina.slice(SAIDA.length + 1));
     for (const m of texto.matchAll(/(?:href|src)="([^"]+)"/g)) {
       let alvo = m[1];

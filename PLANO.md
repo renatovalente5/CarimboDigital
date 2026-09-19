@@ -29,7 +29,7 @@ O mercado existe e já tem gente. O que não tem é ninguém a fazê-lo de graç
 | Stamp Me | Austrália | 49–199 $/mês |
 | Loyty | Portugal | sem preços públicos; site parado desde 2014 |
 
-Nenhum tem plano gratuito permanente. Um café que queira experimentar tem de
+Só um tem plano gratuito permanente, e preso a um cartão e a um estabelecimento (Loyal.pt, conferido em setembro de 2026). Um café que queira experimentar tem de
 assinar antes de saber se serve.
 
 **A abertura é essa.** Um café em Ovar não vai pagar 650 € por ano para
@@ -492,7 +492,7 @@ Depois disto a base tem: um negócio, um programa, dois cartões, duas contas.
 > E um aviso que não é defeito nenhum: o programa do Titi tem **arrefecimento
 > de uma hora** e **máximo de quatro carimbos por dia**. Um cliente que passe
 > duas vezes na mesma hora é recusado, e a frase que aparece diz-lhe porquê.
-> É uma decisão do negócio, e muda-se nas definições do balcão.
+> É uma decisão do negócio, e muda-se na base de dados: o balcão ainda NÃO tem campo para nenhum dos dois, e três páginas do site tiveram de contornar esta frase depois de ela ter sido copiada para lá.
 
 ### O login
 
