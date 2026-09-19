@@ -33,7 +33,7 @@ import {
   construirPasse, passeDeCartao, certificadosDoPEM, emissorESerie, doPEM,
   validadeDoCertificado,
 } from './pkpass.js';
-import { faixaDeCartao, APPLE_STRIP } from './faixa.js';
+import { faixaDeCartao, APPLE_STRIP, GOOGLE_HERO } from './faixa.js';
 import * as SELOS from './selos-mapa.js';
 import { enviarPush, pushPronto } from './push.js';
 
@@ -3896,6 +3896,80 @@ const origemDaAPI = (pedido) => new URL(pedido.url).origin;
  * A versão vem do `logotipo_em`, que já existia para isto e muda a cada
  * gravação. Os traços e os dois-pontos saem porque não acrescentam nada.
  */
+/* =========================================================================
+   A faixa, servida à Carteira da Google
+
+   A GOOGLE NÃO RECEBE BYTES: recebe um ENDEREÇO, vai lá uma vez, e guarda a
+   cópia para sempre. Já se mediu neste projecto com o logótipo do Titi — mudou
+   na base, a classe foi recriada, e a cópia em `lh3.googleusercontent.com`
+   continuou a ser a antiga. Só um endereço DIFERENTE a obriga a ir buscar
+   outra vez. Por isso o saldo vai DENTRO do endereço, e não numa query: um
+   endereço que descreve o seu próprio conteúdo pode responder `immutable` sem
+   mentir.
+
+   O ENDEREÇO DESCREVE O DESENHO, NÃO A PESSOA. Duas pessoas com sete carimbos
+   no mesmo café partilham o mesmo endereço, byte a byte — e por isso o
+   endereço não diz nada sobre ninguém. São no máximo `objetivo + 1` endereços
+   por programa.
+
+   E VAI ASSINADO. Desenhar custa milissegundos de CPU e a rota é aberta: sem
+   selo, qualquer pessoa podia percorrer o espaço de endereços e gastar os
+   100 000 pedidos diários do plano gratuito, que são partilhados com a API
+   toda. O selo é um HMAC do próprio caminho com a chave-mestra — continua
+   determinista, que é o que a cache da Google precisa.
+   ========================================================================= */
+
+/* As únicas medidas que se servem. Uma LISTA e não um intervalo: sem isto,
+   um pedido de 4000×4000 era um pedido de 48 MB de memória e de muito mais
+   CPU do que o tecto. */
+const FAIXAS_MEDIDAS = new Set([
+  `${GOOGLE_HERO.largura}x${GOOGLE_HERO.altura}`,
+  `${APPLE_STRIP.largura * 2}x${APPLE_STRIP.altura * 2}`,
+]);
+
+async function seloDaFaixa(env, caminho) {
+  return base64url(await hmac(deBase64url(env.CHAVE_MESTRA), `faixa:${caminho}`)).slice(0, 12);
+}
+
+/**
+ * O endereço da faixa de um cartão.
+ *
+ * NOS PONTOS VAI A PERCENTAGEM, e não o número. Um programa que dê um ponto
+ * por euro gerava milhares de endereços distintos — e a barra só precisa de
+ * posições relativas. São 101 posições, e quem quer o número lê-o no
+ * `loyaltyPoints.balance`, que é texto a sério.
+ *
+ * E VAI O SELO. A Apple leva-o (`selo: prog.selo`) e este endereço não o
+ * levava: o cartão da Google ficava com a chávena por omissão enquanto o da
+ * Apple tinha a tesoura do barbeiro. O mesmo cartão com dois desenhos em duas
+ * carteiras é o género de diferença que ninguém repara a escrever e toda a
+ * gente repara a usar.
+ */
+async function enderecoDaFaixa(env, { cor, tipo, selo, feitos, objetivo, marcos }, origemAPI, medida) {
+  if (!origemAPI) return null;
+  const hex = /^#([0-9a-fA-F]{6})$/.test(String(cor || '')) ? String(cor).slice(1) : '17161C';
+  /* O selo é validado contra a lista dos que existem: ele vai num caminho, e
+     um caminho que aceite qualquer cadeia é um caminho por onde entra lixo. */
+  const nomeSelo = SELOS.SELOS_NOMES.includes(String(selo)) ? String(selo) : 'carimbo';
+  let desenho;
+  if (tipo === 'pontos') {
+    const lista = (marcos || [])
+      .map((m) => Number(m && typeof m === 'object' ? m.pontos : m) || 0)
+      .filter((v) => v > 0).sort((a, b) => a - b);
+    if (!lista.length) return null;
+    const alto = lista[lista.length - 1];
+    const pct = Math.max(0, Math.min(100, Math.round((Number(feitos) || 0) * 100 / alto)));
+    const pos = lista.map((m) => Math.round(m * 100 / alto)).join('.');
+    desenho = `p-${hex}-${pct}-${pos}-x`;
+  } else {
+    const obj = Math.max(1, Math.min(60, Number(objetivo) || 10));
+    const f = Math.max(0, Math.min(obj, Number(feitos) || 0));
+    desenho = `c-${hex}-${f}-${obj}-${nomeSelo}`;
+  }
+  const corpo = `${desenho}-${medida}`;
+  return `${origemAPI}/v1/faixa/${corpo}-${await seloDaFaixa(env, corpo)}.png`;
+}
+
 function enderecoDoLogotipo(negocio, origemAPI) {
   if (!negocio || !negocio.logotipo) return null;
   const base = `${origemAPI}/v1/negocio/${negocio.slug}/logotipo`;
@@ -4177,6 +4251,54 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido, _p, ctx) => {
 /* Aberta, de propósito: é este endereço que vai dentro do passe da Wallet, e
    quem o abre é a Google e o telemóvel de quem tiver o cartão. Não há aqui
    nada de privado — é a marca de um estabelecimento, que está na montra. */
+/* A faixa em si. Aberta e assinada — ver o comentário do `enderecoDaFaixa`. */
+/* A CLASSE ACEITA MAIÚSCULAS E `_`, e a primeira versão não aceitava.
+   O endereço leva o hexadecimal da cor (`EE9125`) e um selo em base64url, que
+   usa o alfabeto inteiro mais `-` e `_`. Com `[a-z0-9.-]` o caminho nunca
+   casava, a rota nem era chamada, e o que se via era um 404 — igual ao 404 de
+   um selo errado. Ou seja: as afirmações de RECUSA passavam todas, e teria
+   ficado convencido de que a rota estava provada. Foi a afirmação de SUCESSO
+   que a apanhou. */
+rota('GET', /^\/v1\/faixa\/([A-Za-z0-9._-]{1,140})\.png$/, async (env, pedido, [nome]) => {
+  const corte = nome.lastIndexOf('-');
+  const corpo = nome.slice(0, corte);
+  const selo = nome.slice(corte + 1);
+
+  /* COMPARAÇÃO EM TEMPO CONSTANTE, como a do bilhete do passe. Um `===` sobre
+     um HMAC vaza o tamanho do prefixo certo pelo tempo que demora a falhar. */
+  const esperado = await seloDaFaixa(env, corpo);
+  if (selo.length !== esperado.length) throw new Falha('Não existe', { estado: 404 });
+  let diferenca = 0;
+  for (let i = 0; i < selo.length; i += 1) {
+    diferenca |= selo.charCodeAt(i) ^ esperado.charCodeAt(i);
+  }
+  if (diferenca) throw new Falha('Não existe', { estado: 404 });
+
+  const p = /^([cp])-([0-9a-fA-F]{6})-(\d{1,5})-([\d.]{1,40}|\d{1,3})-([a-z]{1,12})-(\d{2,4}x\d{2,4})$/.exec(corpo);
+  if (!p || !FAIXAS_MEDIDAS.has(p[6])) throw new Falha('Não existe', { estado: 404 });
+  const [largura, altura] = p[6].split('x').map(Number);
+  const feitos = Number(p[3]);
+  const args = p[1] === 'p'
+    ? { tipo: 'pontos', feitos,
+        marcos: p[4].split('.').slice(0, 8).map((v) => ({ pontos: Number(v) })) }
+    : { tipo: 'carimbos', feitos, objetivo: Number(p[4]), selo: p[5] };
+  if (p[1] === 'c' && (args.objetivo < 1 || args.objetivo > 60 || feitos > args.objetivo)) {
+    throw new Falha('Não existe', { estado: 404 });
+  }
+
+  const { bytes } = await faixaDeCartao({ cor: `#${p[2]}`, largura, altura, selos: SELOS, ...args });
+  return new Response(bytes, {
+    headers: {
+      'content-type': 'image/png',
+      /* O ENDEREÇO CONTÉM O ESTADO, por isso o que está por trás dele nunca
+         muda. O `immutable` aqui é a verdade e não uma optimização — e é
+         justamente o que impede a Google de servir a faixa de ontem depois de
+         o saldo mudar, porque amanhã o endereço é outro. */
+      'cache-control': 'public, max-age=31536000, immutable',
+    },
+  });
+});
+
 rota('GET', /^\/v1\/negocio\/([a-z0-9-]{1,40})\/logotipo$/, async (env, pedido, [slug]) => {
   const n = await env.DB.prepare(
     "SELECT logotipo FROM negocios WHERE slug = ? AND estado = 'ativo'"

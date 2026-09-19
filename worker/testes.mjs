@@ -325,6 +325,58 @@ grupo('Defesas');
     'e a frase diz a palavra, para o balcão a poder ler ao cliente', demo.dados.erro);
 }
 
+grupo('A faixa servida à Google');
+{
+  /* A rota é ABERTA — a Google não leva cabeçalho nenhum — e desenha uma
+     imagem, que custa CPU. Tudo o que a protege é o selo no fim do nome. */
+  const r404 = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-750x288-lixolixolixo.png`);
+  certo(r404.status === 404,
+    'um endereço de faixa com o selo errado não desenha nada', String(r404.status));
+
+  const semSelo = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-750x288.png`);
+  certo(semSelo.status === 404,
+    'e um endereço sem selo nenhum também não', String(semSelo.status));
+
+  /* E AGORA A QUE FALTAVA: que um endereço BEM assinado serve mesmo a imagem.
+
+     As três acima são todas recusas — uma rota que devolvesse 404 a tudo
+     passava nas três, e eu teria ficado convencido de que a tinha provado. A
+     chave-mestra é sorteada a cada corrida e escrita no `.dev.vars`; lê-se de
+     lá e calcula-se o selo exactamente como o Worker o calcula. */
+  const { readFileSync: lerFicheiro } = await import('node:fs');
+  const chaveMestra = (lerFicheiro(join(AQUI, '.dev.vars'), 'utf8')
+    .match(/^CHAVE_MESTRA=(.+)$/m) || [])[1];
+  certo(!!chaveMestra, 'a chave-mestra lê-se do .dev.vars (senão o resto não prova nada)');
+
+  const paraBytes = (b64) => Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  const selar = (caminho) => createHmac('sha256', paraBytes(chaveMestra))
+    .update(`faixa:${caminho}`).digest('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 12);
+
+  const corpo = 'c-EE9125-7-10-tesoura-750x288';
+  const boa = await fetch(`${BASE}/v1/faixa/${corpo}-${selar(corpo)}.png`);
+  certo(boa.status === 200 && boa.headers.get('content-type') === 'image/png',
+    'um endereço BEM assinado serve a faixa',
+    `${boa.status} ${boa.headers.get('content-type')}`);
+  certo((boa.headers.get('cache-control') || '').includes('immutable'),
+    'e diz que nunca muda — o endereço contém o estado, por isso é verdade',
+    String(boa.headers.get('cache-control')));
+
+  const desenhada = Buffer.from(await boa.arrayBuffer());
+  certo(desenhada.readUInt32BE(16) === 750 && desenhada.readUInt32BE(20) === 288,
+    'e o que vem tem as medidas que o endereço pediu',
+    `${desenhada.readUInt32BE(16)}×${desenhada.readUInt32BE(20)}`);
+
+  /* E as medidas são uma LISTA, não um intervalo: sem isso, um pedido de
+     4000×4000 era um pedido de 48 MB de memória e de muito mais CPU do que o
+     tecto do plano gratuito. Aqui o selo vai CERTO, para a recusa ser da
+     medida e não da assinatura. */
+  const gigCorpo = 'c-EE9125-7-10-tesoura-4000x4000';
+  const gigante = await fetch(`${BASE}/v1/faixa/${gigCorpo}-${selar(gigCorpo)}.png`);
+  certo(gigante.status === 404,
+    'e uma medida fora da lista não se serve, mesmo bem assinada', String(gigante.status));
+}
+
 grupo('Arrefecimento');
 {
   sql(`UPDATE programas SET arrefecimento = 3600 WHERE id = 'p1'`);
