@@ -685,6 +685,21 @@ export async function correr(palco, certo) {
       'que abre já na cor que o negócio tem', String(await palco.valor('#f-cor')));
   }
 
+  /* A CONSEQUÊNCIA, E NÃO A DESCRIÇÃO.
+
+     A frase por baixo do campo dizia sempre a mesma coisa — «quadrada fica
+     melhor» — e isso descreve onde a imagem vai parar, não o que se perde sem
+     ela. Um estado vazio que só diz «sem imagem» não é um estado vazio: é uma
+     consequência por contar. Sem logótipo, os clientes deste café não
+     conseguem pôr o cartão na carteira do telemóvel, e a app nem lhes mostra
+     o botão. */
+  const dicaVazia = await palco.js(`
+    return [...document.querySelectorAll('.campo-logotipo p.miudo')]
+      .map((p) => p.textContent)[0] || null`);
+  certo(!!dicaVazia && /(Wallet|Carteira|carteira)/.test(dicaVazia) && /não/.test(dicaVazia),
+    'O cartão, sem imagem: a dica diz o que se PERDE, e não só onde a imagem vai parar',
+    String(dicaVazia));
+
   certo(await palco.ver('#logo-previa'), 'O cartão: há sítio para o logótipo');
   const botaoLogo = (await palco.textos('.logo-accoes .btn'))[0];
   certo(/escolher|trocar/i.test(String(botaoLogo)),

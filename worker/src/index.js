@@ -34,6 +34,7 @@ import {
   validadeDoCertificado,
 } from './pkpass.js';
 import { faixaDeCartao, APPLE_STRIP, GOOGLE_HERO } from './faixa.js';
+import { apnsLigada, avisarAparelhos } from './apns.js';
 import * as SELOS from './selos-mapa.js';
 import { enviarPush, pushPronto } from './push.js';
 
@@ -592,6 +593,16 @@ function moldeDeCartao(env, cartao, p, premios) {
        Só a Apple. O cartão da Google actualiza-se por PATCH, e desde que a
        faixa passou a ir no mesmo pedido, o desenho vai com o saldo. */
     naApple: Boolean(cartao.apple_em),
+    /* SE O PASSE QUE ESTÁ NO TELEMÓVEL SE ACTUALIZA SOZINHO.
+
+       O endereço do serviço vai ASSINADO dentro do ficheiro .pkpass. Um passe
+       emitido antes de o serviço existir não o tem, e nada do que se faça no
+       servidor lhe toca: fica congelado no telemóvel para sempre.
+
+       Sem este campo, a app dizia a toda a gente «actualiza-se sozinho» — e
+       para quem guardou o cartão na semana passada isso era mentira. Com ele,
+       diz a essa pessoa que guarde o passe outra vez, uma vez só. */
+    appleAutomatico: Boolean(cartao.apple_servico),
     /* Quando a pessoa o guardou, para se lhe poder dizer o que mudou desde
        então em vez de um aviso permanente que ninguém lê ao fim da terceira
        vez. */
@@ -624,6 +635,20 @@ function moldeDeCartao(env, cartao, p, premios) {
          negócio com logótipo JPEG era pôr aqui o defeito que o campo veio
          resolver. */
       apple: Boolean(applePronta(env) && p.negocio_tem_logotipo && p.negocio_logotipo_png),
+      /* PORQUE É QUE NÃO HÁ BOTÃO, quando não há.
+
+         A app limitava-se a não desenhar nada — e «nada» não se distingue de
+         «esta app não faz isso». Uma pessoa com dois cartões, um com botão e
+         outro sem, não conclui «falta o logótipo daquele café»: conclui que a
+         app está avariada. E o perfil dela promete a carteira a toda a gente.
+
+         O motivo é a coisa que o cliente NÃO PODE RESOLVER — quem tem de
+         carregar o logótipo é o dono — e por isso a frase que ele vê não pede
+         nada nem culpa ninguém. Quem tem de agir é avisado no balcão.
+
+         Campo novo, nome novo: esta API acrescenta. */
+      motivo: (walletLigada(env) || applePronta(env)) && !p.negocio_tem_logotipo
+        ? 'sem-logotipo' : null,
     },
     /* O NOME ANTIGO FICA. Isto chamava-se `wallet` e era um booleano, e mudar
        o nome apagou o botão da Wallet da aplicação que estava no ar — o
@@ -3996,6 +4021,25 @@ function confirmarOrigemDaAPI(env, origemReal) {
 /* As únicas medidas que se servem. Uma LISTA e não um intervalo: sem isto,
    um pedido de 4000×4000 era um pedido de 48 MB de memória e de muito mais
    CPU do que o tecto. */
+/* A VERSÃO DO DESENHO, DENTRO DO ENDEREÇO.
+
+   O endereço da faixa responde `immutable, max-age=31536000` — um ano — e a
+   Google guarda a imagem à chave do endereço e não volta a perguntar. Isso é
+   verdade e é de propósito: o endereço contém o ESTADO, por isso o que está
+   por trás dele nunca muda.
+
+   Só que o estado não é a única coisa que decide a imagem: o DESENHO também.
+   No dia em que o desenho dos carimbos mudou — o aro passou a tracejado, a
+   tinta passou a ser a mesma da app, a opacidade passou a ser medida no pixel
+   — todos os endereços já emitidos continuavam a apontar para o desenho
+   velho, e não havia nada que os fizesse actualizar. Os cartões novos ficavam
+   bonitos e os antigos ficavam como estavam, para sempre.
+
+   Um caractere no corpo assinado resolve: muda-se aqui, e todos os endereços
+   passam a ser outros. Sobe-se sempre que o desenho mudar de forma visível.
+   O `2` é o desenho a seguir ao original. */
+const DESENHO_VERSAO = 'd2';
+
 const FAIXAS_MEDIDAS = new Set([
   `${GOOGLE_HERO.largura}x${GOOGLE_HERO.altura}`,
   `${APPLE_STRIP.largura * 2}x${APPLE_STRIP.altura * 2}`,
@@ -4040,7 +4084,7 @@ async function enderecoDaFaixa(env, { cor, tipo, selo, feitos, objetivo, marcos 
     const f = Math.max(0, Math.min(obj, Number(feitos) || 0));
     desenho = `c-${hex}-${f}-${obj}-${nomeSelo}`;
   }
-  const corpo = `${desenho}-${medida}`;
+  const corpo = `${desenho}-${DESENHO_VERSAO}-${medida}`;
   return `${origemAPI}/v1/faixa/${corpo}-${await seloDaFaixa(env, corpo)}.png`;
 }
 
@@ -4251,6 +4295,109 @@ async function espelharClasse(env, programaId, origemAPI) {
  * carimbo falhar porque a Google não respondeu seria deixar o cliente sem o
  * seu café por causa de uma coisa que ele nem sabe que existe.
  */
+/**
+ * Marca um cartão para o passe da Apple ser avisado.
+ *
+ * SÓ MARCA. O aviso sai no cron, e a razão é aritmética: uma invocação de
+ * Worker tem tecto de CINQUENTA subpedidos, e um push é um subpedido POR
+ * APARELHO. Uma pessoa com iPhone, iPad e relógio são três; uma família são
+ * dez. Mandá-los dentro do pedido do balcão era pôr o carimbo — a coisa que o
+ * cliente está ali a fazer — a depender de quantos aparelhos alguém tem.
+ *
+ * Custa até um minuto de atraso no toque. Ganha um carimbo que nunca falha
+ * por causa de uma coisa que o cliente nem sabe que existe.
+ *
+ * E escreve TAMBÉM o `apple_actualizado`, que é a etiqueta que o protocolo
+ * compara: sem ela o iPhone vinha, perguntava o que tinha mudado, e a resposta
+ * era «nada» — o push saía, chegava, e não acontecia coisa nenhuma.
+ */
+async function marcarPasseDaApple(env, cartaoId) {
+  if (!applePronta(env)) return;
+  try {
+    const cartao = await env.DB.prepare(
+      'SELECT apple_servico FROM cartoes WHERE id = ?').bind(cartaoId).first();
+    /* Um passe emitido ANTES de isto existir não tem `webServiceURL` lá
+       dentro: nenhum aparelho se registou para ele e nenhum se vai registar.
+       Marcá-lo era encher uma fila com trabalho que nunca ninguém vem buscar. */
+    if (!cartao || !cartao.apple_servico) return;
+    await env.DB.batch([
+      env.DB.prepare('UPDATE cartoes SET apple_actualizado = ? WHERE id = ?')
+        .bind(Math.floor(Date.now() / 1000), cartaoId),
+      env.DB.prepare(
+        `INSERT INTO wallet_por_avisar (serial, marcado_em) VALUES (?, ?)
+         ON CONFLICT(serial) DO UPDATE SET marcado_em = excluded.marcado_em`
+      ).bind(cartaoId, agora()),
+    ]);
+
+    /* E AGORA O TOQUE, JÁ — mas com tecto.
+
+       Marcar e esperar pelo cron dava até um minuto de atraso, e «actualiza-se
+       sozinho» com um minuto de atraso é a pessoa a olhar para a carteira ao
+       balcão e a ver o número velho. Quem tem UM telemóvel — que é quase toda
+       a gente — merece o toque no mesmo segundo.
+
+       O tecto de CINCO é o que separa isto do defeito que a fila veio evitar:
+       uma invocação tem cinquenta subpedidos, o carimbo já gasta uns quinze, e
+       cinco pushes deixam folga de sobra. Quem tiver mais aparelhos do que isso
+       — uma família com iPads e relógios — fica na fila e é o cron que trata,
+       sem que o carimbo corra risco nenhum.
+
+       A linha só sai da fila se TODOS os aparelhos tiverem sido tocados. Em
+       desenvolvimento isto falha sempre (o workerd local não faz HTTP/2 e a
+       APNs é HTTP/2), e falhar deixa a linha na fila — que é exactamente o
+       comportamento certo. */
+    if (apnsLigada(env)) {
+      const quantos = await env.DB.prepare(
+        'SELECT COUNT(*) AS n FROM wallet_registos WHERE serial = ?').bind(cartaoId).first();
+      const total = Number(quantos && quantos.n) || 0;
+      if (total > 0 && total <= AVISO_INLINE) {
+        const r = await avisarAparelhos(env, cartaoId, { tecto: AVISO_INLINE });
+        if (r.tocados + r.mortos >= total) {
+          await env.DB.prepare('DELETE FROM wallet_por_avisar WHERE serial = ?')
+            .bind(cartaoId).run();
+        }
+      }
+    }
+  } catch (erro) {
+    console.error('wallet(apple): não deu para marcar', cartaoId, String(erro));
+  }
+}
+
+/* Quantos aparelhos se toca DENTRO do pedido do balcão. Acima disto, fica
+   para o cron. Ver a explicação no corpo da função. */
+const AVISO_INLINE = 5;
+
+/**
+ * Drena a fila dos que ficaram por avisar.
+ *
+ * Corre de minuto a minuto. O que apanha é pouco e raro: cartões com muitos
+ * aparelhos, e os que falharam porque a APNs não respondeu. Um cartão que
+ * falhe fica na fila e volta no minuto seguinte — e é isso que torna a
+ * promessa verdadeira mesmo quando a Apple tem um mau dia.
+ *
+ * AOS BOCADOS, como o reconciliador da Google e pela mesma razão: cinquenta
+ * subpedidos por invocação, e cada push é um.
+ */
+async function drenarAvisosDaApple(env) {
+  if (!apnsLigada(env)) return { feitos: 0 };
+  let feitos = 0;
+  const fila = (await env.DB.prepare(
+    'SELECT serial FROM wallet_por_avisar ORDER BY marcado_em LIMIT 8').all()).results || [];
+  for (const linha of fila) {
+    try {
+      await avisarAparelhos(env, linha.serial, { tecto: 5 });
+      await env.DB.prepare('DELETE FROM wallet_por_avisar WHERE serial = ?')
+        .bind(linha.serial).run();
+      feitos += 1;
+    } catch (erro) {
+      /* FICA NA FILA. Apagar aqui era transformar uma falha de rede num
+         cartão que nunca mais se actualiza — e sem nada no ecrã a dizê-lo. */
+      console.error('wallet(apple): a fila falhou em', linha.serial, String(erro));
+    }
+  }
+  return { feitos };
+}
+
 async function espelharNaWallet(env, cartaoId, { notificar = false, origemAPI } = {}) {
   if (!walletLigada(env)) return;
   confirmarOrigemDaAPI(env, origemAPI);
@@ -4417,9 +4564,14 @@ rota('GET', /^\/v1\/faixa\/([A-Za-z0-9._-]{1,140})\.png$/, async (env, pedido, [
   }
   if (diferenca) throw new Falha('Não existe', { estado: 404 });
 
-  const p = /^([cp])-([0-9a-fA-F]{6})-(\d{1,5})-([\d.]{1,40}|\d{1,3})-([a-z]{1,12})-(\d{2,4}x\d{2,4})$/.exec(corpo);
-  if (!p || !FAIXAS_MEDIDAS.has(p[6])) throw new Falha('Não existe', { estado: 404 });
-  const [largura, altura] = p[6].split('x').map(Number);
+  /* O `d\d+` é a versão do desenho — ver `DESENHO_VERSAO`. Aceita-se QUALQUER
+     versão e não só a actual: um endereço de uma versão antiga que ainda ande
+     em cache na Google tem de continuar a servir alguma coisa, e o que se
+     serve é o desenho de hoje. Recusá-lo dava uma imagem partida num cartão
+     que estava bem na véspera. */
+  const p = /^([cp])-([0-9a-fA-F]{6})-(\d{1,5})-([\d.]{1,40}|\d{1,3})-([a-z]{1,12})-d(\d{1,2})-(\d{2,4}x\d{2,4})$/.exec(corpo);
+  if (!p || !FAIXAS_MEDIDAS.has(p[7])) throw new Falha('Não existe', { estado: 404 });
+  const [largura, altura] = p[7].split('x').map(Number);
   const feitos = Number(p[3]);
   const args = p[1] === 'p'
     ? { tipo: 'pontos', feitos,
@@ -4641,7 +4793,7 @@ async function pecasDoPasse(env, cartaoId) {
 }
 
 /** O passe de um cartão, já assinado. */
-async function passeDoCartao(env, cartaoId) {
+async function passeDoCartao(env, cartaoId, origemAPI) {
   const { cartao, programa, negocio } = await pecasDoPasse(env, cartaoId);
 
   /* O `wallet_em` NÃO se toca aqui, e a diferença não é de nomes.
@@ -4657,16 +4809,32 @@ async function passeDoCartao(env, cartaoId) {
      O `wallet_codigo` é que é partilhado, e de propósito: é o mesmo código de
      barras nas duas carteiras. */
   const codigo = cartao.wallet_codigo || publicoNovo(16);
-  if (!cartao.wallet_codigo || !cartao.apple_em) {
+
+  /* O SERVIÇO SÓ ENTRA SE HOUVER ORIGEM. Quem chama sem ela — e há um caminho
+     que chama — emitiria um passe com `webServiceURL: undefined`, que a Apple
+     aceita e ignora: um passe com ar de actualizável e congelado na mesma.
+     Sem origem, não se promete nada. */
+  const servico = origemAPI ? {
+    url: enderecoDoServico(origemAPI),
+    testemunho: await testemunhoDoPasse(env, cartao.id),
+  } : null;
+
+  /* SEGUNDOS INTEIROS. É a etiqueta que o protocolo compara, dos dois lados,
+     através de cabeçalhos de HTTP que têm resolução de um segundo. */
+  const quando = Math.floor(Date.now() / 1000);
+  if (!cartao.wallet_codigo || !cartao.apple_em || (servico && !cartao.apple_servico)) {
     await env.DB.prepare(
-      'UPDATE cartoes SET wallet_codigo = ?, apple_em = ? WHERE id = ?'
-    ).bind(codigo, cartao.apple_em || agora(), cartao.id).run();
+      `UPDATE cartoes SET wallet_codigo = ?, apple_em = ?, apple_servico = ?,
+                          apple_actualizado = COALESCE(apple_actualizado, ?)
+        WHERE id = ?`
+    ).bind(codigo, cartao.apple_em || agora(),
+           servico ? servico.url : cartao.apple_servico, quando, cartao.id).run();
   }
 
   const prog = moldarPrograma(programa);
   const passe = passeDeCartao(cartao, prog, negocio, {
     passTipo: env.APPLE_PASS_TIPO, equipa: env.APPLE_EQUIPA,
-    codigo, dominio: env.DOMINIO,
+    codigo, dominio: env.DOMINIO, servico,
     /* Quem responde pelo passe somos NÓS, e não o café: é o nosso certificado
        que o assina. Exigido pelo Anexo 5 §2.3 do contrato da Apple. */
     apoio: {
@@ -4725,6 +4893,219 @@ function imagemDoNegocio(negocio) {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
+/* =========================================================================
+   O PassKit Web Service — o que faz o passe actualizar-se sozinho
+
+   São cinco rotas que o iPhone chama SOZINHO, sem interface nenhuma pelo
+   meio, e um toque da APNs a dizer-lhe que venha ver. O desenho é:
+
+     1. a pessoa guarda o passe       → o aparelho REGISTA-SE (POST)
+     2. o balcão carimba              → nós marcamos o cartão e o cron TOCA
+     3. o iPhone acorda               → pergunta QUE passes mudaram (GET lista)
+     4. e vai buscar cada um          → GET do passe, com If-Modified-Since
+     5. a pessoa apaga o passe        → DELETE
+
+   PENDURADAS EM `/wallet` E NÃO NA RAIZ. O protocolo obriga a caminhos que
+   começam por `/v1/`, e `/v1/` já é a API desta casa: sem prefixo, o
+   `/v1/passes/...` da Apple entrava no mesmo espaço de nomes das nossas
+   rotas e um dia colidia. O `webServiceURL` do passe leva o prefixo lá
+   dentro, e a Apple cola o resto.
+
+   DOIS SEGREDOS PARTILHADOS, E NÃO UM. O `authenticationToken` autentica
+   registar, desregistar e ir buscar o passe. A lista NÃO leva testemunho
+   nenhum — o segredo dela é o próprio `deviceLibraryIdentifier`, que o
+   aparelho inventa. Pôr uma guarda de testemunho na lista parte as
+   actualizações todas, e a Apple nem sequer documenta um 401 aí.
+   ========================================================================= */
+
+/**
+ * O testemunho de um passe. DERIVADO, e nunca guardado.
+ *
+ * A Apple diz para não mudar o `authenticationToken` numa actualização —
+ * mudá-lo parte todos os passes que já estão na rua. Derivá-lo do número de
+ * série dá um valor constante para sempre, sem tabela nenhuma onde alguém um
+ * dia lhe possa mexer. Trinta e dois caracteres, bem acima dos dezasseis que
+ * a Apple exige como mínimo.
+ */
+async function testemunhoDoPasse(env, serial) {
+  const mestra = deBase64url(env.CHAVE_MESTRA);
+  return base64url(await hmac(mestra, `passe:${env.APPLE_PASS_TIPO}.${serial}`)).slice(0, 32);
+}
+
+/** O endereço do serviço, tal como vai escrito dentro do passe. */
+const enderecoDoServico = (origemAPI) => `${origemAPI}/wallet`;
+
+/**
+ * Confere o cabeçalho `Authorization: ApplePass <testemunho>`.
+ *
+ * Comparação em tempo constante, como em todo o resto desta casa: um `===`
+ * sobre um HMAC vaza o tamanho do prefixo certo pelo tempo que demora a
+ * falhar.
+ */
+async function passeAutorizado(env, pedido, serial) {
+  const cabecalho = pedido.headers.get('authorization') || '';
+  const dado = cabecalho.startsWith('ApplePass ') ? cabecalho.slice(10).trim() : '';
+  const esperado = await testemunhoDoPasse(env, serial);
+  if (dado.length !== esperado.length) return false;
+  let diferenca = 0;
+  for (let i = 0; i < dado.length; i += 1) {
+    diferenca |= dado.charCodeAt(i) ^ esperado.charCodeAt(i);
+  }
+  return diferenca === 0;
+}
+
+/* Um passe só se actualiza se o Pass Type ID do pedido for o NOSSO. A Apple
+   manda-o no caminho, e um pedido com outro é ou engano ou sondagem. */
+const meuPassTipo = (env, tipo) => tipo === env.APPLE_PASS_TIPO;
+
+/* 1 · REGISTAR ------------------------------------------------------------
+   201 quando é novo, 200 quando já lá estava. A diferença não é cosmética: a
+   Apple usa-a para saber se precisa de repetir. */
+rota('POST', /^\/wallet\/v1\/devices\/([\w.-]{1,128})\/registrations\/([\w.-]{1,128})\/([\w-]{1,64})$/,
+  async (env, pedido, [aparelho, tipo, serial]) => {
+    if (!applePronta(env) || !meuPassTipo(env, tipo)) throw new Falha('Não existe', { estado: 404 });
+    if (!(await passeAutorizado(env, pedido, serial))) {
+      throw new Falha('Request Not Authorized', { estado: 401 });
+    }
+    let testemunho = '';
+    try { testemunho = String((await corpoJSON(pedido)).pushToken || ''); } catch { /* sem corpo */ }
+    if (!/^[0-9a-fA-F]{16,256}$/.test(testemunho)) {
+      throw new Falha('Request Not Authorized', { estado: 401 });
+    }
+    /* O cartão tem de existir — senão qualquer pessoa que adivinhasse um
+       número de série enchia a tabela. O testemunho já o prova, mas provar
+       duas coisas custa uma consulta e evita uma tabela a crescer sozinha. */
+    const cartao = await env.DB.prepare('SELECT id FROM cartoes WHERE id = ?')
+      .bind(serial).first();
+    if (!cartao) throw new Falha('Não existe', { estado: 404 });
+
+    const jaHavia = await env.DB.prepare(
+      'SELECT 1 FROM wallet_registos WHERE aparelho = ? AND serial = ?'
+    ).bind(aparelho, serial).first();
+
+    /* O testemunho de push de um aparelho MUDA, e quando muda o iPhone volta
+       a registar-se com o mesmo identificador. Um INSERT simples dava erro de
+       chave e o aparelho ficava com o testemunho velho — vivo na tabela e
+       morto na APNs. */
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO wallet_aparelhos (aparelho, testemunho, visto_em) VALUES (?, ?, ?)
+         ON CONFLICT(aparelho) DO UPDATE SET testemunho = excluded.testemunho,
+                                             visto_em = excluded.visto_em`
+      ).bind(aparelho, testemunho, agora()),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO wallet_registos (aparelho, serial, criado_em) VALUES (?, ?, ?)`
+      ).bind(aparelho, serial, agora()),
+    ]);
+    return new Response(null, { status: jaHavia ? 200 : 201 });
+  });
+
+/* 2 · A LISTA DO QUE MUDOU ------------------------------------------------
+   SEM TESTEMUNHO NENHUM, de propósito — ver a nota do topo. E 204 SEM CORPO
+   quando não há nada: um 204 com corpo é uma resposta inválida. */
+rota('GET', /^\/wallet\/v1\/devices\/([\w.-]{1,128})\/registrations\/([\w.-]{1,128})$/,
+  async (env, pedido, [aparelho, tipo]) => {
+    if (!applePronta(env) || !meuPassTipo(env, tipo)) throw new Falha('Não existe', { estado: 404 });
+    const desde = Number(new URL(pedido.url).searchParams.get('passesUpdatedSince') || 0);
+
+    /* MAIOR ESTRITO, e não maior-ou-igual. Com `>=`, um passe devolvido numa
+       chamada voltava na seguinte, para sempre: o aparelho guarda o
+       `lastUpdated` que lhe demos e devolve-o, e um cartão com esse mesmo
+       valor casava outra vez. */
+    const linhas = (await env.DB.prepare(
+      `SELECT c.id, c.apple_actualizado
+         FROM wallet_registos r JOIN cartoes c ON c.id = r.serial
+        WHERE r.aparelho = ? AND c.apple_actualizado > ?`
+    ).bind(aparelho, Number.isFinite(desde) ? desde : 0).all()).results || [];
+
+    if (!linhas.length) return new Response(null, { status: 204 });
+    const ultimo = Math.max(...linhas.map((l) => Number(l.apple_actualizado) || 0));
+    return json({
+      serialNumbers: linhas.map((l) => l.id),
+      /* STRING, e não número. A Apple trata isto como uma etiqueta opaca, e
+         há relatos de a Wallet não guardar um `lastUpdated` numérico — o
+         `passesUpdatedSince` passa a chegar sempre vazio e o servidor devolve
+         a lista inteira em todas as chamadas, sem nunca perceber porquê. */
+      lastUpdated: String(ultimo),
+    }, { pedido, env });
+  });
+
+/* 3 · O PASSE ACTUALIZADO -------------------------------------------------
+   O 304 NÃO É UMA OPTIMIZAÇÃO: é o que faz esta rota caber no plano gratuito.
+   Assinar um .pkpass é um ZIP, um SHA-1 por ficheiro e uma assinatura RSA de
+   2048 bits, dentro de dez milissegundos de CPU. */
+rota('GET', /^\/wallet\/v1\/passes\/([\w.-]{1,128})\/([\w-]{1,64})$/,
+  async (env, pedido, [tipo, serial]) => {
+    if (!applePronta(env) || !meuPassTipo(env, tipo)) throw new Falha('Não existe', { estado: 404 });
+    if (!(await passeAutorizado(env, pedido, serial))) {
+      throw new Falha('Request Not Authorized', { estado: 401 });
+    }
+    const cartao = await env.DB.prepare(
+      'SELECT apple_actualizado FROM cartoes WHERE id = ?').bind(serial).first();
+    if (!cartao) throw new Falha('Não existe', { estado: 404 });
+
+    /* SEGUNDOS INTEIROS dos dois lados. As datas de HTTP têm resolução de um
+       segundo: comparar um relógio em milissegundos com um cabeçalho truncado
+       dá 304 errados para duas alterações dentro do mesmo segundo. */
+    const mudou = Number(cartao.apple_actualizado) || 0;
+    const desde = Date.parse(pedido.headers.get('if-modified-since') || '');
+    if (Number.isFinite(desde) && mudou <= Math.floor(desde / 1000)) {
+      return new Response(null, { status: 304 });
+    }
+
+    const bytes = await passeDoCartao(env, serial, origemDaAPI(pedido));
+    return new Response(bytes, {
+      headers: {
+        'content-type': 'application/vnd.apple.pkpass',
+        /* A HORA REAL DA ÚLTIMA ALTERAÇÃO, e não a de agora. Pôr `new Date()`
+           aqui parece funcionar e é mentira: o aparelho passa a guardar uma
+           marca que não corresponde a nada, e o 304 deixa de acontecer. */
+        'last-modified': new Date(mudou * 1000).toUTCString(),
+      },
+    });
+  });
+
+/* 4 · DESREGISTAR ---------------------------------------------------------
+   Quem apaga o passe SEM REDE nunca manda isto. Esses só desaparecem pelo
+   410 da APNs — ver a limpeza em `avisarAparelhos`. */
+rota('DELETE', /^\/wallet\/v1\/devices\/([\w.-]{1,128})\/registrations\/([\w.-]{1,128})\/([\w-]{1,64})$/,
+  async (env, pedido, [aparelho, tipo, serial]) => {
+    if (!applePronta(env) || !meuPassTipo(env, tipo)) throw new Falha('Não existe', { estado: 404 });
+    if (!(await passeAutorizado(env, pedido, serial))) {
+      throw new Falha('Request Not Authorized', { estado: 401 });
+    }
+    await env.DB.prepare('DELETE FROM wallet_registos WHERE aparelho = ? AND serial = ?')
+      .bind(aparelho, serial).run();
+    /* Um aparelho que ficou sem registos nenhuns não tem razão para ficar na
+       tabela — e deixá-lo lá é guardar um testemunho de push de alguém que já
+       não nos quer, que é precisamente o que o RGPD manda não fazer. */
+    const sobra = await env.DB.prepare(
+      'SELECT 1 FROM wallet_registos WHERE aparelho = ?').bind(aparelho).first();
+    if (!sobra) {
+      await env.DB.prepare('DELETE FROM wallet_aparelhos WHERE aparelho = ?')
+        .bind(aparelho).run();
+    }
+    return new Response(null, { status: 200 });
+  });
+
+/* 5 · O REGISTO DE QUEIXAS ------------------------------------------------
+   É o único sítio onde o iPhone diz PORQUE é que falhou, e por isso vale a
+   pena existir. Mas não leva autenticação nenhuma — a Apple não a prevê — e
+   isso faz dele a única rota desta casa por onde qualquer pessoa na internet
+   escreve no nosso registo. Por isso não escreve na base de dados, não guarda
+   nada, e tem tecto: vai para o `console`, que é onde a gente o lê. */
+rota('POST', '/wallet/v1/log', async (env, pedido) => {
+  let linhas = [];
+  try {
+    const corpo = await corpoJSON(pedido);
+    linhas = Array.isArray(corpo.logs) ? corpo.logs : [];
+  } catch { /* sem corpo: 200 na mesma, que é o que a Apple espera */ }
+  for (const linha of linhas.slice(0, 20)) {
+    console.log('wallet(apple):', String(linha).slice(0, 500));
+  }
+  return new Response(null, { status: 200 });
+});
+
 rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/pkpass$/, async (env, pedido, [cartaoId]) => {
   if (!applePronta(env)) throw new Falha('Não existe', { estado: 404 });
   const clienteId = await exigirCliente(env, pedido);
@@ -4752,7 +5133,7 @@ rota('GET', /^\/v1\/passe\/([\w.-]+)$/, async (env, pedido, [bilhete]) => {
   if (!applePronta(env)) throw new Falha('Não existe', { estado: 404 });
   const cartaoId = await lerBilhete(env, bilhete);
   if (!cartaoId) throw new Falha('Esta ligação já não serve. Pede outra na app.', { estado: 403 });
-  const bytes = await passeDoCartao(env, cartaoId);
+  const bytes = await passeDoCartao(env, cartaoId, origemDaAPI(pedido));
   return new Response(bytes, {
     headers: {
       'content-type': 'application/vnd.apple.pkpass',
@@ -4833,6 +5214,10 @@ rota('POST', '/v1/balcao/carimbar', async (env, pedido, _p, ctx) => {
       notificar: Boolean(r.ganhos && r.ganhos.length),
       origemAPI: origemDaAPI(pedido),
     }));
+    /* E o da Apple. São duas carteiras e duas mecânicas: a Google recebe o
+       saldo por PATCH, a Apple recebe um toque e vem ela buscar. O que é
+       igual é a promessa, e por isso as duas marcas saem do mesmo sítio. */
+    ctx.waitUntil(marcarPasseDaApple(env, r.cartao.id));
     /* E o toque no bolso de quem não tem passe na carteira. Mesma condição, e
        pela mesma razão: é o carimbo que fecha o cartão que a pessoa quer
        sentir, e ela está a sair do café quando ele acontece. */
@@ -4874,6 +5259,7 @@ rota('POST', '/v1/balcao/resgatar', async (env, pedido, _p, ctx) => {
      precisa de um toque no bolso a dizer-lho. */
   if (ctx) ctx.waitUntil(espelharNaWallet(env, premio.cartao_id,
     { origemAPI: origemDaAPI(pedido) }));
+  if (ctx) ctx.waitUntil(marcarPasseDaApple(env, premio.cartao_id));
   return { premio: { id: premioId, resgatadoEm: agora() }, cartao: await moldarCartao(env, c) };
 });
 
@@ -4966,6 +5352,7 @@ rota('POST', '/v1/balcao/anular', async (env, pedido, _p, ctx) => {
      a pessoa vê. */
   if (ctx) ctx.waitUntil(espelharNaWallet(env, atualizado.id,
     { origemAPI: origemDaAPI(pedido) }));
+  if (ctx) ctx.waitUntil(marcarPasseDaApple(env, atualizado.id));
   return { cartao: await moldarCartao(env, atualizado) };
 });
 
@@ -5473,7 +5860,12 @@ export default {
       return new Response(null, { status: 204, headers: cabecalhosCORS(pedido, env) });
     }
     const url = new URL(pedido.url);
-    const caminho = url.pathname.replace(/\/+$/, '') || '/';
+    /* BARRAS REPETIDAS COLAPSAM. Há muita gente convencida de que o
+       `webServiceURL` de um passe leva barra final, e escrevê-la faz a Apple
+       chamar `/wallet//v1/devices/...`. Nós escrevemo-lo SEM barra, mas um
+       passe emitido com barra fica assim para sempre no telemóvel de quem o
+       tem — não há forma de o corrigir à distância. Colapsar custa uma linha. */
+    const caminho = url.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
 
     try {
       if (!env.CHAVE_MESTRA) {
@@ -5517,6 +5909,21 @@ export default {
      `codigos_usados` cresce para sempre: são quatro linhas por minuto por
      cliente activo, e o plano gratuito do D1 tem 5 GB. */
   async scheduled(evento, env) {
+    /* SÃO DOIS HORÁRIOS E NÃO UM.
+
+       O de minuto a minuto existe para uma coisa só: drenar os avisos da
+       Apple que ficaram por dar. Fazer a limpeza da madrugada todos os
+       minutos era varrer a base inteira 1440 vezes por dia; e pôr os avisos
+       na limpeza da madrugada era dizer «actualiza-se sozinho» e o cartão
+       acertar-se no dia seguinte.
+
+       O `evento.cron` diz qual deles disparou — é o próprio horário, tal como
+       está escrito no `wrangler.toml`. */
+    if (evento && evento.cron === '* * * * *') {
+      await drenarAvisosDaApple(env);
+      return;
+    }
+
     const ontem = new Date(Date.now() - USADOS_HORAS * 3600000).toISOString();
     await env.DB.batch([
       env.DB.prepare('DELETE FROM codigos_usados WHERE usado_em < ?').bind(ontem),
@@ -5550,6 +5957,9 @@ export default {
     ]);
     await limparContasParadas(env);
     await reconciliarWallet(env);
+    /* Rede por baixo do de minuto a minuto: se ele estiver em baixo uma noite
+       inteira, a madrugada apanha o que ficou. */
+    await drenarAvisosDaApple(env);
     avisarDoCertificado(env);
   },
 };

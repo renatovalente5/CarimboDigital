@@ -329,11 +329,11 @@ grupo('A faixa servida à Google');
 {
   /* A rota é ABERTA — a Google não leva cabeçalho nenhum — e desenha uma
      imagem, que custa CPU. Tudo o que a protege é o selo no fim do nome. */
-  const r404 = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-750x288-lixolixolixo.png`);
+  const r404 = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-d2-750x288-lixolixolixo.png`);
   certo(r404.status === 404,
     'um endereço de faixa com o selo errado não desenha nada', String(r404.status));
 
-  const semSelo = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-750x288.png`);
+  const semSelo = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-d2-750x288.png`);
   certo(semSelo.status === 404,
     'e um endereço sem selo nenhum também não', String(semSelo.status));
 
@@ -353,7 +353,7 @@ grupo('A faixa servida à Google');
     .update(`faixa:${caminho}`).digest('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 12);
 
-  const corpo = 'c-EE9125-7-10-tesoura-750x288';
+  const corpo = 'c-EE9125-7-10-tesoura-d2-750x288';
   const boa = await fetch(`${BASE}/v1/faixa/${corpo}-${selar(corpo)}.png`);
   certo(boa.status === 200 && boa.headers.get('content-type') === 'image/png',
     'um endereço BEM assinado serve a faixa',
@@ -371,7 +371,7 @@ grupo('A faixa servida à Google');
      4000×4000 era um pedido de 48 MB de memória e de muito mais CPU do que o
      tecto do plano gratuito. Aqui o selo vai CERTO, para a recusa ser da
      medida e não da assinatura. */
-  const gigCorpo = 'c-EE9125-7-10-tesoura-4000x4000';
+  const gigCorpo = 'c-EE9125-7-10-tesoura-d2-4000x4000';
   const gigante = await fetch(`${BASE}/v1/faixa/${gigCorpo}-${selar(gigCorpo)}.png`);
   certo(gigante.status === 404,
     'e uma medida fora da lista não se serve, mesmo bem assinada', String(gigante.status));
@@ -393,7 +393,7 @@ grupo('A faixa servida à Google');
      dia se lê como «o CI está instável». */
   let comHifen = null;
   for (let n = 0; n <= 60 && !comHifen; n += 1) {
-    const c = `c-EE9125-${n}-60-tesoura-750x288`;
+    const c = `c-EE9125-${n}-60-tesoura-d2-750x288`;
     if (selar(c).includes('-')) comHifen = c;
   }
   certo(!!comHifen,
@@ -405,6 +405,24 @@ grupo('A faixa servida à Google');
       'UM SELO COM HÍFEN SERVE A FAIXA — o corte é pela posição e não pelo último hífen',
       `${r.status} ${r.headers.get('content-type')} · ${selar(comHifen)}`);
   }
+
+  /* A VERSÃO DO DESENHO. O endereço responde `immutable` por um ano e a
+     Google guarda a imagem à chave dele, para sempre. Isso é verdade enquanto
+     o estado for a única coisa que decide a imagem — e não é: o DESENHO
+     também. No dia em que o aro passou a tracejado, todos os endereços já
+     emitidos continuavam a apontar para o desenho velho, e nada os fazia
+     actualizar. Um caractere no corpo assinado resolve, e esta afirmação
+     existe para ninguém o tirar por parecer ruído. */
+  const semVersao = 'c-EE9125-7-10-tesoura-750x288';
+  const velhaVersao = await fetch(`${BASE}/v1/faixa/${semVersao}-${selar(semVersao)}.png`);
+  certo(velhaVersao.status === 404,
+    'um endereço SEM versão de desenho não se serve — é a marca que faz a Google ir buscar a imagem nova',
+    String(velhaVersao.status));
+  const versaoAntiga = 'c-EE9125-7-10-tesoura-d1-750x288';
+  const d1 = await fetch(`${BASE}/v1/faixa/${versaoAntiga}-${selar(versaoAntiga)}.png`);
+  certo(d1.status === 200,
+    'mas uma versão ANTIGA ainda serve — um endereço em cache na Google não pode passar a dar imagem partida',
+    String(d1.status));
 
   /* E o contrário: um nome curto de mais não pode passar pelo corte fixo e
      chegar ao HMAC com um corpo vazio. */
@@ -2314,8 +2332,14 @@ grupo('O cartão na Apple Wallet');
     certo(passe.backgroundColor === 'rgb(238,145,37)',
       'a cor vai em rgb() e não em #hex, que é o único formato que a Apple aceita',
       String(passe.backgroundColor));
-    certo(passe.foregroundColor === 'rgb(0,0,0)',
-      'e a tinta por cima da cor é medida: preto sobre o laranja da barbearia',
+    /* #141318 e não preto puro. Parece a mesma coisa e não é: é a mesma tinta
+       que a app usa (`tintaPara`) e que a faixa do passe passou a usar. Entre
+       preto puro e este há uma banda estreita de cinzentos — #767676 a
+       #797979 — em que as três funções decidiam ao CONTRÁRIO umas das outras,
+       e o resultado era texto preto por cima de uma faixa de carimbos
+       brancos, no mesmo passe. */
+    certo(passe.foregroundColor === 'rgb(20,19,24)',
+      'e a tinta por cima da cor é medida, e é a MESMA tinta da app: escura sobre o laranja da barbearia',
       String(passe.foregroundColor));
     certo(passe.storeCard.headerFields[0].value === '3/10',
       'o contador mostra o saldo do cartão', String(passe.storeCard.headerFields[0].value));
@@ -5058,7 +5082,423 @@ grupo('Traz um amigo');
   sql(`DELETE FROM amigos`);
 }
 
+grupo('A faixa e a app desenham o mesmo cartão');
+{
+  /* PORQUE É QUE ISTO ESTÁ AQUI. A «faixa.js» exportava quatro contrastes para
+     as provas medirem e NENHUMA prova a importava — nem esta bateria nem nada
+     em «scripts/bateria». Uma medição que não tem quem a leia não é guarda
+     nenhuma: os números estavam errados (compunham a tinta sobre a cor CRUA da
+     marca e comparavam-na com o fundo LAVADO, um par que não existe em pixel
+     nenhum da imagem) e ninguém deu por isso. Anunciavam 3,06 ao cartão do
+     Café do Manel onde o pixel desenhado dava 2,44.
+
+     Por isso o que se mede aqui NÃO é o que o código diz que desenhou: é o PNG
+     descodificado, pixel a pixel, com a conta de contraste do «nucleo.js» — a
+     da app, não a da faixa. Se as duas implementações se afastarem, é aqui que
+     se vê. */
+  const { inflateSync } = await import('node:zlib');
+  const { faixaDeCartao } = await import(new URL('./src/faixa.js', import.meta.url).href);
+  const { marcaSegura, contraste: contrasteApp }
+    = await import(new URL('../_fonte/js/nucleo.js', import.meta.url).href);
+
+  const hexDe = (rgb) => `#${rgb.map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+
+  /* O descodificador do PNG indexado que a faixa escreve. O filtro é sempre o
+     «Up» (2) — e isso confere-se em vez de se acreditar, porque um filtro
+     diferente daria uma imagem lida ao contrário e nenhum erro. */
+  let filtroErrado = -1;
+  const descodificar = (bytes) => {
+    let p = 8; let W = 0; let H = 0; let plte = null; const idat = [];
+    const u32 = (o) => bytes.readUInt32BE(o);
+    while (p < bytes.length) {
+      const n = u32(p);
+      const tipo = bytes.toString('latin1', p + 4, p + 8);
+      if (tipo === 'IHDR') { W = u32(p + 8); H = u32(p + 12); }
+      if (tipo === 'PLTE') plte = bytes.subarray(p + 8, p + 8 + n);
+      if (tipo === 'IDAT') idat.push(bytes.subarray(p + 8, p + 8 + n));
+      p += 12 + n;
+    }
+    const bruto = inflateSync(Buffer.concat(idat));
+    const indices = new Uint8Array(W * H);
+    for (let y = 0; y < H; y += 1) {
+      const linha = y * (W + 1);
+      if (bruto[linha] !== 2 && filtroErrado < 0) filtroErrado = bruto[linha];
+      for (let x = 0; x < W; x += 1) {
+        const acima = y === 0 ? 0 : indices[(y - 1) * W + x];
+        indices[y * W + x] = (bruto[linha + 1 + x] + acima) & 255;
+      }
+    }
+    const cor = (i) => `#${[0, 1, 2].map((k) => plte[i * 3 + k].toString(16).padStart(2, '0')).join('')}`;
+    return { W, H, indices, cor };
+  };
+
+  /* As cores de marca que interessam: as duas que estão em produção, as pontas
+     da rampa, e a BANDA onde os dois lados escolhiam tintas opostas. */
+  const CORES = ['#E8963C', '#17161C', '#767676', '#777777', '#787878', '#797979',
+    '#6E7B84', '#FFFFFF', '#000000', '#F4D03F', '#2D6CDF', '#7F7F7F', '#C0392B', '#1E9E6A'];
+
+  const tintasQueDivergem = [];
+  const arosFracos = [];
+  const paletasErradas = [];
+  const discosPorPintar = [];
+  for (const cor of CORES) {
+    /* SEM CARIMBOS NENHUNS: assim a única tinta na imagem é a dos aros por
+       fazer, e o pixel mais entintado do quadro É o pico do aro — mede-se sem
+       copiar para aqui a geometria da grelha, que era a maneira certa de a
+       medição envelhecer sozinha quando a disposição mudasse. */
+    const vazia = await faixaDeCartao({ cor, feitos: 0, objetivo: 10, largura: 750, altura: 288 });
+    const img = descodificar(Buffer.from(vazia.bytes));
+
+    /* A TINTA DOS DOIS LADOS. A app escolhe entre #FFFFFF e #141318 no
+       «tintaPara»; a faixa escolhia entre branco e preto PURO, e a fronteira
+       das duas regras não cai no mesmo sítio: entre #767676 e #797979 davam
+       tintas OPOSTAS, e o mesmo cartão ficava com carimbos brancos no
+       telemóvel e pretos no passe. */
+    const daFaixa = hexDe(vazia.medida.tinta);
+    const daApp = marcaSegura(cor).tinta.toUpperCase();
+    if (daFaixa !== daApp) tintasQueDivergem.push(`${cor}: faixa ${daFaixa}, app ${daApp}`);
+    /* E que a tinta anunciada é mesmo a que vai no ficheiro: o fim da rampa
+       (índice 255) é a tinta pura. Uma medida que ninguém confronta com os
+       bytes é uma promessa. */
+    if (img.cor(255).toUpperCase() !== daFaixa) {
+      paletasErradas.push(`${cor}: paleta ${img.cor(255).toUpperCase()}, medida ${daFaixa}`);
+    }
+
+    let pico = -1; let picoY = 0;
+    for (let y = 0; y < img.H; y += 1) {
+      for (let x = 0; x < img.W; x += 1) {
+        const v = img.indices[y * img.W + x];
+        if (v > pico) { pico = v; picoY = y; }
+      }
+    }
+    /* O fundo é o pixel do degradê na MESMA linha (coluna 1, onde não há
+       ficha nenhuma), e não a cor da marca: a ficha nunca assenta na cor crua. */
+    const real = contrasteApp(img.cor(pico), img.cor(img.indices[picoY * img.W + 1]));
+    if (real < 3) arosFracos.push(`${cor}: ${real.toFixed(2)}`);
+    /* E o que a faixa ANUNCIA não pode ser melhor do que o que desenha. */
+    if (vazia.medida.vaziaPior > real + 0.001) {
+      arosFracos.push(`${cor}: anuncia ${vazia.medida.vaziaPior.toFixed(2)} e desenha ${real.toFixed(2)}`);
+    }
+
+    /* O carimbo CHEIO é um disco OPACO da tinta, como na app
+       («background: var(--m-txt)») e não um véu a 86 %. Opaco quer dizer o fim
+       da rampa: se o índice 255 não aparecer na imagem, o disco leva véu. */
+    const cheia = await faixaDeCartao({ cor, feitos: 10, objetivo: 10, largura: 750, altura: 288 });
+    const imgCheia = descodificar(Buffer.from(cheia.bytes));
+    if (!imgCheia.indices.includes(255)) discosPorPintar.push(cor);
+  }
+
+  certo(tintasQueDivergem.length === 0,
+    'A TINTA DA FAIXA É A TINTA DO CARTÃO NA APP — nas catorze cores, incluindo '
+    + 'a banda dos cinzentos onde as duas regras davam tintas opostas',
+    tintasQueDivergem.join(' · '));
+  certo(paletasErradas.length === 0,
+    'e a tinta que a faixa anuncia é mesmo a que vai na paleta do PNG',
+    paletasErradas.join(' · '));
+  certo(filtroErrado < 0,
+    'o PNG lê-se com o filtro Up, que é o que a faixa escreve (senão esta '
+    + 'medição toda estaria a ler outra imagem)', String(filtroErrado));
+  certo(arosFracos.length === 0,
+    'o aro do carimbo por fazer passa os 3:1 da WCAG 1.4.11 NO PIXEL QUE SAI, '
+    + 'e não numa conta contra um fundo que a imagem não tem',
+    arosFracos.join(' · '));
+  certo(discosPorPintar.length === 0,
+    'e o carimbo cheio é um disco opaco da tinta, como na app',
+    discosPorPintar.join(' · '));
+
+  /* E agora a varredura, que é o que apanha a cor que ninguém escolheu para
+     esta lista: um cubo de cores de marca, todas medidas contra o pior fundo
+     da banda. Aqui lê-se o número que a faixa exporta — já se provou acima,
+     nas catorze, que ele não é melhor do que o pixel. */
+  const frouxas = [];
+  const niveis = [0, 51, 102, 153, 204, 255];
+  for (const r of niveis) {
+    for (const g of niveis) {
+      for (const b of niveis) {
+        const cor = hexDe([r, g, b]);
+        const { medida } = await faixaDeCartao({ cor, feitos: 0, objetivo: 10, largura: 750, altura: 288 });
+        if (medida.vaziaPior < 3) frouxas.push(`${cor}: ${medida.vaziaPior.toFixed(2)}`);
+        if (medida.cheiaPior < 4.25) frouxas.push(`${cor}: disco ${medida.cheiaPior.toFixed(2)}`);
+      }
+    }
+  }
+  certo(frouxas.length === 0,
+    'e as 216 cores do cubo passam todas: aro acima de 3:1 e disco acima de '
+    + '4,25:1 — o chão do disco é aritmético e não um alvo, porque um disco '
+    + 'opaco não pode dar mais do que a tinta dá; varridas 1800 cores, o pior '
+    + 'medido foi 4,32 (o equilíbrio das duas tintas, em L = 0,193)',
+    frouxas.slice(0, 6).join(' · '));
+}
+
 /* --------------------------------------------------------------------- */
+grupo('As três tintas respondem à mesma pergunta');
+{
+  /* HÁ TRÊS SÍTIOS a decidir se o que assenta na cor de um comerciante é
+     claro ou escuro, e é sempre a mesma pergunta:
+
+       · a APP, no `tintaPara` do nucleo.js — escolhe entre #FFFFFF e #141318;
+       · a FAIXA do passe, no faixa.js — desenha os carimbos;
+       · o PASSE, no `tintaSobre` do pkpass.js — escolhe o `foregroundColor`.
+
+     Duas vezes já divergiram, e as duas foram descobertas a olhar para
+     fotografias em vez de a ler código. Entre #141318 e o preto PURO há uma
+     banda estreita de cinzentos — à volta de #767676 a #797979 — em que as
+     contas dão respostas OPOSTAS. O que isso produz: carimbos brancos no
+     telemóvel e pretos no passe; ou texto preto por cima de uma faixa de
+     carimbos brancos, no mesmo ficheiro.
+
+     Esta guarda não mede contraste nenhum: mede CONCORDÂNCIA. Uma cor em que
+     as três discordem é um cartão partido, mesmo que cada uma delas, sozinha,
+     passe a conta que faz. */
+  const nucleo = await import('../_fonte/js/nucleo.js');
+  const pk = await import('./src/pkpass.js');
+
+  /* A banda perigosa, mais os extremos e um varrimento largo. Os cinzentos
+     entre 0x70 e 0x80 são o sítio exacto onde as duas regras se cruzam. */
+  const cores = [];
+  for (let v = 0x68; v <= 0x88; v += 1) {
+    const h = v.toString(16).padStart(2, '0');
+    cores.push(`#${h}${h}${h}`);
+  }
+  for (const c of ['#E8963C', '#17161C', '#6E7B84', '#FFFFFF', '#000000',
+                   '#F4D03F', '#2D6CDF', '#EE9125', '#3B2417', '#CF0CEA']) cores.push(c);
+  /* E um cubo, para não ficar preso às cores em que já se pensou. */
+  for (let r = 0; r < 256; r += 51) {
+    for (let g = 0; g < 256; g += 51) {
+      for (let b = 0; b < 256; b += 51) {
+        cores.push(`#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`);
+      }
+    }
+  }
+
+  const doPasse = (cor) => (pk.passeDeCartao(
+    { id: 'x', carimbos: 0 }, { tipo: 'carimbos', objetivo: 10, premio: 'p' },
+    { nome: 'n', cor }, { passTipo: 'pass.x', equipa: 'E' }).foregroundColor);
+
+  const discordantes = [];
+  for (const cor of cores) {
+    const segura = nucleo.marcaSegura(cor);
+    /* A app empurra a COR até a tinta caber; o passe e a faixa recebem a cor
+       já segura. Comparar o passe contra a cor crua era comparar duas
+       perguntas diferentes. */
+    const daApp = segura.tinta.toUpperCase();
+    const doPasseRGB = doPasse(segura.cor);
+    const m = /rgb\((\d+),(\d+),(\d+)\)/.exec(doPasseRGB);
+    const hexPasse = `#${[m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+    if (hexPasse !== daApp) discordantes.push(`${cor}: app ${daApp} · passe ${hexPasse}`);
+  }
+  certo(discordantes.length === 0,
+    `a tinta do PASSE é a tinta da APP nas ${cores.length} cores, incluindo a banda de cinzentos onde as duas regras se cruzam`,
+    discordantes.slice(0, 6).join(' | '));
+}
+
+grupo('O passe da Apple actualiza-se sozinho');
+{
+  /* O PROTOCOLO PROVA-SE DOS DOIS LADOS. Escrever as cinco rotas e dar a coisa
+     por feita já custou caro neste projecto: o prefixo `W1.` do passe existiu
+     dias sem ninguém do lado do balcão o saber ler. Aqui, o lado do iPhone é
+     encenado — o que se prova é que a sequência inteira funciona, e não que
+     cada rota isolada devolve o número certo.
+
+     A sequência é a que o iPhone faz mesmo:
+       1. guarda o passe          → lê o webServiceURL e o testemunho de lá
+       2. regista-se              → POST, e 201 à primeira e 200 à segunda
+       3. o balcão carimba        → nós marcamos
+       4. pergunta o que mudou    → GET da lista
+       5. vai buscar o passe      → GET com If-Modified-Since, e 304 depois
+       6. apaga o passe           → DELETE */
+
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const varsApple = readFileSync(join(AQUI, '.dev.vars'), 'utf8');
+
+  /* Um valor único da base, pelo caminho que o resto deste ficheiro já usa: o
+     `sql()` devolve a saída do wrangler com ruído à frente, e o JSON começa no
+     primeiro parêntese recto. */
+  const valor = (instrucao) => {
+    const o = sql(instrucao);
+    const linhas = JSON.parse(o.slice(o.indexOf('[')))[0].results;
+    return linhas.length ? linhas[0].v : null;
+  };
+  const PASS_TIPO = (varsApple.match(/^APPLE_PASS_TIPO=(.+)$/m) || [])[1];
+  const chaveM = (varsApple.match(/^CHAVE_MESTRA=(.+)$/m) || [])[1];
+  certo(!!PASS_TIPO && !!chaveM,
+    'o Pass Type ID e a chave-mestra lêem-se do .dev.vars (senão o resto não prova nada)');
+
+  const bytesDe = (b64) => Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  const testemunhoDe = (serial) => createHmac('sha256', bytesDe(chaveM))
+    .update(`passe:${PASS_TIPO}.${serial}`).digest('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 32);
+
+  /* Uma conta, um cartão, e um negócio com logótipo PNG — que é o que a Apple
+     exige para haver passe de todo. */
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
+  sql(`UPDATE negocios SET logotipo = 'image/png;${PNG_FIXO}',
+       logotipo_em = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 'n1'`);
+  const conta = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const sessao = conta.dados.sessao;
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao, corpo: { programaId: 'p1' } });
+  const cartaoId = (await pedir('/v1/cliente/cartoes', { sessao })).dados[0].id;
+
+  /* --- 1. o passe traz o endereço do serviço e o testemunho --------------- */
+  const lig = await pedir(`/v1/cliente/cartoes/${cartaoId}/pkpass`, { metodo: 'POST', sessao });
+  certo(lig.estado === 200, 'o passe pode ser pedido', JSON.stringify(lig.dados).slice(0, 100));
+  const ficheiro = await fetch(`${BASE}${new URL(lig.dados.ligacao).pathname}`);
+  certo(ficheiro.status === 200, 'e o .pkpass serve-se', String(ficheiro.status));
+
+  const zip = Buffer.from(await ficheiro.arrayBuffer());
+  const pasta = mkdtempSync(join(tmpdir(), 'carimbo-servico-'));
+  writeFileSync(join(pasta, 'p.pkpass'), zip);
+  execFileSync('unzip', ['-o', '-q', join(pasta, 'p.pkpass'), '-d', pasta]);
+  const passe = JSON.parse(readFileSync(join(pasta, 'pass.json'), 'utf8'));
+  rmSync(pasta, { recursive: true, force: true });
+
+  /* `webServiceURL` com URL em MAIÚSCULAS. Meia internet escreve
+     `webServiceUrl`: o passe assina na mesma, instala na mesma, e o iPhone
+     nunca se regista — sem erro nenhum em lado nenhum. */
+  certo(typeof passe.webServiceURL === 'string' && passe.webServiceURL.endsWith('/wallet'),
+    'o passe traz o webServiceURL — com URL em maiúsculas, que é o nome que a Apple lê',
+    String(passe.webServiceURL));
+  certo(passe.webServiceUrl === undefined,
+    'e NÃO traz um webServiceUrl em camelCase, que é o erro que ninguém vê',
+    String(passe.webServiceUrl));
+  certo(typeof passe.authenticationToken === 'string' && passe.authenticationToken.length >= 16,
+    'e o testemunho, com os 16 caracteres que a Apple exige no mínimo',
+    `${passe.authenticationToken && passe.authenticationToken.length} caracteres`);
+  certo(passe.authenticationToken === testemunhoDe(cartaoId),
+    'e o testemunho é DERIVADO do número de série — não se guarda, e por isso nunca muda',
+    'o que o passe traz não bate com o que o servidor deriva');
+  certo(!passe.webServiceURL.endsWith('/'),
+    'o endereço vai SEM barra final — com ela, a Apple chamaria /wallet//v1/ para sempre');
+
+  const traseira = (passe.storeCard.backFields || []).find((c) => c.key === 'actualizar');
+  certo(traseira && /sozinho/i.test(traseira.label),
+    'e a traseira já não diz que o cartão não se actualiza — ligar o serviço e deixar a frase velha era o passe a desmentir-se',
+    traseira ? traseira.label : 'sem campo');
+
+  const RAIZ_W = `${BASE}/wallet/v1`;
+  const APARELHO = 'aparelho-de-teste-0001';
+  const PUSH = 'a'.repeat(64);
+  const comTestemunho = { authorization: `ApplePass ${testemunhoDe(cartaoId)}` };
+
+  /* --- 2. registar -------------------------------------------------------- */
+  const semTestemunho = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}/${cartaoId}`,
+    { method: 'POST', body: JSON.stringify({ pushToken: PUSH }) });
+  certo(semTestemunho.status === 401,
+    'registar sem testemunho é 401 — senão qualquer pessoa registava o aparelho dela no cartão de outra',
+    String(semTestemunho.status));
+
+  const reg1 = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}/${cartaoId}`,
+    { method: 'POST', headers: comTestemunho, body: JSON.stringify({ pushToken: PUSH }) });
+  certo(reg1.status === 201, 'o aparelho regista-se, e o primeiro registo é 201', String(reg1.status));
+
+  const reg2 = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}/${cartaoId}`,
+    { method: 'POST', headers: comTestemunho, body: JSON.stringify({ pushToken: PUSH }) });
+  certo(reg2.status === 200,
+    'e o segundo é 200 e não 201 — a Apple usa a diferença para saber se precisa de repetir',
+    String(reg2.status));
+
+  /* --- 3. a lista, ANTES de haver novidade -------------------------------- */
+  const lista = () => fetch(`${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}`);
+  const agora0 = Number(valor(`SELECT apple_actualizado AS v FROM cartoes WHERE id = '${cartaoId}'`)) || 0;
+  const semNovidade = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}?passesUpdatedSince=${agora0}`);
+  certo(semNovidade.status === 204,
+    'sem novidade a lista é 204 — e MAIOR ESTRITO, senão o mesmo passe voltava em todas as chamadas, para sempre',
+    String(semNovidade.status));
+  certo((await semNovidade.text()) === '',
+    'e um 204 vai SEM corpo — um 204 com corpo é uma resposta inválida');
+
+  /* A lista NÃO leva testemunho nenhum, e isso é do protocolo: o segredo ali é
+     o próprio identificador do aparelho. Quem lhe põe uma guarda de testemunho
+     parte as actualizações todas e não percebe porquê. */
+  const semAuth = await lista();
+  certo(semAuth.status === 200 || semAuth.status === 204,
+    'a lista responde SEM testemunho — pôr-lhe uma guarda partia as actualizações todas',
+    String(semAuth.status));
+
+  /* --- 4. o balcão carimba ------------------------------------------------ */
+  const cli = (await pedir('/v1/cliente/eu', { sessao })).dados;
+  const carimbo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(cli.cliente.publico, cli.segredo), programaId: 'p1' } });
+  certo(carimbo.estado === 200, 'o balcão carimba', String(carimbo.estado));
+  await new Promise((r) => setTimeout(r, 400));
+
+  const depois = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}?passesUpdatedSince=${agora0}`);
+  certo(depois.status === 200,
+    'e AGORA a lista tem novidade — o carimbo mexeu na etiqueta do tempo',
+    String(depois.status));
+  const corpoLista = await depois.json();
+  certo(Array.isArray(corpoLista.serialNumbers) && corpoLista.serialNumbers.includes(cartaoId),
+    'e o número de série do cartão está lá', JSON.stringify(corpoLista).slice(0, 120));
+  certo(typeof corpoLista.lastUpdated === 'string',
+    'o lastUpdated sai como STRING — em número, há Wallets que não o guardam e o passesUpdatedSince chega sempre vazio',
+    `${typeof corpoLista.lastUpdated}`);
+
+  /* --- 5. ir buscar o passe, e o 304 -------------------------------------- */
+  const semAutorizacao = await fetch(`${RAIZ_W}/passes/${PASS_TIPO}/${cartaoId}`);
+  certo(semAutorizacao.status === 401,
+    'ir buscar o passe sem testemunho é 401', String(semAutorizacao.status));
+
+  const novo = await fetch(`${RAIZ_W}/passes/${PASS_TIPO}/${cartaoId}`, { headers: comTestemunho });
+  certo(novo.status === 200
+    && novo.headers.get('content-type') === 'application/vnd.apple.pkpass',
+    'com testemunho, o passe actualizado serve-se',
+    `${novo.status} ${novo.headers.get('content-type')}`);
+  const modificado = novo.headers.get('last-modified');
+  certo(!!modificado,
+    'E VEM COM Last-Modified. Sem ele o iPhone nunca manda If-Modified-Since, nunca há 304, e o Worker volta a assinar um passe inteiro a cada pedido — dentro de dez milissegundos de CPU',
+    String(modificado));
+  await novo.arrayBuffer();
+
+  const outraVez = await fetch(`${RAIZ_W}/passes/${PASS_TIPO}/${cartaoId}`,
+    { headers: { ...comTestemunho, 'if-modified-since': modificado } });
+  certo(outraVez.status === 304,
+    'e pedir de novo com essa data dá 304 — é o que faz esta rota caber no plano gratuito',
+    String(outraVez.status));
+  certo((await outraVez.text()) === '', 'e o 304 vai sem corpo');
+
+  /* --- 6. desregistar ----------------------------------------------------- */
+  const fora = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/${PASS_TIPO}/${cartaoId}`,
+    { method: 'DELETE', headers: comTestemunho });
+  certo(fora.status === 200, 'o aparelho desregista-se', String(fora.status));
+  const depoisDeSair = await lista();
+  certo(depoisDeSair.status === 204,
+    'e deixa de receber a lista — senão continuávamos a tocar num telemóvel que já não quer',
+    String(depoisDeSair.status));
+  const sobrou = valor(
+    `SELECT COUNT(*) AS v FROM wallet_aparelhos WHERE aparelho = '${APARELHO}'`);
+  certo(Number(sobrou) === 0,
+    'e o aparelho sai da tabela — guardar o testemunho de push de quem já não nos quer é o que o RGPD manda não fazer',
+    String(sobrou));
+
+  /* --- o registo de queixas ----------------------------------------------- */
+  const log = await fetch(`${RAIZ_W}/log`, {
+    method: 'POST', body: JSON.stringify({ logs: ['de teste'] }) });
+  certo(log.status === 200,
+    'o registo de queixas responde 200 — é o único sítio onde o iPhone diz porque é que falhou');
+
+  /* --- um Pass Type ID que não é o nosso ---------------------------------- */
+  const outroTipo = await fetch(
+    `${RAIZ_W}/devices/${APARELHO}/registrations/pass.de.outra.gente/${cartaoId}`,
+    { method: 'POST', headers: comTestemunho, body: JSON.stringify({ pushToken: PUSH }) });
+  certo(outroTipo.status === 404,
+    'um Pass Type ID que não é o nosso não entra em lado nenhum', String(outroTipo.status));
+
+  /* --- as barras repetidas ------------------------------------------------ */
+  const comDuasBarras = await fetch(`${BASE}/wallet//v1/log`, {
+    method: 'POST', body: JSON.stringify({ logs: [] }) });
+  certo(comDuasBarras.status === 200,
+    'e /wallet//v1/ funciona — um passe emitido com barra final fica assim para sempre no telemóvel de quem o tem',
+    String(comDuasBarras.status));
+}
+
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);
 if (falhou) {

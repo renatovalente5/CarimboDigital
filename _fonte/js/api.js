@@ -411,7 +411,14 @@ function criarDemo() {
          as duas carteiras exigem um. Aqui não há Google nem Apple nenhuma —
          mas se a demonstração mostrasse o botão onde a aplicação a sério não
          o mostra, deixava de servir para o provar. */
-      carteiras: { google: Boolean(negocio.logotipo), apple: false },
+      carteiras: {
+        google: Boolean(negocio.logotipo), apple: false,
+        /* E O MOTIVO, como no servidor a sério. Sem ele, um cartão sem
+           logótipo na demonstração ficava sem botão E sem explicação — que é
+           exactamente o defeito que a explicação veio corrigir, e a
+           demonstração existe para se poder percorrer a app inteira. */
+        motivo: negocio.logotipo ? null : 'sem-logotipo',
+      },
     };
   }
 

@@ -268,6 +268,42 @@ async function ecraCarimbar(principal) {
         ? `prémios a partir de ${(p.marcos || [{ pontos: p.objetivo }])[0].pontos} pontos`
         : `${p.objetivo} carimbos · ${p.premio}`) }))));
 
+  /* FALTA O LOGÓTIPO — e é aqui que se diz, porque é aqui que o dono está.
+
+     Sem logótipo, os clientes deste café não conseguem pôr o cartão na
+     carteira do telemóvel: a app nem lhes mostra o botão. A Wallet do Google
+     e a da Apple exigem as duas uma imagem, e um botão que só falha ao ser
+     tocado é pior do que um botão que não está lá — por isso o Worker não o
+     oferece, e faz bem.
+
+     Só que ninguém dizia isto a quem pode resolver. A única frase sobre o
+     assunto estava enterrada a meio do formulário de OUTRO ecrã, e era
+     descritiva («quadrada fica melhor») em vez de dizer o que se perde. Um
+     negócio nasce sem logótipo, e nascia sem carteira, em silêncio.
+
+     Este é o único ecrã que o dono vê todos os dias. A faixa desaparece
+     sozinha assim que a imagem existir. */
+  if (!estado.negocio.logotipo) {
+    principal.append(el('div', { class: 'folha caixa-texto aviso-pendente' },
+      el('p', { html: '<b>Falta o logótipo.</b> Sem ele os teus clientes não '
+        + 'conseguem pôr este cartão na carteira do telemóvel — o botão nem '
+        + 'lhes aparece na app.' }),
+      el('button', {
+        class: 'btn btn-cheio btn-pequeno', style: 'margin-top:12px',
+        texto: 'Escolher imagem',
+        aoClick: async () => {
+          await irPara('programa');
+          /* Salta para o campo em vez de o deixar procurar: o formulário do
+             cartão é comprido e o logótipo está a meio dele. */
+          const campo = $('#f-logotipo');
+          if (campo) {
+            campo.closest('.campo')?.scrollIntoView({ block: 'center' });
+            campo.click();
+          }
+        },
+      })));
+  }
+
   const visor = el('div', { class: 'visor' },
     el('video', { class: 'visor-video', id: 'video', playsinline: true, muted: true }),
     el('div', { class: 'visor-mira', 'aria-hidden': 'true' },
@@ -1265,8 +1301,15 @@ function campoLogotipo() {
           texto: temImagem ? 'Trocar a imagem' : 'Escolher uma imagem',
           aoClick: () => entrada.click(),
         }),
-        el('p', { class: 'miudo', texto:
-          'Quadrada fica melhor. É esta que vai no cartão da Wallet do telemóvel.' }))),
+        /* A FRASE MUDA CONFORME HÁ OU NÃO HÁ IMAGEM.
+
+           Era sempre a mesma, e era descritiva: dizia onde a imagem vai
+           parar, não o que se perde sem ela. Um estado vazio que só diz «sem
+           imagem» não é um estado vazio: é uma consequência por contar. */
+        el('p', { class: 'miudo', texto: temImagem
+          ? 'Quadrada fica melhor. É esta que vai no cartão da Wallet do telemóvel.'
+          : 'Sem esta imagem não há cartão na Apple Wallet nem na Carteira do '
+            + 'Google: a app dos teus clientes nem lhes mostra o botão.' }))),
     entrada);
 }
 

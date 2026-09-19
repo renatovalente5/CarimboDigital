@@ -307,24 +307,62 @@ async function ecraCartao(principal) {
 
   /* Um botão por cartão, e no ecrã do cartão: cada cartão é um passe seu, com
      o seu saldo e o seu código de barras. No perfil não cabia — teria de
-     perguntar primeiro qual deles. */
-  if (cheio.carteiras && cheio.carteiras.google) principal.append(botaoWallet(cheio, 'google'));
-  /* A APPLE PRECISA DAS DUAS COISAS. O Worker diz se sabe assinar o passe; a
-     construção diz se o crachá oficial está publicado. Faltando o crachá, o
-     botão seria uma imagem partida — a arte é da Apple, não se desenha nem se
-     troca por texto. Isto esteve um dia inteiro só a olhar para a Google:
-     a rota do passe estava viva em produção e não havia um caminho na app que
-     lá chegasse. */
-  if (cheio.carteiras && cheio.carteiras.apple && CRACHA_APPLE) {
+     perguntar primeiro qual deles.
+
+     E UM BOTÃO SÓ, quando se sabe qual. Estavam os dois empilhados, e para
+     quem tem um iPhone o da Google é ruído — e ruído que ocupa 55 píxeis de
+     altura no meio do ecrã do cartão. Quando NÃO se sabe, ficam os dois: ver
+     o comentário do `carteiraProvavel`. */
+  const carteiras = cheio.carteiras || {};
+  const podeGoogle = Boolean(carteiras.google);
+  const podeApple = Boolean(carteiras.apple && CRACHA_APPLE);
+  const qual = carteiraProvavel();
+  /* A escolha só corta um botão se o OUTRO existir. Num telemóvel Android com
+     um café que só tem a Apple ligada, esconder a Apple deixava a pessoa sem
+     nada — e sem perceber porquê. */
+  const mostraGoogle = podeGoogle && !(qual === 'apple' && podeApple);
+  const mostraApple = podeApple && !(qual === 'google' && podeGoogle);
+
+  if (mostraApple) {
     principal.append(botaoWallet(cheio, 'apple'));
-    /* A explicação vai por baixo do botão e só a quem já tem o passe: antes
-       de o ter, «o passe não se actualiza sozinho» é uma preocupação que
-       ainda não é dela, e só serve para assustar quem ia carregar. */
-    if (cheio.naApple) {
+    /* A SAÍDA DE EMERGÊNCIA. Um passe da Apple só se guarda a partir do
+       Safari: no Chrome, no Firefox ou dentro do browser do Instagram, o
+       ficheiro descarrega e não acontece nada. A pessoa não tem como adivinhar
+       que o problema é o browser — e se escondemos o botão da Google por
+       termos concluído que ela é da Apple, ficou sem alternativa nenhuma. */
+    if (!eSafari()) {
       principal.append(el('p', { class: 'miudo', style: 'margin-top:8px', texto:
-        'O cartão na Apple Wallet mostra os carimbos de quando o guardaste. '
-        + 'Toca aqui para o pôr em dia — substitui o que lá está.' }));
+        'Se não abrir, abre esta página no Safari — é de lá que o iPhone '
+        + 'guarda cartões na carteira.' }));
+    } else if (cheio.naApple && !cheio.appleAutomatico) {
+      /* O PASSE VELHO. Quem guardou o cartão antes de isto existir tem no
+         telemóvel um ficheiro sem endereço de serviço lá dentro, e nada do
+         que se faça no servidor lhe toca: fica congelado para sempre.
+
+         Dizer a essa pessoa «actualiza-se sozinho» era mentir-lhe exactamente
+         onde ela vai verificar. Uma vez, e nunca mais. */
+      principal.append(el('p', { class: 'miudo', style: 'margin-top:8px', texto:
+        'O cartão que tens na carteira é de antes das actualizações '
+        + 'automáticas. Guarda-o outra vez — uma vez só — e a partir daí '
+        + 'acerta-se sozinho.' }));
     }
+  }
+  if (mostraGoogle) principal.append(botaoWallet(cheio, 'google'));
+
+  /* E QUANDO NÃO HÁ BOTÃO NENHUM, dizer porquê.
+
+     Antes não se acrescentava nada, e «nada» não se distingue de «esta app
+     não faz isso». Uma pessoa com dois cartões, um com botão e outro sem, não
+     conclui «falta o logótipo daquele café»: conclui que a app está avariada.
+     E o perfil promete a carteira a toda a gente.
+
+     Sem botão e sem acção: quem tem de carregar o logótipo é o dono, e é no
+     balcão que ele é avisado. Aqui a frase só existe para a pessoa parar de
+     procurar. */
+  if (!mostraGoogle && !mostraApple && carteiras.motivo === 'sem-logotipo') {
+    principal.append(el('p', { class: 'miudo', style: 'margin-top:12px', texto:
+      'Este sítio ainda não pôs o logótipo, e sem ele o cartão não vai para a '
+      + 'carteira do telemóvel. O código aqui em cima funciona na mesma.' }));
   }
 
   /* TRAZ UM AMIGO. Só aparece se o café tiver ligado alguma coisa — um botão
@@ -474,6 +512,81 @@ function largarCartao(cartao) {
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
       aoClick: fecharPainel }));
 }
+
+/* =========================================================================
+   Qual das duas carteiras é que este telemóvel tem
+
+   O PEDIDO ERA «mostra só uma», e a pergunta que o resolve não é «que sistema
+   é este?» — é «este aparelho e este browser conseguem mesmo guardar o
+   passe?». São coisas diferentes, e confundi-las esconde um botão a quem
+   precisava dele.
+
+   O QUE SE MEDIU, e porque é que cada ramo é o que é:
+
+   · ANDROID é o único ramo limpo. Um Android nunca guarda um passe da Apple.
+
+   · iPHONE/iPod é o outro. A Google Wallet não existe no iPhone para isto.
+
+   · «MACINTOSH» NÃO É UM RAMO. Desde o iPadOS 13 o Safari do iPad diz-se
+     Macintosh por omissão — e um iPad, segundo as próprias directrizes do
+     crachá da Apple, NÃO está na lista de quem pode guardar um passe a partir
+     de uma página («iPhone, iPod touch, or Mac»). O que separa os dois são os
+     pontos de toque: um Mac tem zero, um iPad tem cinco. Sem esta linha,
+     escondíamos o botão da Google a um iPad que não guarda nem um nem outro.
+
+   · TUDO O RESTO — Windows, Linux, ChromeOS, e o que não se reconheceu —
+     mostra OS DOIS. Não é falta de esforço: é a única resposta honesta quando
+     não se sabe. Esconder por adivinhação custa a quem adivinhámos mal, e
+     essa pessoa fica sem forma de fazer uma coisa que o telemóvel dela faz.
+
+   O `userAgentData` vem primeiro porque é o que não mente — mas só existe no
+   Chromium, e por isso a cadeia de agente fica por baixo dele e não no lugar
+   dele.
+   ========================================================================= */
+
+function carteiraProvavel() {
+  const ua = navigator.userAgent || '';
+  const marca = (navigator.userAgentData || {}).platform || '';
+  if (marca === 'Android' || /Android/i.test(ua)) return 'google';
+  /* O teste do Android vem ANTES do da Apple de propósito: a cadeia de um
+     Android traz «Linux» e alguns browsers trazem «like Mac OS X». */
+  if (marca === 'iOS' || /iPhone|iPod/i.test(ua)) return 'apple';
+  if (marca === 'macOS' || /Macintosh|Mac OS X/i.test(ua)) {
+    /* Zero pontos de toque = Mac a sério. Mais do que um = iPad a fingir-se
+       de Mac, e esse não guarda passes de maneira nenhuma. */
+    return (navigator.maxTouchPoints || 0) > 1 ? 'ambas' : 'apple';
+  }
+  return 'ambas';
+}
+
+/**
+ * Isto é o Safari?
+ *
+ * Um passe da Apple só entra na carteira a partir do Safari. No Chrome, no
+ * Firefox ou dentro do browser embutido do Instagram, o ficheiro descarrega e
+ * não acontece nada — sem erro nenhum, o que é a pior maneira de falhar.
+ *
+ * A pergunta é pela NEGATIVA, e tem de ser: todos os browsers do iPhone
+ * dizem-se Safari, porque todos correm sobre o mesmo motor. O que os denuncia
+ * é a marca própria que cada um acrescenta. A lista dos browsers embutidos
+ * não é exaustiva nem pode ser — é a das casas onde uma ligação partilhada
+ * mais vezes aterra.
+ */
+function eSafari() {
+  const ua = navigator.userAgent || '';
+  /* O «Edg/» do Edge de secretária não está nesta lista, e é de propósito por
+     duas razões: a cadeia dele já traz «Chrome», que a linha apanha; e escrever
+     duas barras seguidas num ficheiro publicado faz a guarda do auditor lê-las
+     como um endereço de outro domínio. Ela não distingue uma expressão regular
+     de um endereço — e faz bem em não distinguir, porque um endereço sem
+     protocolo (duas barras e logo o domínio) tem exactamente esta forma.
+     Este comentário também não o pode escrever por extenso, pela mesma
+     razão: escrevi-o e a guarda apanhou-me. */
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Firefox/i.test(ua)) return false;
+  if (/FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|LinkedInApp|Twitter/i.test(ua)) return false;
+  return /Safari/i.test(ua);
+}
+
 
 /* =========================================================================
    O botão da Carteira do Google

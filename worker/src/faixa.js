@@ -47,17 +47,21 @@
         eram 4,4 milhões de amostras; isto são umas 200 000 visitas.
 
    O QUE SE MEDE E NÃO SE OLHA. A cor da marca é escolhida pelo comerciante e
-   pode ser qualquer uma — preto, branco, amarelo-limão. As opacidades das
-   fichas não estão escritas à mão: saem de uma busca binária que procura a
-   menor opacidade que chega ao contraste pedido contra o fundo. E o contraste
-   pedido não é decorativo: 3:1 é o mínimo da WCAG 2.2 para objectos gráficos
-   que dizem alguma coisa (1.4.11 «Non-text Contrast»), e uma ficha por
-   carimbar diz que falta um carimbo.
+   pode ser qualquer uma — preto, branco, amarelo-limão. A opacidade do aro por
+   fazer não está escrita à mão: sai de uma busca binária que procura a menor
+   opacidade CUJO PIXEL DESENHADO chega ao contraste pedido — o pixel, e não a
+   tinta sobre a cor crua da marca, que é uma cor que a imagem não tem em sítio
+   nenhum. E o contraste pedido não é decorativo: 3:1 é o mínimo da WCAG 2.2
+   para objectos gráficos que dizem alguma coisa (1.4.11 «Non-text Contrast»),
+   e uma ficha por carimbar diz que falta um carimbo.
 
-   Há uma garantia por trás disto: seja qual for a cor, uma das duas tintas
-   (branco ou preto) chega SEMPRE a pelo menos 4,58:1. A luminância que
-   equilibra os dois lados é L = 0,179, e aí ambos dão 1,05/0,229 = 4,58.
-   Nenhuma cor de marca pode derrotar isto — nem o cinzento do meio.
+   Há uma garantia por trás disto: seja qual for a cor, uma das duas tintas da
+   app (#FFFFFF ou #141318) chega SEMPRE a pelo menos 4,32:1. A luminância que
+   equilibra os dois lados é L = 0,193, e aí ambos dão 0,243/0,0563 = 4,32.
+   Nenhuma cor de marca pode derrotar isto — nem o cinzento do meio. (Com preto
+   PURO o chão seria 4,58 em vez de 4,32; troca-se essa quarta de contraste num
+   ponto da roda das cores pela certeza de que o carimbo tem a MESMA cor no
+   telemóvel e no passe, que é o que uma pessoa vê ao pôr os dois lado a lado.)
    ========================================================================= */
 
 /* =========================================================================
@@ -161,20 +165,62 @@ export function contraste(a, b) {
 const mistura = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 /**
- * A menor opacidade de `tinta` sobre `fundo` que chega a `alvo` de contraste.
+ * A cor da entrada `i` da rampa — sombra (0), marca (128), tinta (255).
  *
- * Busca binária, 14 voltas, sobre uma função monótona — a opacidade só pode
- * afastar a cor do fundo, nunca aproximá-la. Se nem a opacidade 1 chegar ao
- * alvo (só acontece com um alvo absurdo), devolve 1 e fica o melhor possível
- * em vez de rebentar: uma faixa com pouco contraste é melhor do que um cartão
- * que não sai.
+ * Arredondada, porque é assim que ela entra na paleta do PNG: quem medir a
+ * rampa sem arredondar mede uma imagem que não existe. É a MESMA função que
+ * escreve a paleta, de propósito — duas cópias da rampa é a maneira certa de
+ * um dia medir uma e servir a outra.
  */
-function opacidadePara(fundo, tinta, alvo, minimo = 0.16) {
+function corDaRampa(base, tinta, sombra, i) {
+  const c = i <= NEUTRO
+    ? mistura(sombra, base, i / NEUTRO)
+    : mistura(base, tinta, (i - NEUTRO) / (255 - NEUTRO));
+  return [Math.round(c[0]), Math.round(c[1]), Math.round(c[2])];
+}
+
+/**
+ * A menor opacidade cujo PIXEL DESENHADO chega a `alvo` — em TODAS as linhas
+ * da banda onde a ficha pode assentar.
+ *
+ * ESTA FUNÇÃO EXISTE PORQUE A ANTERIOR MEDIA OUTRA COISA. Media a tinta
+ * misturada com a cor CRUA da marca, e a ficha nunca assenta na cor crua:
+ * assenta no degradê que já está no quadro, e o `compor` mistura-se com ele. A
+ * opacidade que chega ao pixel é `a − w(1−a)`, com `w` a lavagem daquela linha
+ * — no fundo da banda são menos 10 %. Medido no PNG descodificado, o aro do
+ * Café do Manel dava 2,44 onde a conta anunciava 3,06. Uma busca binária
+ * perfeita contra o fundo errado devolve um número perfeito e falso.
+ *
+ * E mede-se em VÁRIAS linhas em vez de num extremo porque o par pior não está
+ * sempre no mesmo sítio: nas cores de tinta escura o contraste PIORA a descer
+ * (a perda de tinta pesa mais), nas de opacidade alta MELHORA. Medir num
+ * extremo só é medir contra o mais fácil em metade das marcas.
+ *
+ * Se nem a opacidade 1 chegar ao alvo, devolve 1 e fica o melhor possível: uma
+ * faixa fraca é melhor do que um cartão que não sai.
+ */
+function opacidadeDesenhada(base, tinta, sombra, lavagens, alvo, minimo = 0.16) {
+  const corDe = (i) => corDaRampa(base, tinta, sombra, i < 0 ? 0 : (i > 255 ? 255 : i));
+  /* Cada linha entra como o par (índice do fundo, cor do fundo) — o índice é
+     o que o `compor` vai encontrar lá, e é ele que come parte da tinta. */
+  const linhas = lavagens.map((w) => {
+    const indice = NEUTRO - Math.round(w * 127);
+    return { actual: (indice - NEUTRO) / 127, fundo: corDe(indice) };
+  });
+  const pior = (a) => {
+    let min = Infinity;
+    for (const { actual, fundo } of linhas) {
+      const v = NEUTRO + Math.round((a + actual * (1 - a)) * 127);
+      const r = contraste(corDe(v), fundo);
+      if (r < min) min = r;
+    }
+    return min;
+  };
   let baixo = minimo; let alto = 1;
-  if (contraste(mistura(fundo, tinta, alto), fundo) < alvo) return alto;
+  if (pior(alto) < alvo) return alto;
   for (let i = 0; i < 14; i += 1) {
     const meio = (baixo + alto) / 2;
-    if (contraste(mistura(fundo, tinta, meio), fundo) >= alvo) alto = meio; else baixo = meio;
+    if (pior(meio) >= alvo) alto = meio; else baixo = meio;
   }
   return alto;
 }
@@ -252,6 +298,75 @@ function anel(quadro, W, H, cx, cy, raio, grossura, alfa) {
       if (dentro <= 0) continue;
       if (dentro > 1) dentro = 1;
       compor(quadro, i, fora * dentro * alfa);
+    }
+  }
+}
+
+/**
+ * O aro do carimbo POR FAZER, tracejado — o `border: 2px dashed` da app.
+ *
+ * PORQUE É QUE NÃO É UM ANEL. Porque o desenho é metade da mensagem: um aro
+ * contínuo lê-se como um anel impresso, e um tracejado lê-se como um sítio à
+ * espera de carimbo. A app mudou para tracejado e a faixa ficou para trás — e
+ * os dois desenhos são o MESMO cartão, visto no telemóvel e na carteira.
+ *
+ * SEM `atan2`: cada dente é a intersecção do anel com uma cunha, e uma cunha
+ * são dois semiplanos. O seno e o cosseno saem uma vez por dente, e a
+ * cobertura das pontas vem da mesma distância assinada que já suaviza as
+ * bordas — o dente fica liso dos quatro lados. E é MAIS BARATO do que o anel
+ * que aqui estava: percorre a caixa de cada dente e não o quadrado inteiro da
+ * ficha, que é um quarto dos pixels visitados.
+ */
+function aroTracejado(quadro, W, H, cx, cy, raio, grossura, alfa, dentes) {
+  const interior = raio - grossura;
+  const passo = (Math.PI * 2) / dentes;
+  /* 61 % DE TRAÇO E 39 % DE FOLGA, e não metade e metade: é o que o Blink
+     desenha. Medido num Chrome, com um `border: 2px dashed` sobre círculos de
+     52, 60 e 34 px — os três tamanhos que a app usa — a tinta ocupa 60 a 62 %
+     do perímetro nos três. Meio-e-meio dava um tracejado visivelmente mais
+     aberto do que o do telemóvel, que é a diferença que se queria fechar. */
+  const dente = passo * 0.61;
+  for (let k = 0; k < dentes; k += 1) {
+    const a0 = k * passo - dente / 2;
+    const a1 = a0 + dente;
+    /* Os dois semiplanos que fecham a cunha. `n0` aponta para dentro a partir
+       da aresta de `a0`, `n1` a partir da de `a1`; o produto escalar de cada um
+       com (dx, dy) é a DISTÂNCIA assinada à aresta, em pixels — é por isso que
+       lhe podemos somar 0,5 e ter suavização de graça. */
+    const n0x = -Math.sin(a0); const n0y = Math.cos(a0);
+    const n1x = Math.sin(a1); const n1y = -Math.cos(a1);
+    /* A CAIXA DO DENTE, exacta: os quatro cantos MAIS os pontos cardeais que
+       caiam dentro da cunha. Só com os cantos, a barriga do arco ficava de
+       fora — meio pixel numa ficha pequena, quase dois numa faixa da Google —
+       e o dente saía cortado a direito de um dos lados. */
+    let bx0 = Infinity; let bx1 = -Infinity; let by0 = Infinity; let by1 = -Infinity;
+    const juntar = (ang, r) => {
+      const px = cx + Math.cos(ang) * r; const py = cy + Math.sin(ang) * r;
+      if (px < bx0) bx0 = px; if (px > bx1) bx1 = px;
+      if (py < by0) by0 = py; if (py > by1) by1 = py;
+    };
+    juntar(a0, interior); juntar(a0, raio); juntar(a1, interior); juntar(a1, raio);
+    for (let c = 0; c < 4; c += 1) {
+      const ang = c * (Math.PI / 2);
+      /* «está dentro da cunha» sem normalizar ângulos à mão: o resto da
+         divisão por 2π do que vai de `a0` até ao ponto cardeal. */
+      const volta = Math.PI * 2;
+      const delta = ((ang - a0) % volta + volta) % volta;
+      if (delta <= dente) juntar(ang, raio);
+    }
+    const x0 = Math.max(0, Math.floor(bx0 - 1)); const x1 = Math.min(W - 1, Math.ceil(bx1 + 1));
+    const y0 = Math.max(0, Math.floor(by0 - 1)); const y1 = Math.min(H - 1, Math.ceil(by1 + 1));
+    for (let y = y0; y <= y1; y += 1) {
+      const dy = y + 0.5 - cy; const dy2 = dy * dy;
+      for (let x = x0; x <= x1; x += 1) {
+        const dx = x + 0.5 - cx;
+        const d = Math.sqrt(dx * dx + dy2);
+        let fora = raio + 0.5 - d; if (fora <= 0) continue; if (fora > 1) fora = 1;
+        let dentro = d - interior + 0.5; if (dentro <= 0) continue; if (dentro > 1) dentro = 1;
+        let p0 = dx * n0x + dy * n0y + 0.5; if (p0 <= 0) continue; if (p0 > 1) p0 = 1;
+        let p1 = dx * n1x + dy * n1y + 0.5; if (p1 <= 0) continue; if (p1 > 1) p1 = 1;
+        compor(quadro, y * W + x, fora * dentro * p0 * p1 * alfa);
+      }
     }
   }
 }
@@ -527,32 +642,48 @@ export async function faixaDeCartao({
   const W = largura; const H = altura;
   const base = lerCor(cor);
 
-  /* A TINTA É A QUE GANHA, medida e não escolhida por um limiar de gosto.
-     É a mesma decisão do `tintaSobre` no `pkpass.js`, escrita do mesmo modo:
-     preto se o preto contrastar mais, branco se for o branco. */
-  const paraBranco = contraste(base, [255, 255, 255]);
-  const paraPreto = contraste(base, [0, 0, 0]);
-  const tinta = paraPreto > paraBranco ? [0, 0, 0] : [255, 255, 255];
-  const sombra = tinta[0] === 0 ? [255, 255, 255] : [0, 0, 0];
+  /* A TINTA É A QUE GANHA, medida e não escolhida por um limiar de gosto — e é
+     a MESMA das duas tintas que a app tem. Escolher aqui entre branco e preto
+     PURO parece o mesmo e não é: o `tintaPara` do `_fonte/js/nucleo.js`
+     escolhe entre #FFFFFF e #141318, e a fronteira entre as duas cai noutro
+     sítio. Entre #767676 e #797979 (e num #6E7B84) os dois lados escolhiam
+     tintas OPOSTAS — o mesmo cartão ficava com carimbos brancos no telemóvel e
+     pretos no passe. Copia-se a regra em vez de a importar porque o Worker e a
+     app não partilham módulos: a app é servida como ficheiro estático e o
+     `nucleo.js` mexe no DOM, que aqui não existe.
+
+     O DESEMPATE VAI PARA O BRANCO, como lá (`>=` sobre o branco). */
+  const BRANCO = [255, 255, 255];
+  const PRETO = [20, 19, 24];                 /* #141318, o preto da app */
+  const paraBranco = contraste(base, BRANCO);
+  const paraPreto = contraste(base, PRETO);
+  const tinta = paraBranco >= paraPreto ? BRANCO : PRETO;
+  /* A sombra é o OPOSTO da tinta, e agora tem de se decidir pela tinta CLARA:
+     com `tinta[0] === 0` o #141318 caía no ramo errado e a faixa ficava com uma
+     sombra da cor da própria tinta — um borrão por baixo de cada ficha. */
+  const sombra = tinta[0] === 255 ? [0, 0, 0] : [255, 255, 255];
 
   /* A PALETA. 0 é sombra cheia, 128 é a cor da marca, 255 é tinta cheia.
      256 entradas dão 127 níveis de cobertura de cada lado — mais do que
      suficiente para uma borda de um pixel, e a olho não há degrau nenhum. */
   const paleta = new Uint8Array(768);
-  for (let i = 0; i <= NEUTRO; i += 1) {
-    const c = mistura(sombra, base, i / NEUTRO);
-    paleta[i * 3] = Math.round(c[0]); paleta[i * 3 + 1] = Math.round(c[1]); paleta[i * 3 + 2] = Math.round(c[2]);
-  }
-  for (let i = NEUTRO + 1; i < 256; i += 1) {
-    const c = mistura(base, tinta, (i - NEUTRO) / (255 - NEUTRO));
-    paleta[i * 3] = Math.round(c[0]); paleta[i * 3 + 1] = Math.round(c[1]); paleta[i * 3 + 2] = Math.round(c[2]);
+  for (let i = 0; i < 256; i += 1) {
+    const c = corDaRampa(base, tinta, sombra, i);
+    paleta[i * 3] = c[0]; paleta[i * 3 + 1] = c[1]; paleta[i * 3 + 2] = c[2];
   }
 
   /* O FUNDO. Um degradê de 10 % para o lado da SOMBRA, de cima para baixo.
-     Para o lado da sombra e não para o da tinta de propósito: assim o fundo
-     afasta-se da tinta à medida que desce, e as fichas de baixo ficam com MAIS
-     contraste do que as de cima em vez de menos. Com a lavagem ao contrário, o
-     par pior do cartão ficava logo na última linha de carimbos.
+     Para o lado da sombra e não para o da tinta: assim a COR do fundo afasta-se
+     da tinta à medida que desce, em vez de se aproximar dela.
+
+     MAS NÃO SE SIGA DAQUI QUE AS FICHAS DE BAIXO FICAM MELHORES — estava aqui
+     escrito que ficavam, com convicção, e é falso em metade das marcas. O
+     degradê também está DEBAIXO da ficha, e o `compor` mistura a tinta com ele:
+     quanto mais lavada a linha, menos opacidade chega ao pixel (até menos 10 %
+     no fundo da banda). Nas cores de tinta escura essa perda pesa mais do que o
+     afastamento do fundo e o contraste PIORA a descer — medido, o aro do
+     Café do Manel ia de 2,93 em cima para 2,44 em baixo. É por isso que a
+     opacidade se mede em todas as linhas da banda e não numa ponta.
 
      O degradê é representável na rampa porque é a própria sombra a opacidades
      crescentes — não é uma cor nova. Sai de graça. */
@@ -561,18 +692,40 @@ export async function faixaDeCartao({
     const a = LAVAGEM * (y / (H - 1));
     quadro.fill(NEUTRO - Math.round(a * 127), y * W, y * W + W);
   }
-  const fundoBaixo = mistura(base, sombra, LAVAGEM);
-
-  /* AS OPACIDADES SAEM DE UMA MEDIÇÃO, contra o fundo MAIS EXIGENTE de cada
-     uma — a ficha cheia mede-se contra o topo, onde o fundo está mais perto da
-     tinta, e a vazia contra o mesmo topo pela mesma razão.
-     4,5:1 para a cheia porque é ela que diz o número; 3:1 para a vazia porque
-     é o mínimo da WCAG 1.4.11 para um objecto gráfico com significado. */
-  const alfaCheia = Math.max(0.86, opacidadePara(base, tinta, 4.5));
-  const alfaVazia = opacidadePara(base, tinta, 3.0, 0.22);
-
   const alturaUtil = Math.round(H * BANDA_SEGURA);
   const topoUtil = (H - alturaUtil) / 2;
+
+  /* AS LINHAS ONDE UMA FICHA PODE ASSENTAR — todas as da banda segura, de onde
+     saem os fundos contra os quais as opacidades se medem. Nove amostras
+     chegam: o degradê é uma recta e o que se procura é o extremo, que está
+     sempre numa ponta. */
+  const lavagens = [];
+  for (let k = 0; k <= 8; k += 1) {
+    const y = topoUtil + (alturaUtil - 1) * (k / 8);
+    lavagens.push(LAVAGEM * (y / (H - 1)));
+  }
+  const fundoDeLinha = (y) => corDaRampa(base, tinta, sombra,
+    NEUTRO - Math.round(LAVAGEM * (y / (H - 1)) * 127));
+  const fundoTopo = fundoDeLinha(topoUtil);
+  const fundoBaixo = fundoDeLinha(topoUtil + alturaUtil - 1);
+
+  /* O DISCO CHEIO É OPACO, como na app (`background: var(--m-txt)`), e não um
+     véu de tinta a 86 %. Custa zero — é o índice 255 da rampa, o fim do
+     degradê que já lá está — e é o que faz o glifo recortado assentar na cor
+     PURA da marca, que é o `color: var(--m)` do outro lado.
+
+     O QUE ISTO CUSTA E O QUE RENDE. O véu de 86 % era calculado para dar 4,5:1
+     e dava 4,52 no pior caso medido; opaco, o pior caso passa a ser a
+     luminância de equilíbrio das duas tintas — L = 0,193, onde ambas dão
+     4,32:1. É menos 0,2 num único ponto da roda das cores, e em troca o glifo
+     e o disco passam a ter a MESMA cor que têm na app, que é a divergência que
+     se via na fotografia. Nas outras cores sobe, medido no pixel que sai:
+     4,56 → 5,58 no vermelho tijolo e 4,61 → 5,00 no azul. */
+  const alfaCheia = 1;
+  /* A VAZIA MEDE-SE NO PIXEL QUE SAI, e pede 3,2 em vez de 3,0: a rampa tem
+     127 níveis por lado e o `Math.round` do `compor` come até 1/127 de
+     opacidade — quem pede exactamente o mínimo fica abaixo dele. */
+  const alfaVazia = opacidadeDesenhada(base, tinta, sombra, lavagens, 3.2, 0.22);
 
   /* UM PROGRAMA COM SESSENTA CARIMBOS EXISTE, e a faixa tinha de escolher
      entre desenhar sessenta fichas de doze pixels — ilegíveis — ou desenhar
@@ -584,25 +737,49 @@ export async function faixaDeCartao({
     desenharPontos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo, marcos, alfaCheia, alfaVazia);
   } else {
     desenharCarimbos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo,
-      alfaCheia, alfaVazia, tinta[0] === 255, nomeSelo, selos);
+      alfaCheia, alfaVazia, tinta[0] === 255, nomeSelo, selos, W / APPLE_STRIP.largura);
   }
+
+  /* A cor que o pixel do aro vai TER naquela linha: a opacidade pedida,
+     diluída pela lavagem que já está no quadro, arredondada à rampa. É a mesma
+     conta do `compor` — escrita aqui outra vez porque medir o desenho com uma
+     conta diferente da que o desenha é como isto se estragou da primeira vez. */
+  const aroNaLinha = (fundoIdx) => {
+    const actual = (fundoIdx - NEUTRO) / 127;
+    const v = NEUTRO + Math.round((alfaVazia + actual * (1 - alfaVazia)) * 127);
+    return corDaRampa(base, tinta, sombra, v > 255 ? 255 : v);
+  };
+  const idxDe = (y) => NEUTRO - Math.round(LAVAGEM * (y / (H - 1)) * 127);
 
   return {
     bytes: await pngIndexado(W, H, quadro, paleta),
-    /* Devolvidos para as provas poderem MEDIR o que saiu, em vez de olharem. */
+    /* Devolvidos para as provas poderem MEDIR o que saiu, em vez de olharem.
+       ERAM QUATRO NÚMEROS FALSOS: compunham a tinta sobre a cor CRUA da marca e
+       comparavam-na com o fundo LAVADO — um par de cores que não se toca em
+       pixel nenhum da imagem. Para o Café do Manel anunciavam 3,06 onde o pixel
+       desenhado dava 2,44. Agora cada um é a cor do pixel que sai contra o
+       fundo da MESMA linha. */
     medida: {
       tinta,
-      cheiaSobreTopo: contraste(mistura(base, tinta, alfaCheia), base),
-      cheiaSobreBaixo: contraste(mistura(base, tinta, alfaCheia), fundoBaixo),
-      vaziaSobreTopo: contraste(mistura(base, tinta, alfaVazia), base),
-      vaziaSobreBaixo: contraste(mistura(base, tinta, alfaVazia), fundoBaixo),
+      cheiaSobreTopo: contraste(tinta, fundoTopo),
+      cheiaSobreBaixo: contraste(tinta, fundoBaixo),
+      vaziaSobreTopo: contraste(aroNaLinha(idxDe(topoUtil)), fundoTopo),
+      vaziaSobreBaixo: contraste(aroNaLinha(idxDe(topoUtil + alturaUtil - 1)), fundoBaixo),
+      /* E o que interessa a uma guarda: o PIOR de todas as linhas da banda,
+         que não está sempre na mesma ponta. */
+      vaziaPior: Math.min(...lavagens.map((w) => {
+        const fundoIdx = NEUTRO - Math.round(w * 127);
+        return contraste(aroNaLinha(fundoIdx), corDaRampa(base, tinta, sombra, fundoIdx));
+      })),
+      cheiaPior: Math.min(...lavagens.map((w) => contraste(tinta,
+        corDaRampa(base, tinta, sombra, NEUTRO - Math.round(w * 127))))),
       alfaCheia, alfaVazia,
     },
   };
 }
 
 function desenharCarimbos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo,
-  alfaCheia, alfaVazia, temSombra, nomeSelo, selos) {
+  alfaCheia, alfaVazia, temSombra, nomeSelo, selos, escala) {
   /* O TECTO DE 40 não é um número bonito: é o ponto a partir do qual um
      carimbo deixa de caber com tamanho para se ver. Um programa com 60
      carimbos existe — e para esse a faixa mostra a barra, que não mente. */
@@ -637,7 +814,27 @@ function desenharCarimbos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo,
         disco(quadro, W, H, x, y, raio, alfaCheia);
         if (glifo) recortar(quadro, W, H, x, y, glifo);
       } else {
-        anel(quadro, W, H, x, y, raio, Math.max(3, raio * 0.14), alfaVazia);
+        /* A GROSSURA É A DA APP: `border: 2px` num carimbo de 52 px são 7,7 %
+           do raio, e o aro que aqui estava usava 14 % — quase o dobro, que é
+           por que um lia como fio impresso e o outro como círculo por bater.
+
+           O PISO É EM PONTOS E NÃO EM PIXELS. Estava `Math.max(3, …)`, e 3
+           pixels numa imagem que sai a 2× para a Apple e a 2,75× para a Google
+           são 1,5 pt e 1,1 pt de fio — duas grossuras diferentes para o mesmo
+           cartão, e a mais fina abaixo do que a app desenha. */
+        const g = Math.max(2 * escala, raio * 0.077);
+        /* QUANTOS DENTES — também medido no Chrome e não escolhido: um dente e
+           a folga que lhe pertence ocupam 4,65 vezes a espessura do traço (17
+           dentes num círculo de 52 px com 2 px de borda, 19 num de 60, 11 num
+           de 34; os três dão 4,6 a 4,7). Aplicada aqui, a mesma regra dá 13
+           dentes numa ficha de faixa de 10 carimbos — que são os mesmos 17 do
+           telemóvel depois de as duas serem postas ao mesmo tamanho.
+           O tecto e o piso existem porque numa ficha de 40 carimbos o traço
+           ficaria mais curto do que largo (deixava de ser traço) e numa de três
+           carimbos ficaria com dentes de meio centímetro. */
+        const dentes = Math.max(6, Math.min(24,
+          Math.round((Math.PI * 2 * (raio - g / 2)) / (g * 4.65))));
+        aroTracejado(quadro, W, H, x, y, raio, g, alfaVazia, dentes);
       }
       x += L.lado + espaco;
     }

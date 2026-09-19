@@ -570,13 +570,36 @@ function rgb(cor, alternativa = 'rgb(90,49,232)') {
 
 /* Preto ou branco por cima da cor da marca, medido e não escolhido a olho.
    É a mesma conta que a app faz para o cartão no ecrã. */
+/* O PRETO DESTA CASA É #141318, E NÃO O PRETO PURO.
+
+   Parece a mesma coisa e não é. A app escolhe entre `#FFFFFF` e `#141318` (o
+   `tintaPara` do nucleo.js) e a faixa do passe passou a escolher o mesmo;
+   escolher aqui entre branco e preto PURO deixa uma banda estreita de cores
+   de marca — os cinzentos à volta de #767676 a #797979 — em que esta função e
+   as outras duas decidem ao CONTRÁRIO. No mesmo passe: texto preto por cima de
+   uma faixa de carimbos brancos.
+
+   É a mesma armadilha que já tinha mordido entre a app e a faixa, mudada de
+   sítio. Três sítios a responder à mesma pergunta têm de responder com a
+   mesma conta. */
+const PRETO_DA_CASA = { r: 0x14, g: 0x13, b: 0x18 };
+
+function luminanciaDe(r, g, b) {
+  const canal = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
+}
+
 function tintaSobre(cor) {
   const m = /^#([0-9a-fA-F]{6})$/.exec(String(cor || ''));
   if (!m) return 'rgb(255,255,255)';
   const n = parseInt(m[1], 16);
-  const canal = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
-  const luz = 0.2126 * canal((n >> 16) & 255) + 0.7152 * canal((n >> 8) & 255) + 0.0722 * canal(n & 255);
-  return (luz + 0.05) / 0.05 > (1.05 / (luz + 0.05)) ? 'rgb(0,0,0)' : 'rgb(255,255,255)';
+  const luz = luminanciaDe((n >> 16) & 255, (n >> 8) & 255, n & 255);
+  const luzPreto = luminanciaDe(PRETO_DA_CASA.r, PRETO_DA_CASA.g, PRETO_DA_CASA.b);
+  const paraPreto = (Math.max(luz, luzPreto) + 0.05) / (Math.min(luz, luzPreto) + 0.05);
+  const paraBranco = 1.05 / (luz + 0.05);
+  return paraPreto > paraBranco
+    ? `rgb(${PRETO_DA_CASA.r},${PRETO_DA_CASA.g},${PRETO_DA_CASA.b})`
+    : 'rgb(255,255,255)';
 }
 
 /**
@@ -585,7 +608,8 @@ function tintaSobre(cor) {
  * É um `storeCard`, que é o que a Apple chama a um cartão de loja — e o que
  * traz a faixa por cima onde cabe o contador.
  */
-export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, codigo, dominio, apoio }) {
+export function passeDeCartao(cartao, programa, negocio,
+                              { passTipo, equipa, codigo, dominio, apoio, servico }) {
   if (!passTipo || !equipa) throw new Error('falta o Pass Type ID ou a equipa');
   const pontos = programa.tipo === 'pontos'
     ? `${cartao.pontos ?? 0}`
@@ -605,25 +629,30 @@ export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, cod
     traseira.push({ key: 'onde', label: 'Onde fica',
       value: [negocio.morada, negocio.localidade].filter(Boolean).join('\n') });
   }
-  /* O PASSE DA APPLE NÃO SE ACTUALIZA SOZINHO, e isso tem de estar escrito.
+  /* A FRASE MUDA CONFORME O PASSE SABE OU NÃO VOLTAR A FALAR CONNOSCO.
 
-     Um passe só se actualiza sozinho com um servidor de web service e um
-     `authenticationToken` — que a Apple exige, mas que obriga a guardar um
-     registo por aparelho e a responder a pedidos de push da Apple. Não temos
-     isso, e por isso o passe é um retrato do momento em que foi guardado: o
-     carimbo dado hoje ao balcão está na app e no balcão, mas o passe na
-     carteira continua a mostrar o de ontem.
+     Durante muito tempo isto dizia, e com razão, «este cartão não se
+     actualiza sozinho»: sem servidor de web service, o passe era um retrato
+     do momento em que foi guardado, e quem abrisse a carteira e visse sete
+     carimbos tendo oito não concluía «falta aqui um servidor de push» —
+     concluía que o café não lhe tinha dado o carimbo.
 
-     Uma pessoa que abra a carteira e veja sete carimbos quando tem oito não
-     conclui «falta aqui um servidor de push»: conclui que o café não lhe deu
-     o carimbo. A frase custa uma linha e evita uma discussão ao balcão.
+     Agora há servidor, e a frase tem de acompanhar. Mas só para os passes
+     emitidos COM ele: os antigos continuam congelados nos telemóveis onde
+     estão, porque o endereço do serviço vai assinado dentro do ficheiro e
+     nada do que se faça aqui lhes toca.
 
-     O cartão da GOOGLE não tem este problema — esse actualiza-se por PATCH e
-     o desenho vai com ele. É só a Apple. */
-  traseira.push({ key: 'actualizar', label: 'Este cartão não se actualiza sozinho',
-    value: 'Os carimbos que vês aqui são os do momento em que guardaste o cartão. '
-      + 'Para o pôr em dia, abre a app e volta a tocar em «Adicionar à Wallet» — '
-      + 'o passe novo substitui este.' });
+     Ligar o serviço e deixar a frase velha era pôr o passe a desmentir-se a
+     si próprio — e já aconteceu uma vez neste projecto, no dia em que o
+     certificado da Apple entrou e nove sítios ficaram a dizer «ainda não». */
+  traseira.push(servico
+    ? { key: 'actualizar', label: 'Actualiza-se sozinho',
+        value: 'Não precisas de fazer nada: quando te carimbarem o cartão, este '
+          + 'passe acerta-se sozinho no telemóvel.' }
+    : { key: 'actualizar', label: 'Este cartão não se actualiza sozinho',
+        value: 'Os carimbos que vês aqui são os do momento em que guardaste o cartão. '
+          + 'Para o pôr em dia, abre a app e volta a tocar em «Adicionar à Wallet» — '
+          + 'o passe novo substitui este.' });
   traseira.push({ key: 'sitio', label: 'Carimbo Digital',
     value: `https://${dominio || 'carimbodigital.pt'}/app/` });
 
@@ -662,6 +691,25 @@ export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, cod
        mesmo par substitui o anterior — que é exactamente o que se quer
        quando o saldo muda. */
     serialNumber: String(cartao.id),
+    /* O QUE FAZ O PASSE ACTUALIZAR-SE SOZINHO, e são só estas duas chaves.
+
+       `webServiceURL` com URL em MAIÚSCULAS. Meia internet escreve
+       `webServiceUrl` e depois pergunta nos fóruns porque é que a Apple nunca
+       liga: o passe assina na mesma, instala na mesma, e simplesmente nunca
+       se regista. Não há erro nenhum a dizê-lo.
+
+       As duas andam juntas — uma sem a outra não faz nada — e por isso saem
+       das duas de uma vez ou não saem nenhuma.
+
+       E NÃO SE MUDA O TESTEMUNHO. A Apple diz explicitamente para não mexer
+       no `authenticationToken` numa actualização: mudá-lo parte todos os
+       passes que já estão na rua com o antigo. Por isso ele DERIVA-SE do
+       número de série em vez de se sortear — é sempre o mesmo, e não há
+       tabela nenhuma onde alguém um dia lhe possa mexer. */
+    ...(servico ? {
+      webServiceURL: servico.url,
+      authenticationToken: servico.testemunho,
+    } : {}),
     organizationName: String(negocio.nome || 'Carimbo Digital').slice(0, 60),
     description: `Cartão de fidelidade de ${negocio.nome}`,
     logoText: String(negocio.nome || '').slice(0, 40),

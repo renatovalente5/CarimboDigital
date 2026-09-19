@@ -386,3 +386,15 @@
   text-align: left;
 }
 .resultado-amigo svg { display: block; flex: none; }
+
+/* =========================================================================
+   Uma pendência que o dono tem de ver
+
+   É a mesma folha de texto de sempre, com uma borda à esquerda na cor de
+   aviso. Não é um alarme vermelho: nada está partido — falta uma coisa, e a
+   diferença entre as duas está no tom.
+   ========================================================================= */
+.aviso-pendente {
+  border-left: 3px solid var(--aviso, #E0A106);
+  margin-bottom: var(--e-4);
+}

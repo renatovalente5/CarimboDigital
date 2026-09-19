@@ -582,6 +582,22 @@ export async function correr(palco, certo) {
   certo(!(await palco.ver('.btn-wallet')),
     'wallet: sem logótipo do negócio não aparece botão nenhum — a Google exigiria um');
 
+  /* E NÃO CHEGA NÃO HAVER BOTÃO: tem de se dizer porquê.
+
+     Isto era silêncio, e «nada» não se distingue de «esta app não faz isso».
+     Quem tem dois cartões, um com botão e outro sem, não conclui «falta o
+     logótipo daquele café» — conclui que a app está avariada. E o perfil
+     promete a carteira do telemóvel a toda a gente.
+
+     A frase não pede nada nem culpa ninguém: quem tem de carregar o logótipo
+     é o dono, e é no balcão que ele é avisado. */
+  const explicacao = await palco.js(`
+    return [...document.querySelectorAll('#principal p.miudo')]
+      .map((p) => p.textContent).filter((t) => /logótipo/i.test(t))[0] || null`);
+  certo(!!explicacao && /carteira/i.test(explicacao),
+    'wallet: e a app DIZ PORQUÊ — o silêncio lê-se como app avariada',
+    String(explicacao));
+
   {
     /* E agora com logótipo, pelo caminho por onde a pessoa lá chega. */
     await palco.js(`
@@ -601,6 +617,23 @@ export async function correr(palco, certo) {
        do cartão por verificar. Uma coisa partida tem de dar UMA falha. */
     const apareceu = await palco.esperar('.btn-wallet', 8000).then(() => true, () => false);
     certo(apareceu, 'wallet: com logótipo, o cartão passa a ter o botão da Carteira');
+
+    /* UM BOTÃO SÓ, quando se sabe qual. Estavam os dois empilhados, e num
+       iPhone o da Google é ruído que ocupa 55 píxeis no meio do ecrã do
+       cartão. O Chrome que corre esta bateria diz-se Linux, e nesse caso a
+       regra manda mostrar os DOIS — mas a demonstração só liga a Google, por
+       isso o que se conta aqui é «nunca mais do que um por carteira». O que a
+       afirmação apanha é a duplicação: se um dia a pintura correr duas vezes,
+       ficam dois botões iguais e ninguém repara a ler o código. */
+    const quantos = await palco.js(`
+      const b = [...document.querySelectorAll('.btn-wallet')].map((x) => x.dataset.carteira);
+      return { b, unicos: new Set(b).size }`);
+    certo(quantos.b.length === quantos.unicos,
+      'wallet: não há dois botões da mesma carteira no mesmo ecrã',
+      quantos.b.join(',') || 'nenhum');
+    certo(!quantos.b.includes('apple'),
+      'wallet: e a Apple não aparece na demonstração, onde não há certificado nenhum para assinar',
+      quantos.b.join(',') || 'nenhum');
 
     const b = !apareceu ? null : await palco.js(`
       const botao = document.querySelector('.btn-wallet');

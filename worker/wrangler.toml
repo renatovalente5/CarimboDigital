@@ -70,6 +70,28 @@ DOMINIO_API = "carimbodigital-api.renato-lima-valente-dcb.workers.dev"
 #                       npx wrangler secret put GOOGLE_CHAVE
 #                     Cola o PEM inteiro, com as linhas BEGIN e END.
 GOOGLE_EMAIL = "carimbo-wallet@project-8cb31867-5da0-4e4e-9c3.iam.gserviceaccount.com"
+
+# O TOQUE QUE FAZ O PASSE DA APPLE ACTUALIZAR-SE SOZINHO.
+#
+# Enquanto estas duas não existirem, o passe continua a ser emitido com o
+# endereço do serviço lá dentro — as rotas respondem na mesma — mas nenhum
+# aviso sai, e o cartão só se acerta quando o iPhone lhe pega por sua conta.
+# É o mesmo desenho das variáveis da Google: publicado e provado antes de
+# haver chave.
+#
+#   APNS_KID     — o Key ID da chave de APNs. NÃO é segredo: é um
+#                  identificador de dez caracteres. Põe-se aqui quando houver.
+#   APNS_CHAVE   — o conteúdo do ficheiro .p8. ESSE é segredo:
+#                    npx wrangler secret put APNS_CHAVE
+#                  Cola o PEM inteiro, com as linhas BEGIN e END.
+#
+# A CHAVE TEM DE SER DA EQUIPA INTEIRA («team-scoped»). No portal da Apple,
+# Certificates › Keys › «+», com Apple Push Notification service (APNs)
+# marcado. A opção «topic-specific» que aparece ao lado só aceita bundle ids —
+# e o tópico de um push de PASSE é o Pass Type ID, não um bundle id. Uma chave
+# presa a um bundle dá 403 a isto sem dizer porquê.
+#
+# O `iss` do bilhete é o APPLE_EQUIPA que já está mais abaixo.
 GOOGLE_EMISSOR = "3388000000023200429"
 
 # ENTRAR COM A GOOGLE — outra coisa, e outro projecto da consola. A carteira,
@@ -222,4 +244,18 @@ enabled = true
 
 # Limpeza diária: códigos usados, sessões e ligações expiradas.
 [triggers]
-crons = ["17 4 * * *"]
+# DOIS HORÁRIOS, e o `index.js` distingue-os pelo `evento.cron`.
+#
+#   17 4 * * *   a limpeza da madrugada: códigos usados, sessões expiradas,
+#                contas paradas, e o reconciliador da Wallet do Google.
+#
+#   * * * * *    os avisos da Apple que ficaram por dar. O carimbo já toca nos
+#                aparelhos ele próprio (até cinco, para não gastar os cinquenta
+#                subpedidos de uma invocação); isto apanha quem tem mais
+#                aparelhos do que isso e quem falhou porque a APNs não
+#                respondeu. Um cartão que falhe volta no minuto seguinte, e é
+#                isso que torna «actualiza-se sozinho» verdade mesmo quando a
+#                Apple tem um mau dia.
+#
+#                São 1440 invocações por dia, dos 100 000 do plano gratuito.
+crons = ["17 4 * * *", "* * * * *"]
