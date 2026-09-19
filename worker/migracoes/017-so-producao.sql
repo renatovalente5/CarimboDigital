@@ -76,6 +76,26 @@ UPDATE convites SET usos = 0, usado_em = NULL
 -- todas com `criado_em` igual a `visto_em`, ou seja, registaram-se e nunca
 -- mais voltaram.
 --
+-- O QUE ISTO CUSTOU, ESCRITO DEPOIS DE ACONTECER (19 de Setembro de 2026)
+--
+-- A regra abaixo é estreita, e mesmo assim apanhou contas que estavam VIVAS em
+-- telemóveis de gente. A app cria conta ao ABRIR — antes de haver cartão
+-- nenhum e antes de haver email guardado — e é exactamente essa a forma de uma
+-- conta que ainda não tem nada. Duas delas foram apagadas aqui, e os dois
+-- telemóveis passaram a abrir no ecrã do cadeado a dizer «A sessão terminou»,
+-- com uma explicação que não era verdade: não tinha passado muito tempo nem
+-- ninguém tinha terminado sessão a partir de outro aparelho.
+--
+-- Não se perdeu nada — por definição, aquelas contas não tinham nada lá
+-- dentro. O que se perdeu foi a confiança de quem abriu a app e viu um
+-- cadeado.
+--
+-- A LIÇÃO, PARA A PRÓXIMA VARREDURA: «sem cartões e sem identidade» não quer
+-- dizer «ninguém». Quer dizer «ainda ninguém». Uma varredura de arrumação tem
+-- de olhar também para o RELÓGIO — o `limparContasParadas` do produto espera
+-- vinte e quatro meses e avisa por email trinta dias antes, e faz bem. Uma
+-- limpeza escrita à mão que não espera nada apaga quem chegou ontem.
+--
 -- A REGRA É ESTREITA DE PROPÓSITO: só se apaga quem ficou sem UM ÚNICO cartão
 -- e sem UMA ÚNICA identidade. Quem tem identidade entrou por email, Google ou
 -- Apple — é uma pessoa. Quem tem cartão tem carimbos de alguém, e carimbos de
