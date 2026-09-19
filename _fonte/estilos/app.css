@@ -360,10 +360,33 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   display: flex; align-items: center; gap: var(--e-3);
   margin-bottom: var(--e-6);
 }
+/* O BOTÃO É O ANEL. O contorno conta os quinze segundos, o centro fecha.
+   Eram duas peças — um «X» num círculo cinzento à esquerda e o anel à
+   direita — e num ecrã que tem uma coisa só para mostrar, duas rodas iguais
+   nos dois cantos disputam o olho sem razão.
+
+   `position: relative` e o anel em absoluto: empilhar com grid punha os dois
+   na mesma célula, mas o SVG de 44 px arrastava a altura do botão a cada
+   mudança de caixa. Assim o botão manda na medida e o anel assenta por cima.
+
+   Sem fundo: o anel já desenha a borda, e um círculo cinzento por trás de um
+   anel roxo são dois círculos. */
 .codigo-fechar {
+  position: relative;
   display: grid; place-items: center;
-  width: 44px; height: 44px; border-radius: var(--r-max);
-  background: #F2F0EB; color: #17161C;
+  width: 44px; height: 44px; flex: 0 0 auto;
+  border-radius: var(--r-max);
+  background: none; color: #17161C;
+  cursor: pointer;
+}
+.codigo-fechar .codigo-anel { position: absolute; inset: 0; }
+.codigo-fechar-x {
+  position: relative;   /* acima do anel, sem z-index a inventar camadas */
+  display: grid; place-items: center;
+  line-height: 0;
+}
+@media (hover: hover) {
+  .codigo-fechar:hover { background: rgba(23, 22, 28, .06); }
 }
 .codigo-meio {
   flex: 1;
@@ -388,7 +411,7 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
 .codigo-dica { font-size: .9375rem; color: #5B5966; text-align: center; }
 
 /* O anel que conta o tempo de vida do código. */
-.codigo-anel { width: 32px; height: 32px; transform: rotate(-90deg); }
+.codigo-anel { width: 44px; height: 44px; transform: rotate(-90deg); }
 .codigo-anel circle { fill: none; stroke-width: 3; }
 .codigo-anel .fundo { stroke: #E7E4DD; }
 .codigo-anel .frente {
@@ -747,7 +770,10 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 /* No detalhe do cartão as peças podem crescer. */
 .cartao-grande .carimbos { --peca: 60px; }
 
-.codigo-anel-caixa { flex: 0 0 auto; display: grid; place-items: center; width: 32px; height: 32px; }
+/* A `.codigo-anel-caixa` saiu daqui. Era o invólucro do anel quando ele vivia
+   sozinho no canto direito; com o anel dentro do botão de fechar, ficou sem um
+   único uso em todo o `_fonte/` — conferido. CSS morto não dá erro, dá só
+   trabalho a quem o ler daqui a um ano. */
 
 /* O campo do código de entrada: seis algarismos, bem espaçados, para se
    conferir de relance com o email ao lado. */

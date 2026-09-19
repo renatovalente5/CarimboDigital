@@ -256,6 +256,53 @@ export function apagar(chave) {
 }
 
 /* =========================================================================
+   O que é DESTE separador, e não deste telemóvel
+
+   O `guardar`/`ler` acima escrevem no `localStorage`: ficam lá para sempre e
+   são partilhados por todos os separadores da mesma origem. Há coisas que não
+   querem nada disso — querem sobreviver a um F5 e morrer com o separador.
+
+   O ecrã onde a pessoa está é uma delas. Se fosse ao `localStorage`, abrir a
+   app amanhã levava-a ao sítio onde a fechou há três semanas; e dois
+   separadores abertos ao mesmo tempo empurravam-se um ao outro.
+
+   A mesma decisão que a bandeira do modo de demonstração já tomou, e pela
+   mesma razão. O prefixo é o mesmo do `ESPACO`, para a demonstração e a
+   produção não se pisarem.
+   ========================================================================= */
+
+export function guardarNoSeparador(chave, valor) {
+  try { sessionStorage.setItem(ESPACO + chave, String(valor)); return true; }
+  catch { return false; }
+}
+
+/**
+ * Isto foi um RECARREGAMENTO, e não uma entrada nova?
+ *
+ * A diferença importa: quem carrega em F5 quer ficar onde estava; quem abre a
+ * app de novo — de um link, do ícone no ecrã inicial, de um QR — quer começar
+ * no princípio. Guardar o ecrã e devolvê-lo em TODAS as entradas parecia a
+ * mesma coisa e não é: passava a levar ao último ecrã quem chegava pela
+ * primeira vez naquele separador.
+ *
+ * Sem a API, assume-se «entrada nova», que é o comportamento antigo — o
+ * seguro dos dois.
+ */
+export function foiRecarregamento() {
+  try {
+    const e = performance.getEntriesByType('navigation')[0];
+    return Boolean(e) && e.type === 'reload';
+  } catch { return false; }
+}
+
+export function lerDoSeparador(chave, omissao = null) {
+  try {
+    const v = sessionStorage.getItem(ESPACO + chave);
+    return v === null ? omissao : v;
+  } catch { return omissao; }
+}
+
+/* =========================================================================
    O campo do código de seis algarismos
    ========================================================================= */
 

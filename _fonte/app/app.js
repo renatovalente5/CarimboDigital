@@ -4,6 +4,7 @@
 
 import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes, prepararCampoDeCodigo,
+  guardarNoSeparador, lerDoSeparador, foiRecarregamento,
   pintarCartao, haQuanto, dataCurta, horas, manterEcraAceso, seguro,
   prenderFoco, colunas,
 } from '../js/nucleo.js';
@@ -2465,6 +2466,13 @@ function apagarConta() {
 let cronometroCodigo = null;
 let travaEcra = null;
 
+/* A volta completa do anel do tempo, em unidades do `viewBox`: 2π × 19.
+   Vive aqui porque é usada em DOIS sítios — no `stroke-dasharray` que desenha
+   o anel e no `pintar()` que o roda — e dois números iguais escritos à mão em
+   sítios diferentes afastam-se ao primeiro que mudar. Quando isso acontece o
+   anel deixa de fechar a volta, e não há erro nenhum: fica só errado. */
+const VOLTA_DO_ANEL = (2 * Math.PI * 19).toFixed(2);
+
 let soltarCodigo = null;
 
 async function abrirCodigo() {
@@ -2473,20 +2481,36 @@ async function abrirCodigo() {
 
   const folha = el('div', { id: 'folha-codigo', class: 'codigo-folha', role: 'dialog',
                             'aria-modal': 'true', 'aria-label': 'O meu código' },
+    /* O FECHAR E O TEMPO SÃO A MESMA PEÇA, e eram duas.
+
+       Havia um «X» num círculo cinzento à esquerda e o anel do tempo à
+       direita — duas rodas do mesmo tamanho nos dois cantos, a disputar o
+       olho, num ecrã que tem uma coisa só para mostrar. O anel passa a ser o
+       botão, com o «X» no meio: o contorno conta o tempo, o centro fecha.
+
+       O alvo continua a ter 44 px e o `aria-label` continua a dizer «Fechar»
+       — quem não vê o anel não perde nada, e quem o vê ganha o canto
+       esquerdo de volta para o título. O «Fechar» grande lá em baixo também
+       não saiu: fechar nunca depende de descobrir que a roda é um botão. */
     el('div', { class: 'codigo-topo' },
-      el('button', { class: 'codigo-fechar', 'aria-label': 'Fechar',
-                     html: icone('fechar', { tamanho: 20 }), aoClick: fecharCodigo }),
       el('div', { style: 'flex:1' },
         el('div', { style: 'font-weight:700;font-size:1rem' , texto: 'Mostra ao balcão' }),
         el('div', { style: 'font-size:.8125rem;color:#5B5966', texto: 'O código muda a cada 15 segundos' })),
       /* O anel vai por innerHTML: document.createElement('svg') devolve um
          HTMLUnknownElement — um SVG só nasce por createElementNS ou a partir
-         de HTML analisado. Nasce sem nada e nunca se vê. */
-      el('div', { class: 'codigo-anel-caixa', html:
-        '<svg class="codigo-anel" viewBox="0 0 32 32" aria-hidden="true">'
-        + '<circle class="fundo" cx="16" cy="16" r="13"/>'
-        + '<circle class="frente" cx="16" cy="16" r="13" '
-        + 'stroke-dasharray="81.7" stroke-dashoffset="0"/></svg>' })),
+         de HTML analisado. Nasce sem nada e nunca se vê.
+
+         O raio é 19 e não 13: o círculo cresceu para caber o «X» lá dentro
+         sem o encostar ao traço. A circunferência (2π × 19 = 119,38) está no
+         `stroke-dasharray` E no cálculo do `pintar()` — se um mudar sem o
+         outro, o anel deixa de fechar a volta e ninguém dá por isso. */
+      el('button', { class: 'codigo-fechar', 'aria-label': 'Fechar',
+                     aoClick: fecharCodigo, html:
+        '<svg class="codigo-anel" viewBox="0 0 44 44" aria-hidden="true">'
+        + '<circle class="fundo" cx="22" cy="22" r="19"/>'
+        + '<circle class="frente" cx="22" cy="22" r="19" '
+        + `stroke-dasharray="${VOLTA_DO_ANEL}" stroke-dashoffset="0"/></svg>`
+        + `<span class="codigo-fechar-x">${icone('fechar', { tamanho: 18 })}</span>` })),
     el('div', { class: 'codigo-meio' },
       el('div', { class: 'codigo-qr', id: 'codigo-qr' }),
       el('div', { class: 'codigo-id selecionavel', texto: estado.cliente.publico }),
@@ -2521,10 +2545,10 @@ async function abrirCodigo() {
     const arco = anel.querySelector('.frente');
     if (!arco) return expiraEm;
     arco.style.transition = 'none';
-    arco.style.strokeDashoffset = String(81.7 * (1 - restante / JANELA));
+    arco.style.strokeDashoffset = String(VOLTA_DO_ANEL * (1 - restante / JANELA));
     requestAnimationFrame(() => {
       arco.style.transition = `stroke-dashoffset ${restante}s linear`;
-      arco.style.strokeDashoffset = '81.7';
+      arco.style.strokeDashoffset = String(VOLTA_DO_ANEL);
     });
     return expiraEm;
   }
@@ -2603,6 +2627,11 @@ function fecharPainel({ historico = true } = {}) {
    Navegação
    ========================================================================= */
 
+/* O ecrã do último F5, guardado por separador. O nome leva o `-app` porque a
+   app e o balcão partilham a origem: sem isso, quem tem as duas abertas no
+   mesmo telemóvel via o ecrã de uma a mandar na outra. */
+const CHAVE_ECRA = 'ecra-app';
+
 const ECRAS = {
   carteira:  { titulo: 'Carimbo Digital',    icone: 'carteira', rotulo: 'Carteira',  render: ecraCarteira },
   descobrir: { titulo: 'Descobrir',  icone: 'bussola',  rotulo: 'Descobrir', render: ecraDescobrir },
@@ -2665,6 +2694,12 @@ async function irPara(nome, { historico = true } = {}) {
   if (nome === 'codigo') { abrirCodigo(); return; }
   if (historico && estado.ecra && estado.ecra !== nome) empurrarHistorico(`ecra:${nome}`);
   estado.ecra = nome;
+  /* Onde a pessoa está, guardado no SEPARADOR. Um F5 deixava-a sempre na
+     carteira, mesmo que estivesse nos prémios há dois segundos — e num
+     telemóvel, onde recarregar é um gesto que se faz sem querer, isso é
+     perder o sítio de cada vez. Não vai ao `localStorage`: abrir a app daqui
+     a três semanas deve abrir na carteira, e não onde ela ficou. */
+  guardarNoSeparador(CHAVE_ECRA, nome);
 
   /* Cada pintura recebe um `<main>` NOVO, que substitui o anterior.
 
@@ -3193,7 +3228,16 @@ async function entrar() {
     aplicarTema();
   });
 
-  await irPara('carteira');
+  /* NO ECRÃ ONDE FICOU, e não sempre no primeiro.
+
+     O `codigo` fica de fora de propósito: é uma folha por cima de um ecrã, e
+     reabri-la sozinha a cada recarregamento era pôr um código de quinze
+     segundos à frente de quem só queria a página. O `render` distingue-os —
+     o `codigo` é o único de `ECRAS` que não tem um. */
+  const guardado = foiRecarregamento() ? lerDoSeparador(CHAVE_ECRA) : null;
+  const inicial = guardado && ECRAS[guardado] && ECRAS[guardado].render
+    ? guardado : 'carteira';
+  await irPara(inicial, { historico: false });
 }
 
 /**

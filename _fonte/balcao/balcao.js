@@ -8,6 +8,7 @@
 
 import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes,
+  guardarNoSeparador, lerDoSeparador, foiRecarregamento,
   pintarCartao, haQuanto, dataCurta, horas, NOMES_SELOS, seguro,
   prenderFoco, colunas, prepararCampoDeCodigo,
 } from '../js/nucleo.js';
@@ -54,10 +55,26 @@ class Leitor {
   }
 
   async comecar() {
-    const fluxo = await navigator.mediaDevices.getUserMedia({
+    /* A CÂMARA JÁ ABERTA REAPROVEITA-SE, e é isto que tira do caminho a
+       pergunta da autorização.
+
+       O `parar()` desligava as tracks sempre que se saía do ecrã de carimbar,
+       e voltar chamava `getUserMedia` outra vez. No Safari do iPhone — que é
+       onde isto vive, ao balcão — cada chamada nova volta a perguntar «quer
+       autorizar a câmara?». Quem carimba passa o dia entre o «Carimbar» e o
+       «Hoje», e apanhava a pergunta em cada ida e volta, com o cliente à
+       espera. Foi o dono do produto a apanhá-la.
+
+       Guardar o fluxo resolve a pergunta e traz de volta o problema que o
+       `parar()` existia para resolver: a luz da câmara acesa sem razão. Por
+       isso o fluxo fica GUARDADO POR UM TEMPO — ver `arrumarCamara` — e
+       desliga-se de vez se ninguém voltar, ou assim que a app for para trás. */
+    const fluxo = camaraReutilizavel() || await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     });
+    cancelarArrumacaoDaCamara();
+    for (const faixa of fluxo.getTracks()) faixa.enabled = true;
 
     /* A autorização da câmara pode demorar segundos — e nesses segundos a
        pessoa muda de separador. O `parar()` corria antes de o fluxo chegar,
@@ -138,15 +155,95 @@ class Leitor {
     if (this.correr) requestAnimationFrame(() => this.ciclo());
   }
 
-  parar() {
+  /* `manter` quer dizer «vou-me embora mas se calhar já volto»: a leitura pára
+     já, o vídeo solta-se, mas o fluxo fica de parte com as faixas desligadas.
+     Sem ele — ao fechar a sessão, ao sair — desliga-se tudo agora. */
+  parar({ manter = false } = {}) {
     this.correr = false;
     this.desistiu = true;
-    try { this.fluxo?.getTracks().forEach((t) => t.stop()); } catch { /* nada */ }
     if (this.video) this.video.srcObject = null;
+    if (!this.fluxo) return;
+    if (manter) guardarCamara(this.fluxo);
+    else { try { this.fluxo.getTracks().forEach((t) => t.stop()); } catch { /* nada */ } }
+    this.fluxo = null;
   }
 }
 
 let leitor = null;
+
+/* =========================================================================
+   A câmara entre dois ecrãs
+
+   Noventa segundos. É a medida de «fui ver os clientes e já volto» — e não é
+   a medida de «pousei o telemóvel». Quem volta dentro desse tempo encontra a
+   câmara aberta, sem pergunta nenhuma; quem não volta deixa a luz apagar-se.
+
+   E o relógio não é a única coisa que a desliga: assim que o separador deixa
+   de estar à vista, desliga-se já. Um telemóvel pousado no balcão com a luz
+   da câmara acesa é pior do que qualquer pergunta.
+   ========================================================================= */
+
+const CAMARA_GUARDADA_MS = 90000;
+let fluxoGuardado = null;
+let relogioDaCamara = null;
+
+function camaraViva(fluxo) {
+  try {
+    return Boolean(fluxo) && fluxo.getVideoTracks().some((f) => f.readyState === 'live');
+  } catch { return false; }
+}
+
+function camaraReutilizavel() {
+  if (camaraViva(fluxoGuardado)) { const f = fluxoGuardado; fluxoGuardado = null; return f; }
+  fluxoGuardado = null;
+  return null;
+}
+
+function cancelarArrumacaoDaCamara() {
+  if (relogioDaCamara) { clearTimeout(relogioDaCamara); relogioDaCamara = null; }
+}
+
+function desligarCamaraJa() {
+  cancelarArrumacaoDaCamara();
+  try { fluxoGuardado?.getTracks().forEach((f) => f.stop()); } catch { /* nada */ }
+  fluxoGuardado = null;
+}
+
+function guardarCamara(fluxo) {
+  desligarCamaraJa();
+  if (!camaraViva(fluxo)) return;
+  /* Desligadas, não paradas: `enabled = false` corta os fotogramas — e portanto
+     o trabalho e a bateria — sem fechar o dispositivo, que é o que faria o
+     Safari voltar a perguntar. */
+  try { fluxo.getTracks().forEach((f) => { f.enabled = false; }); } catch { /* nada */ }
+  fluxoGuardado = fluxo;
+  relogioDaCamara = setTimeout(desligarCamaraJa, CAMARA_GUARDADA_MS);
+}
+
+/* E O LEITOR QUE ESTÁ A TRABALHAR TAMBÉM, e este era o buraco maior.
+
+   A primeira versão disto só desligava o fluxo GUARDADO — o que está de parte
+   entre dois ecrãs. Mas o caso que interessa é o outro: o telemóvel pousado no
+   balcão, no ecrã de carimbar, que é onde a app abre. Aí o fluxo está vivo
+   dentro do leitor, `fluxoGuardado` é nulo, e não se desligava nada.
+
+   Ou seja: a correcção que veio tirar a pergunta da autorização teria deixado
+   a câmara acesa exactamente na situação em que ela mais se nota. Foi a
+   afirmação da bateria a apanhá-lo, não a leitura do código.
+
+   Ao voltar, repinta-se o ecrã — é ele que volta a pedir a câmara. */
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    if (leitor) { leitor.parar(); leitor = null; }
+    desligarCamaraJa();
+  } else if (estado.ecra === 'carimbar' && !leitor && $('#barra')) {
+    irPara('carimbar');
+  }
+});
+addEventListener('pagehide', () => {
+  if (leitor) { leitor.parar(); leitor = null; }
+  desligarCamaraJa();
+});
 
 /* =========================================================================
    Ecrã: carimbar
@@ -2076,11 +2173,16 @@ const ECRAS = {
   programa: { titulo: 'O cartão', icone: 'cartoes', rotulo: 'O cartão', render: ecraPrograma },
 };
 
+/* O ecrã do último F5, guardado por separador. O `-balcao` no nome é o que
+   impede a app do cliente e o balcão — que partilham a origem — de mandarem um
+   no ecrã do outro. */
+const CHAVE_ECRA = 'ecra-balcao';
+
 async function irPara(nome) {
-  /* A câmara desliga-se sempre que se sai do ecrã de carimbar: deixá-la a
-     trabalhar em segundo plano gasta bateria e acende a luz do telemóvel sem
-     razão nenhuma. */
-  if (leitor) { leitor.parar(); leitor = null; }
+  /* A leitura pára sempre que se sai do ecrã de carimbar — mas a câmara fica
+     de parte durante noventa segundos, com as faixas desligadas, para quem
+     volte não voltar a apanhar a pergunta da autorização. Ver `guardarCamara`. */
+  if (leitor) { leitor.parar({ manter: true }); leitor = null; }
   /* O `#principal` está no HTML e existe quase sempre — mas não sempre: o
      apanhador de erros do arranque substitui o `body` inteiro por uma
      mensagem, e a partir daí não há `#principal` nenhum. Um `popstate` que
@@ -2089,6 +2191,11 @@ async function irPara(nome) {
   if (!principal || !$('#barra')) return;
 
   estado.ecra = nome;
+  /* Onde a pessoa está, guardado no SEPARADOR — ver o comentário igual na app
+     do cliente. Ao balcão isto vale ainda mais: recarregar com o telemóvel na
+     mão acontece, e voltar sempre ao «Carimbar» é aceitável; voltar ao
+     «Carimbar» quando se estava a ver os clientes é perder o sítio. */
+  guardarNoSeparador(CHAVE_ECRA, nome);
   principal.innerHTML = '';
   const titulo = $('#topo-titulo');
   if (titulo) titulo.textContent = ECRAS[nome].titulo;
@@ -2145,7 +2252,9 @@ async function entrar() {
   $('#botao-negocio').innerHTML = icone('engrenagem', { tamanho: 20 });
   $('#botao-negocio').addEventListener('click', () => irPara('programa'));
 
-  await irPara('carimbar');
+  /* NO ECRÃ ONDE FICOU, e não sempre no primeiro. */
+  const guardado = foiRecarregamento() ? lerDoSeparador(CHAVE_ECRA) : null;
+  await irPara(guardado && ECRAS[guardado] ? guardado : 'carimbar');
 }
 
 /* =========================================================================

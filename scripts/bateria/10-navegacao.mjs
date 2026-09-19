@@ -230,6 +230,64 @@ async function entrarNoBalcao(palco) {
    ========================================================================= */
 
 export async function correr(palco, certo) {
+
+  /* --- recarregar não devolve ao primeiro ecrã --------------------------- */
+  /* Num telemóvel, recarregar é um gesto que se faz sem querer — e a app
+     devolvia sempre à carteira, mesmo que a pessoa estivesse nos prémios há
+     dois segundos. O ecrã passou a ficar guardado no SEPARADOR: sobrevive a um
+     F5 e morre com o separador, que é a diferença entre «recarreguei» e «abri
+     a app daqui a três semanas».
+
+     A folha do código fica de fora de propósito: é uma folha por cima de um
+     ecrã, e reabri-la sozinha a cada recarregamento era pôr um código de
+     quinze segundos à frente de quem só queria a página. */
+  {
+    await palco.ir('/app/?demo=1');
+    const { passarBoasVindas } = await import('./01-arranque.mjs');
+    await passarBoasVindas(palco);
+    await palco.esperar('#barra .barra-item');
+
+    await palco.clicar('#barra .barra-item:nth-child(4)');   // Prémios
+    await palco.esperar('#topo-titulo');
+    const antes = await palco.texto('#topo-titulo');
+    certo(antes === 'Prémios', 'estou nos prémios (o teste é válido)', String(antes));
+
+    await palco.js('location.reload(); return true');
+    await palco.pronta(12000);
+    await palco.esperar('#barra .barra-item', 12000);
+    const depois = await palco.texto('#topo-titulo');
+    certo(depois === 'Prémios',
+      'recarregar deixa-me no ecrã onde eu estava, e não no primeiro',
+      `fui parar a «${depois}»`);
+
+    /* E NUM SEPARADOR NOVO abre no princípio. O `sessionStorage` é por
+       separador — provar isto é provar que não se usou o `localStorage`, que
+       levaria a pessoa ao sítio onde fechou a app há três semanas. */
+    const espaco = await palco.js(
+      "return JSON.stringify(Object.keys(sessionStorage).filter((k) => k.includes('ecra')))");
+    certo(espaco.includes('ecra-app'),
+      'e o sítio fica guardado no separador, não no telemóvel', String(espaco));
+    const noLocal = await palco.js(
+      "return JSON.stringify(Object.keys(localStorage).filter((k) => k.includes('ecra')))");
+    certo(noLocal === '[]',
+      'nada disto vai para o armazenamento que sobrevive ao separador', String(noLocal));
+
+    /* E UMA ENTRADA NOVA COMEÇA NO PRINCÍPIO. É a outra metade do contrato, e
+       é a que se percebe mal: guardar o ecrã e devolvê-lo em TODAS as
+       entradas parecia a mesma coisa, e levava ao último ecrã quem chegava
+       pela primeira vez naquele separador — de um link, de um QR, do ícone.
+
+       Isto não é teoria: com a primeira versão desta correcção, quatro
+       módulos da bateria reprovaram, porque abrir a app deixou de mostrar a
+       carteira. O que distingue as duas coisas é o tipo da navegação, e não a
+       existência da chave. */
+    await palco.ir('/app/?demo=1');
+    await palco.esperar('#barra .barra-item');
+    const entradaNova = await palco.texto('#topo-titulo');
+    certo(entradaNova === 'Carimbo Digital',
+      'mas uma ENTRADA NOVA começa no princípio, mesmo com o sítio guardado',
+      `abriu em «${entradaNova}»`);
+  }
   /* =======================================================================
      Cliente — os cinco separadores
      ======================================================================= */

@@ -27,7 +27,16 @@ export const nome = '03 · O ecrã do código QR';
 export const ecra = { largura: 390, altura: 844 };
 
 const JANELA = 15;          /* segundos de vida de cada código, como na api.js */
-const ANEL = 81.7;          /* perímetro do anel, como no app.js */
+/* O PERÍMETRO LÊ-SE DO PRÓPRIO ANEL, e não se copia para aqui.
+ 
+   Estava escrito à mão como 81,7 — o perímetro de um raio 13. No dia em que o
+   anel cresceu para caber o «X» do fechar lá dentro (raio 19, perímetro
+   119,38), esta afirmação reprovou a acusar o código de deixar o arco sair do
+   círculo. O arco estava certo; o número aqui é que era de outro anel.
+ 
+   Dois números iguais escritos à mão em ficheiros diferentes afastam-se ao
+   primeiro que mudar, e o teste passa a medir o passado. */
+let ANEL = 119.38;          /* substituído pelo valor real, lido do SVG */
 
 const dorme = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -137,7 +146,7 @@ const LER_QR = `
   };
 `;
 
-/** O quanto do anel já foi comido — cresce de 0 até 81.7 ao longo da janela. */
+/** O quanto do anel já foi comido — cresce de 0 até ao perímetro ao longo da janela. */
 function lerAnel(palco) {
   return palco.js(`
     const arco = document.querySelector('.codigo-anel .frente');
@@ -192,31 +201,13 @@ export async function correr(palco, certo) {
   /* --- o QR está desenhado ----------------------------------------------- */
 
 
-  /* PROBE2 */
-  await palco.js(`
-    window.__ev = [];
-    for (const t of ['transitionrun','transitionstart','transitionend','transitioncancel']) {
-      document.addEventListener(t, (ev) => {
-        if (ev.target && ev.target.classList && ev.target.classList.contains('frente')) {
-          window.__ev.push(t + '@' + Math.round(performance.now()) + ' ' + ev.propertyName);
-        }
-      }, true);
-    }
-    window.__rot = [];
-    window.__ultimo = null;
-    window.__vigia = setInterval(() => {
-      const p = document.querySelector('#codigo-qr path');
-      const d = p ? p.getAttribute('d') : null;
-      if (d && d !== window.__ultimo) { window.__rot.push(Math.round(performance.now())); window.__ultimo = d; }
-    }, 100);
-    return true;
-  `);
-  console.log('--- a observar 34 s sem tocar em estilos ---');
-  await dorme(34000);
-  console.log('EVENTOS', JSON.stringify(await palco.js('clearInterval(window.__vigia); return window.__ev')));
-  console.log('ROTACOES', JSON.stringify(await palco.js('return window.__rot')));
-  console.log('ANEL FINAL', await lerAnel(palco));
-  /* FIM PROBE2 */
+  /* O PERÍMETRO DO ANEL LÊ-SE AGORA, com a folha aberta. É o número que o
+     próprio SVG declara — ver o comentário na declaração de ANEL. */
+  ANEL = Number(await palco.js(
+    "return document.querySelector('.codigo-anel .frente').getAttribute('stroke-dasharray')"));
+  certo(Number.isFinite(ANEL) && ANEL > 10,
+    'o anel declara o seu perímetro, e é dele que este módulo mede',
+    String(ANEL));
   const qr = await palco.js(LER_QR);
   certo(!qr.erro, 'o QR é desenhado como SVG dentro de #codigo-qr', qr.erro || '');
 

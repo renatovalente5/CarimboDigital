@@ -395,6 +395,79 @@ export async function correr(palco, certo) {
 
   certo(await palco.visivel(MANUAL),
     'carimbar: sem câmara, o botão de escrever o número está à vista');
+
+  /* --- a câmara não se volta a pedir a cada ida e volta ------------------ */
+  /* O QUE ISTO MEDE É A PERGUNTA DA AUTORIZAÇÃO, contando as chamadas a
+     `getUserMedia` — que é o que a provoca no Safari do iPhone.
+
+     O `parar()` desligava as faixas sempre que se saía do ecrã de carimbar, e
+     voltar chamava `getUserMedia` outra vez. Quem carimba passa o dia entre o
+     «Carimbar» e o «Hoje», e apanhava a pergunta em cada ida e volta, com o
+     cliente à espera.
+
+     A bateria corre sem câmara nenhuma, por isso finge-se uma com um
+     `captureStream` de uma tela: o que interessa não é a imagem, é quantas
+     vezes se pede o dispositivo. */
+  {
+    await palco.js(`
+      window.__pedidosDeCamara = 0;
+      const tela = document.createElement('canvas');
+      tela.width = 64; tela.height = 64;
+      tela.getContext('2d').fillRect(0, 0, 64, 64);
+      navigator.mediaDevices.getUserMedia = async () => {
+        window.__pedidosDeCamara += 1;
+        return tela.captureStream(5);
+      };
+      return true;
+    `);
+
+    const contar = () => palco.js('return window.__pedidosDeCamara');
+    const idaEVolta = async () => {
+      await palco.clicar('#barra .barra-item:nth-child(2)');
+      await dormir(500);
+      await palco.clicar('#barra .barra-item:nth-child(1)');
+      await dormir(900);
+    };
+
+    await idaEVolta();
+    const primeira = await contar();
+    certo(primeira === 1,
+      'a câmara é pedida uma vez ao entrar no ecrã de carimbar', `pedidos: ${primeira}`);
+
+    await idaEVolta();
+    const segunda = await contar();
+    certo(segunda === 1,
+      'e NÃO é pedida outra vez ao voltar do «Hoje» — é a pergunta da '
+      + 'autorização que isto evita', `pedidos: ${segunda}`);
+
+    /* E O CONTRÁRIO TAMBÉM TEM DE SER VERDADE. Guardar o fluxo resolve a
+       pergunta e traz de volta o problema que o `parar()` existia para
+       resolver: a luz da câmara acesa com o telemóvel pousado. Assim que o
+       separador deixa de estar à vista, desliga-se de vez — e aí a próxima
+       entrada TEM de pedir outra vez. */
+    await palco.js(`
+      Object.defineProperty(document, 'visibilityState',
+        { configurable: true, get: () => 'hidden' });
+      /* COM «bubbles: true», como o de verdade. Sem isso o evento morre no
+         documento e nunca chega ao ouvinte, que está na janela — e a
+         afirmação reprovava a acusar o código de um defeito que era do
+         teste. */
+      document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+      return true;
+    `);
+    await dormir(300);
+    await palco.js(`
+      Object.defineProperty(document, 'visibilityState',
+        { configurable: true, get: () => 'visible' });
+      return true;
+    `);
+    await idaEVolta();
+    const terceira = await contar();
+    certo(terceira === 2,
+      'mas com a app posta de lado a câmara desliga-se mesmo, e a seguir '
+      + 'pede-se de novo — a luz acesa é pior do que a pergunta',
+      `pedidos: ${terceira}`);
+  }
   await palco.captura('08-ecra-carimbar');
 
   /* --- a entrada manual --------------------------------------------------- */

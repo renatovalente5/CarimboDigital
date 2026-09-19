@@ -129,7 +129,32 @@ class Palco {
     }
   }
 
-  async recarregar() {
+  /**
+   * Recarrega a página, e ESQUECE O ECRÃ onde estava.
+   *
+   * As duas apps passaram a lembrar-se do separador em que a pessoa estava e a
+   * devolvê-la lá depois de um F5 — porque num telemóvel recarregar é um gesto
+   * que se faz sem querer, e voltar sempre ao primeiro ecrã é perder o sítio.
+   *
+   * Aqui isso atrapalha: há mais de uma dúzia de módulos que recarregam por
+   * razões que nada têm que ver com o ecrã — para provar que uma definição
+   * ficou guardada, que a app abre sem rede, que a cor persiste — e todos eles
+   * esperavam encontrar o ecrã inicial a seguir. Sem esta linha, quatro deles
+   * reprovavam por um motivo que não é o que estão a medir.
+   *
+   * O comportamento a sério NÃO fica por provar: o módulo 10 mede-o nas duas
+   * direcções — que um recarregamento devolve ao sítio, e que uma entrada nova
+   * começa no princípio. Quem quiser medi-lo noutro sítio usa
+   * `recarregar({ lembrar: true })`.
+   */
+  async recarregar({ lembrar = false } = {}) {
+    if (!lembrar) {
+      await this.js(`try {
+        for (const k of Object.keys(sessionStorage)) {
+          if (k.endsWith(':ecra-app') || k.endsWith(':ecra-balcao')) sessionStorage.removeItem(k);
+        }
+      } catch (e) {} return true`).catch(() => {});
+    }
     await this.enviar('Page.reload', { ignoreCache: false }, this.sessao);
     await this.pronta();
     await esperar(200);
