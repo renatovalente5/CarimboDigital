@@ -872,7 +872,11 @@ async function ecraDescobrir(principal) {
 
   principal.append(el('div', { class: 'folha caixa-texto', style: 'margin-top:24px' },
     el('p', { html: '<b>Tens um negócio?</b> O Carimbo Digital é gratuito para quem carimba. '
-      + `Cria o teu cartão em <a href="${base()}/balcao/" class="ligacao">carimbodigital.pt/balcao</a>.` })));
+      /* O balcão é OUTRA app, com manifesto e âmbito próprios. Quem tem esta
+         posta no ecrã principal e toca aqui era atirado para o Safari sem
+         volta — e o que queria era continuar a ter os cartões dele. */
+      + `Cria o teu cartão em <a href="${base()}/balcao/" class="ligacao"`
+      + ' target="_blank" rel="noopener">carimbodigital.pt/balcao</a>.' })));
 }
 
 /**
@@ -1417,7 +1421,15 @@ async function ecraPerfil(principal) {
         el('b', { texto: 'Descarregar os meus dados' }),
         el('span', { texto: 'Tudo o que o Carimbo Digital tem sobre ti, num ficheiro' })),
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
-    el('a', { class: 'linha', href: `${base()}/privacidade/` },
+    /* FORA DO ÂMBITO DA PWA, e por isso abre-se numa janela à parte. O
+       manifesto declara `scope: "/app/"` e `/privacidade/` está fora dele:
+       numa app posta no ecrã principal, um link para fora do âmbito leva a
+       pessoa para o Safari e deixa a app para trás. Com `_blank` fica uma
+       folha por cima, com um «Concluído» que a devolve ao sítio onde estava.
+       O `noopener` vai junto porque `_blank` sem ele dá à página nova acesso
+       ao `window.opener`. */
+    el('a', { class: 'linha', href: `${base()}/privacidade/`,
+              target: '_blank', rel: 'noopener' },
       el('span', { class: 'linha-icone', html: icone('info', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { texto: 'Política de privacidade' }),
@@ -1433,8 +1445,9 @@ async function ecraPerfil(principal) {
     el('h2', { class: 'seccao-titulo', texto: 'Os meus dados' }), dados));
 
   principal.append(el('p', { class: 'rodape-app', html:
-    `Carimbo Digital · <a class="ligacao" href="${base()}/termos/">Termos</a> · `
-    + `<a class="ligacao" href="${base()}/privacidade/">Privacidade</a>`
+    'Carimbo Digital · '
+    + `<a class="ligacao" href="${base()}/termos/" target="_blank" rel="noopener">Termos</a> · `
+    + `<a class="ligacao" href="${base()}/privacidade/" target="_blank" rel="noopener">Privacidade</a>`
     + (MODO === 'demo' ? ' · <b>modo de demonstração</b>' : '') }));
 
   if (MODO === 'demo') {

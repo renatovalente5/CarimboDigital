@@ -674,6 +674,107 @@ console.log('\nContraste');
 }
 
 /* =========================================================================
+   Uma ligação para fora do âmbito da PWA abre-se à parte
+
+   As duas apps declaram `scope` no manifesto — `/app/` e `/balcao/` — e as
+   páginas legais vivem na raiz, fora dos dois. Numa app posta no ecrã
+   principal, tocar num link para fora do âmbito leva a pessoa para o browser
+   e deixa a app para trás: no balcão, isso é o turno interrompido a meio de
+   um carimbo. Com `target="_blank"` fica uma folha por cima, com um botão que
+   a devolve ao sítio onde estava.
+
+   Isto esteve a faltar em três ligações ao mesmo tempo, e não havia nada que
+   o dissesse: a página abria, a pessoa lia, e o que se perdia — voltar — só
+   se nota num telemóvel com a app instalada, que é onde ninguém testa.
+
+   A guarda lê o `scope` de cada manifesto A SÉRIO em vez de o assumir: se um
+   dia o âmbito crescer e abraçar as páginas legais, ela deixa de pedir o
+   `_blank` sozinha, em vez de ficar a exigir uma coisa que passou a estorvar.
+   ========================================================================= */
+/**
+ * Todas as âncoras de um ficheiro, nas duas formas que esta casa usa: escritas
+ * em HTML (`<a href=…>`) e construídas em JavaScript (`el('a', { href: … })`).
+ *
+ * A segunda forma obriga a contar chavetas em vez de a apanhar com uma
+ * expressão regular: os valores levam literais com `${base()}` lá dentro, e um
+ * `[^}]*` parava na primeira chaveta do interpolador. Contar chavetas — com o
+ * `${` a contar como abertura — é curto e não tem casos especiais.
+ */
+function ancoras(texto) {
+  const fora = [...texto.matchAll(/<a\b[^>]*>/g)].map((m) => m[0]);
+  for (const m of texto.matchAll(/el\(\s*'a'\s*,\s*\{/g)) {
+    let i = m.index + m[0].length - 1, fundo = 0;
+    for (; i < texto.length; i++) {
+      const c = texto[i];
+      if (c === '{') fundo++;
+      else if (c === '}' && --fundo === 0) break;
+    }
+    fora.push(texto.slice(m.index, i + 1));
+  }
+  return fora;
+}
+
+{
+  console.log('\nAs ligações que saem da app abrem-se à parte');
+
+  let vistas = 0;
+  const falhas = [];
+  for (const manifesto of ficheiros.filter((f) => f.endsWith('.webmanifest'))) {
+    let ambito;
+    try { ambito = JSON.parse(readFileSync(manifesto, 'utf8')).scope; } catch { continue; }
+    if (!ambito) continue;
+    /* As páginas e o JavaScript daquela app — é onde as ligações nascem. */
+    const pasta = dirname(manifesto);
+    for (const f of ficheiros.filter((x) => x.startsWith(pasta + '/')
+                                         && (x.endsWith('.html') || x.endsWith('.js')))) {
+      const texto = readFileSync(f, 'utf8');
+      /* Só `<a href>` com um caminho absoluto da nossa casa. Endereços de
+         outro domínio são assunto da guarda seguinte, e os relativos ficam
+         sempre dentro da pasta da app. */
+      /* A ETIQUETA INTEIRA, e não até ao `href`. A primeira versão desta
+         guarda parava no valor do href — e o `target` vem quase sempre DEPOIS
+         dele, por isso a guarda acusava de falta de `_blank` exactamente as
+         ligações que o tinham. Acusou três, e as três estavam certas: uma
+         guarda que dá falsos positivos ensina a ignorá-la. */
+      /* AS DUAS FORMAS DE ESCREVER UMA ÂNCORA NESTA CASA, e não só uma.
+
+         A primeira versão media `<a href=...>` em texto e dava «5 ligações
+         medidas». As apps constroem quase tudo com `el('a', { href: … })`, que
+         não tem `<a` nenhum no código — e entre as que escapavam estava
+         justamente a que eu tinha acabado de corrigir. Uma guarda que mede
+         onde o defeito não está dá um verde que não quer dizer nada. */
+      for (const etiqueta of ancoras(texto)) {
+        const href = etiqueta.match(/href[:=]\s*(?:"|'|`)([^"'`>]+)/);
+        if (!href) continue;
+        let destino = href[1];
+        /* O código das apps escreve as ligações com `${base()}` à frente. O
+           que interessa é o caminho que sobra depois disso. */
+        destino = destino.replace(/^\$\{base\(\)\}/, '').replace(/^\$\{[^}]*\}/, '');
+        if (!destino.startsWith('/')) continue;
+        vistas++;
+        if (destino.startsWith(ambito)) continue;          /* dentro: fica */
+        /* `target="_blank"` no HTML e `target: '_blank'` no JavaScript. Escrevi
+           o `[:=]` no href e esqueci-o aqui — e a guarda acusou de falta de
+           `_blank` uma ligação que o tinha, pela segunda vez no mesmo bloco.
+           Duas sintaxes, uma pergunta: quem lê as duas tem de as ler em TODOS
+           os sítios onde pergunta, e não só no primeiro. */
+        if (/target[:=]\s*(?:"|'|`)?_blank/.test(etiqueta)) continue;
+        falhas.push(`${f.slice(SAIDA.length + 1)} → ${destino} (âmbito ${ambito})`);
+      }
+    }
+  }
+  if (!vistas) {
+    avisar('não encontrei ligações nenhumas para medir — a guarda pode ter deixado de ver o que devia');
+  } else if (falhas.length) {
+    for (const f of falhas) {
+      falhar(`${f} sai do âmbito da PWA sem target="_blank" — leva a pessoa para fora da app`);
+    }
+  } else {
+    bem(`${vistas} ligações medidas, e as que saem do âmbito da PWA abrem-se à parte`);
+  }
+}
+
+/* =========================================================================
    Nada é carregado de fora
 
    A pagina de privacidade promete, a letra: «nao carrega tipos de letra,

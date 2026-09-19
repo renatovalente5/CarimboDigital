@@ -1567,6 +1567,25 @@ async function ecraPrograma(principal) {
           el('b', { texto: 'Terminar sessão nos outros aparelhos' }),
           el('span', { texto: 'Se perdeste um telemóvel com o balcão aberto' })),
         el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })))));
+
+  /* O BALCÃO NÃO TINHA UMA ÚNICA LIGAÇÃO AOS TERMOS NEM À PRIVACIDADE, e os
+     Termos §5 dizem «ao usar o Carimbo Digital, aceita as condições de
+     subcontratação descritas na política de privacidade». Aceitar uma coisa
+     que não se tem por onde ler não é aceitar nada — e quem tem o balcão é o
+     RESPONSÁVEL pelo tratamento dos dados dos clientes dele, com a nossa
+     casa como subcontratante. É o lado que mais precisa de as ler, e era o
+     único que não tinha por onde.
+
+     `target="_blank"` NAS DUAS, e não por hábito: o manifesto do balcão
+     declara um `scope` de `/balcao/`, e `/termos/` está fora dele. Numa app
+     posta no ecrã principal, um link para fora do âmbito abre o Safari e o
+     balcão fica para trás — no meio de um turno, com a câmara a meio de um
+     carimbo. O `rel="noopener"` vai junto porque `_blank` sem ele dá à página
+     nova acesso ao `window.opener`. */
+  principal.append(el('p', { class: 'rodape-app', html:
+    'Carimbo Digital · '
+    + `<a class="ligacao" href="${base()}/termos/" target="_blank" rel="noopener">Termos</a> · `
+    + `<a class="ligacao" href="${base()}/privacidade/" target="_blank" rel="noopener">Privacidade</a>` }));
 }
 
 /**
