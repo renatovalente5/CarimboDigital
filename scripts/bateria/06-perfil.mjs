@@ -36,7 +36,12 @@ export const nome = '06 · Perfil: conta, email, exportar e apagar';
 
 const PERFIL = '.barra-item:nth-child(5)';
 const LINHA_CONTA = '#principal section:first-of-type .lista .linha:first-child';
-const LINHA_EXPORTAR = '#principal section:nth-of-type(2) .lista .linha:first-child';
+/* Pelo nome e não pela posição. Esta constante dizia «a primeira linha da
+   segunda secção», e no dia em que as «Definições» entraram entre a «Conta» e
+   «Os meus dados» passou a apontar para o «Aspecto» — sem falhar nada, porque
+   a primeira linha da segunda secção existe sempre, seja ela qual for. Um
+   selector posicional não se queixa quando o que está à volta muda de sítio. */
+const LINHA_EXPORTAR = '#linha-exportar';
 const LINHA_APAGAR = '#principal .linha-perigo';
 const CONFIRMAR = '#painel .btn-cheio';
 const EMAIL = 'teste@exemplo.pt';
@@ -119,7 +124,17 @@ export async function correr(palco, certo) {
     String(numero));
 
   certo(await palco.visivel(LINHA_CONTA), 'perfil: a linha «Guardar a conta» está à vista');
-  certo(await palco.visivel(LINHA_EXPORTAR), 'perfil: a linha «Descarregar os meus dados» está à vista');
+  /* E AGORA A LINHA DE EXPORTAR CAIU TAMBÉM, pela mesma razão e pela segunda
+     vez: o perfil voltou a crescer, agora com as «Definições». A afirmação
+     que interessa não é «está à vista» — é quanto se tem de deslizar para lá
+     chegar, porque é isso que decide se alguém chega. O artigo 20.º do RGPD
+     não exige um botão na dobra, mas um botão a três ecrãs de distância é um
+     botão que ninguém carrega. Um ecrã de deslize é o tecto. */
+  const dobra = await palco.js('return innerHeight');
+  const alcance = await palco.medir(LINHA_EXPORTAR);
+  certo(Boolean(alcance) && alcance.y < dobra * 2,
+    'perfil: chega-se a «Descarregar os meus dados» com um deslize, não com três',
+    alcance ? `y=${Math.round(alcance.y)} dobra=${dobra}` : 'não medida');
   /* A LINHA DE APAGAR CAIU ABAIXO DA DOBRA, e isto afirmava que estava «à
      vista». Caiu porque o perfil cresceu — os avisos entraram — e não porque
      alguém a escondesse. Para a mais destrutiva de todas as acções, estar em
@@ -407,7 +422,13 @@ export async function correr(palco, certo) {
     String(await palco.texto(LINHA_CONTA)));
 
   /* =======================================================================
-     Tema
+     Tema — agora em Perfil › Definições › Aspecto
+
+     Havia um botão no cabeçalho que ciclava claro → escuro → sistema. Três
+     estados atrás de um ícone que só sabia desenhar dois, e sem nome nenhum:
+     quem não via o ecrã nunca soube que existia um «automático». Passou a ser
+     um radiogroup com os três estados escritos, e estas afirmações percorrem
+     o caminho que a pessoa percorre — abrir o perfil, abrir o painel, tocar.
      ======================================================================= */
 
   /* O sistema fica em claro de propósito: é o caso em que a escolha da pessoa
@@ -420,19 +441,66 @@ export async function correr(palco, certo) {
   certo(await temaNoHtml() === null,
     'tema: à partida segue o sistema, sem marca no html', String(await temaNoHtml()));
 
-  await palco.clicar('#botao-tema');
-  certo(await temaNoHtml() === 'claro',
-    'tema: o primeiro toque fixa o claro', String(await temaNoHtml()));
+  await palco.clicar(PERFIL);
+  await palco.esperar('#linha-aspecto');
+  certo((await palco.texto('#estado-aspecto')).trim() === 'Automático',
+    'aspecto: a linha do perfil diz em que estado está, sem ser preciso abrir',
+    String(await palco.texto('#estado-aspecto')));
 
-  await palco.clicar('#botao-tema');
+  await palco.clicar('#linha-aspecto');
+  await palco.esperar('[data-tema-opcao]');
+
+  const opcoes = () => palco.js(`
+    return [...document.querySelectorAll('[data-tema-opcao]')].map((b) => ({
+      chave: b.dataset.temaOpcao,
+      nome: b.querySelector('b').textContent.trim(),
+      marcado: b.getAttribute('aria-checked'),
+      papel: b.getAttribute('role'),
+    }))`);
+
+  const trio = await opcoes();
+  certo(trio.length === 3 && trio.map((o) => o.chave).join(',') === 'claro,escuro,sistema',
+    'aspecto: os três estados têm nome escrito, e o automático vai em último',
+    trio.map((o) => o.nome).join(' · '));
+  /* A falha que o botão tinha e que ninguém via: com três estados e um ícone
+     de dois, havia sempre um estado sem representação. Aqui a exclusividade é
+     uma afirmação — exactamente um marcado, nunca zero e nunca dois. */
+  certo(trio.filter((o) => o.marcado === 'true').length === 1,
+    'aspecto: há sempre um e um só estado marcado',
+    trio.map((o) => `${o.nome}=${o.marcado}`).join(' '));
+  certo(trio.find((o) => o.chave === 'sistema').marcado === 'true',
+    'aspecto: e à nascença o marcado é o automático',
+    trio.map((o) => `${o.nome}=${o.marcado}`).join(' '));
+  certo(trio.every((o) => o.papel === 'radio'),
+    'aspecto: cada opção anuncia-se como escolha exclusiva e não como botão solto',
+    trio.map((o) => o.papel).join(','));
+
+  await palco.clicar('[data-tema-opcao="claro"]');
+  certo(await temaNoHtml() === 'claro',
+    'aspecto: escolher o claro fixa-o no html', String(await temaNoHtml()));
+  /* Sem botão de guardar: a confirmação é o próprio resultado. Se a marca não
+     saltasse no mesmo toque, o painel ficava a mostrar o estado anterior. */
+  certo((await opcoes()).filter((o) => o.marcado === 'true').map((o) => o.chave).join() === 'claro',
+    'aspecto: a marca salta no mesmo toque, sem botão de guardar',
+    JSON.stringify(await opcoes()));
+
+  await palco.clicar('[data-tema-opcao="escuro"]');
   certo(await temaNoHtml() === 'escuro',
-    'tema: o segundo toque fixa o escuro', String(await temaNoHtml()));
+    'aspecto: e escolher o escuro troca', String(await temaNoHtml()));
   certo(await temaGuardado() === '"escuro"',
-    'tema: a escolha fica guardada', String(await temaGuardado()));
+    'aspecto: a escolha fica guardada', String(await temaGuardado()));
 
   const fundoEscuro = await palco.estilo('body', 'background-color');
   certo(fundoEscuro.replace(/\s/g, '') === 'rgb(14,13,18)',
-    'tema: o fundo escurece mesmo', String(fundoEscuro));
+    'aspecto: o fundo escurece mesmo', String(fundoEscuro));
+
+  /* O painel fecha, e a linha por trás tem de contar a mesma história. Um
+     ecrã que mostra o estado errado é pior do que um que não o mostra. */
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
+  certo((await palco.texto('#estado-aspecto')).trim() === 'Escuro',
+    'aspecto: fechado o painel, a linha do perfil já diz «Escuro»',
+    String(await palco.texto('#estado-aspecto')));
 
   /* Espia a primeira pintura da recarga. O guião entra antes de qualquer
      coisa da página — é a única forma de saber se o tema chegou a tempo, e
@@ -458,18 +526,26 @@ export async function correr(palco, certo) {
   await palco.recarregar();
   await palco.esperar('#barra .barra-item');
   certo(await temaNoHtml() === 'escuro',
-    'tema: a escolha aguenta-se depois de recarregar', String(await temaNoHtml()));
+    'aspecto: a escolha aguenta-se depois de recarregar', String(await temaNoHtml()));
 
   const pintura = await palco.js('return window.__pintura');
   certo(!!pintura && pintura.tema !== null && pintura.frame !== null
     && pintura.tema <= pintura.frame,
-    'tema: o escuro entra antes da primeira pintura, sem clarão branco',
+    'aspecto: o escuro entra antes da primeira pintura, sem clarão branco',
     JSON.stringify(pintura));
 
-  /* Terceiro toque: volta ao sistema, e o ciclo fecha. */
-  await palco.clicar('#botao-tema');
+  /* Devolver ao automático fecha o ciclo — e prova que se pode SAIR de uma
+     escolha fixa, que é o que o ícone de dois estados nunca deixou dizer. */
+  await palco.clicar(PERFIL);
+  await palco.esperar('#linha-aspecto');
+  await palco.clicar('#linha-aspecto');
+  await palco.esperar('[data-tema-opcao]');
+  await palco.clicar('[data-tema-opcao="sistema"]');
   certo(await temaNoHtml() === null,
-    'tema: o terceiro toque devolve a escolha ao sistema', String(await temaNoHtml()));
+    'aspecto: o automático devolve a escolha ao telemóvel e tira a marca do html',
+    String(await temaNoHtml()));
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
 
   /* =======================================================================
      Exportar os dados

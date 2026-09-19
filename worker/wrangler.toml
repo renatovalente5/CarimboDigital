@@ -45,6 +45,18 @@ MAIL_CAIXA = "AC253ee5cda0314af28894c3718af1"
 # (o logótipo) e para o `origins` do endereço de gravação.
 DOMINIO = "carimbodigital.pt"
 
+# ONDE ATENDE O PRÓPRIO WORKER. Quase tudo tira isto do pedido, que é o que
+# está sempre certo — mas o reconciliador da Wallet corre no cron e não tem
+# pedido nenhum de onde o tirar. Sem isto, o cartão que o reconciliador
+# acertasse ficava com o saldo novo e o desenho dos carimbos do dia em que foi
+# guardado: o número e a imagem a contarem histórias diferentes.
+#
+# Uma variável que repete uma coisa que se sabe de outra maneira desactualiza-
+# -se, e por isso não fica sozinha: sempre que um PEDIDO passa por aqui, o
+# `espelharNaWallet` compara as duas e grita se discordarem. Não é preciso
+# alguém lembrar-se de vir cá no dia em que a API mudar de casa.
+DOMINIO_API = "carimbodigital-api.renato-lima-valente-dcb.workers.dev"
+
 # A WALLET DO TELEMÓVEL. Enquanto estes três não existirem, as rotas do passe
 # respondem 404 e o botão não aparece na app — é o que permite ter isto
 # publicado e provado antes de haver conta na Google.

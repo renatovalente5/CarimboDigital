@@ -317,6 +317,14 @@ async function ecraCartao(principal) {
      lá chegasse. */
   if (cheio.carteiras && cheio.carteiras.apple && CRACHA_APPLE) {
     principal.append(botaoWallet(cheio, 'apple'));
+    /* A explicação vai por baixo do botão e só a quem já tem o passe: antes
+       de o ter, «o passe não se actualiza sozinho» é uma preocupação que
+       ainda não é dela, e só serve para assustar quem ia carregar. */
+    if (cheio.naApple) {
+      principal.append(el('p', { class: 'miudo', style: 'margin-top:8px', texto:
+        'O cartão na Apple Wallet mostra os carimbos de quando o guardaste. '
+        + 'Toca aqui para o pôr em dia — substitui o que lá está.' }));
+    }
   }
 
   /* TRAZ UM AMIGO. Só aparece se o café tiver ligado alguma coisa — um botão
@@ -492,7 +500,21 @@ function botaoWallet(cartao, carteira = 'google') {
      As medidas do crachá da Apple são as mesmas do da Google por opção: os
      dois ficam empilhados e alinhados, e a folga do CSS já serve os dois. */
   const daApple = carteira === 'apple';
-  const rotulo = daApple ? 'Adicionar à Apple Wallet' : 'Adicionar a Carteira do Google';
+  /* «ACTUALIZAR» E NÃO «ADICIONAR», a quem já lá tem o passe.
+
+     O passe da Apple é um retrato: não temos servidor de web service, por
+     isso ele mostra os carimbos do dia em que foi guardado e mais nenhum. A
+     única forma de o pôr em dia é voltar a guardá-lo — a Apple substitui o
+     passe com o mesmo número de série.
+
+     Um botão que diz «Adicionar» a quem já adicionou é um botão em que
+     ninguém toca, e o passe fica desactualizado para sempre sem que nada no
+     ecrã sugira que há alguma coisa a fazer. A Google não precisa disto: essa
+     actualiza-se por PATCH, e a faixa desenhada vai no mesmo pedido. */
+  const jaNaApple = daApple && Boolean(cartao.naApple);
+  const rotulo = daApple
+    ? (jaNaApple ? 'Actualizar na Apple Wallet' : 'Adicionar à Apple Wallet')
+    : 'Adicionar a Carteira do Google';
   const botao = el('button', {
     class: 'btn-wallet', type: 'button', 'aria-label': rotulo,
     'data-carteira': carteira,
@@ -1058,7 +1080,12 @@ async function ecraPremios(principal) {
           el('b', { texto: premio.descricao }),
           el('span', { texto: `${cartao.negocio.nome} · ganho ${haQuanto(premio.ganhoEm)}` })),
         el('span', { class: 'etiqueta etiqueta-bom', texto: 'pronto' }));
-      linha.style.setProperty('--m', cartao.negocio.cor);
+      /* Punha `--m` com a cor CRUA do comerciante, e nesta linha nada lê
+         `--m`: o ícone usa `--marca`. Era uma linha morta com ar de viva — e
+         se alguém a tivesse ligado tal como estava, uma marca amarela clara
+         dava um ícone ilegível, porque a cor nunca passou pelo
+         `marcaSegura`. Agora passa, e o ícone traz mesmo a cor da loja. */
+      pintarCartao(linha, cartao.negocio.cor);
       lista.append(linha);
     }
     principal.append(lista);
@@ -1103,6 +1130,76 @@ async function ecraPremios(principal) {
 }
 
 /* =========================================================================
+   Definições
+
+   O TEMA SAIU DO CABEÇALHO, e foi o dono a pedi-lo. Estava num botão de lua
+   ao lado do título, fora de qualquer menu — e um controlo solto no cabeçalho
+   é o sítio onde ninguém procura uma preferência.
+
+   E estava partido de duas maneiras, as duas medidas:
+
+   · O CICLO TEM TRÊS ESTADOS E O ÍCONE TINHA DOIS. O ouvinte percorria
+     «sistema → claro → escuro», e o desenho saía de `escuro ? sol : lua`. Com
+     o telemóvel em claro, «sistema» e «claro» dão o mesmo fundo, o mesmo
+     desenho e o mesmo rótulo: um toque em cada três não mudava um pixel. Quem
+     lá tocasse concluía que o botão estava avariado.
+   · O RÓTULO NOMEAVA DOIS ESTADOS — «Mudar entre claro e escuro» — para um
+     controlo de três. Quem não vê o ecrã nunca soube que havia um «automático».
+
+   Aqui os três estados têm nome escrito e um deles está sempre marcado. É o
+   que o macOS faz («Clara · Escura · Automática»), o que o Android faz, e o
+   que a app que o dono nomeou faz. E «Automático» vai em ÚLTIMO, que é onde
+   os três o põem.
+   ========================================================================= */
+
+const TEMAS = [
+  { chave: 'claro', nome: 'Claro', icone: 'brilho' },
+  { chave: 'escuro', nome: 'Escuro', icone: 'lua' },
+  /* Em último, e é o valor de nascença: uma app que não foi instruída ao
+     contrário deve seguir o telemóvel. */
+  { chave: 'sistema', nome: 'Automático', icone: 'engrenagem' },
+];
+
+function painelDoTema() {
+  const painel = abrirPainel('Aspecto');
+  const escolhido = ler('tema', 'sistema');
+
+  /* `radiogroup` e não uma lista de botões: são opções EXCLUSIVAS, e é isso
+     que faz um leitor de ecrã anunciar «2 de 3» em vez de ler três botões
+     soltos sem relação nenhuma. */
+  const grupo = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Aspecto' });
+  for (const tema of TEMAS) {
+    grupo.append(el('button', {
+      class: 'linha escolha', type: 'button', role: 'radio',
+      'aria-checked': tema.chave === escolhido ? 'true' : 'false',
+      'data-tema-opcao': tema.chave,
+      aoClick: () => {
+        guardar('tema', tema.chave);
+        aplicarTema();
+        /* A linha do perfil, por trás do painel, diz qual é a escolha. Sem
+           isto, fechar o painel deixava lá o nome do tema anterior — e um
+           ecrã que mostra o estado errado é pior do que um que não o mostra. */
+        const eco = $('#estado-aspecto');
+        if (eco) eco.textContent = tema.nome;
+        for (const b of grupo.querySelectorAll('[data-tema-opcao]')) {
+          b.setAttribute('aria-checked', b.dataset.temaOpcao === tema.chave ? 'true' : 'false');
+        }
+        /* Sem botão de guardar: aplica-se ao toque, e o ecrã por trás do
+           painel muda à vista. A confirmação é o próprio resultado. */
+      },
+    },
+      el('span', { class: 'linha-icone', html: icone(tema.icone, { tamanho: 20 }) }),
+      el('span', { class: 'linha-texto' }, el('b', { texto: tema.nome })),
+      el('span', { class: 'linha-fim escolha-visto', html: icone('visto', { tamanho: 18 }) })));
+  }
+
+  painel.append(grupo, el('p', { class: 'miudo', style: 'margin-top:12px', texto:
+    'Em «Automático», a app segue o que o telemóvel estiver a fazer — e muda '
+    + 'com ele, sem ser preciso voltar aqui.' }));
+  return painel;
+}
+
+/* =========================================================================
    Ecrã: perfil
    ========================================================================= */
 
@@ -1121,8 +1218,15 @@ async function ecraPerfil(principal) {
   const identidades = estado.identidades || [];
   const comEmail = temIdentidade('email', identidades);
   const comGoogle = temIdentidade('google', identidades);
+  /* A APPLE FALTAVA AQUI, e o painel das identidades já a conhecia há muito.
+     Quem entrasse só pela Apple via este ecrã dizer-lhe «Guardar a conta» —
+     quando a conta estava guardada — e ficava sem a linha de terminar sessão
+     nos outros aparelhos, que é a única defesa de quem perdeu o telemóvel.
+     Duas portas escritas à mão num sítio e três noutro: a lista tem de vir do
+     mesmo sítio, e vem. */
+  const comApple = temIdentidade('apple', identidades);
   const morada = moradaDaConta(identidades);
-  const temPorta = comEmail || comGoogle;
+  const temPorta = comEmail || comGoogle || comApple;
 
   principal.append(el('div', { class: 'folha cartao-identidade' },
     el('div', {},
@@ -1141,10 +1245,19 @@ async function ecraPerfil(principal) {
      incluindo a quem tivesse entrado pela Google, que é exactamente ter a
      conta guardada. */
   const comoEstaGuardada = () => {
-    if (comEmail && comGoogle) return { titulo: 'A conta está guardada', sub: `Google e ${morada}` };
-    if (comGoogle) return { titulo: 'A conta está guardada', sub: morada ? `Google · ${morada}` : 'Entras com a Google' };
-    if (comEmail) return { titulo: 'A tua morada de email', sub: morada };
-    return { titulo: 'Guardar a conta', sub: 'Para não perderes os cartões se mudares de telemóvel' };
+    /* Os nomes das portas saem de uma lista e não de um encadeado de `if`:
+       com três provedores um encadeado escrito à mão tem sete casos, e foi a
+       falta de um deles que deixou quem entrou pela Apple sem conta. */
+    const portas = [comGoogle && 'Google', comApple && 'Apple'].filter(Boolean);
+    if (!portas.length && !comEmail) {
+      return { titulo: 'Guardar a conta', sub: 'Para não perderes os cartões se mudares de telemóvel' };
+    }
+    if (!portas.length) return { titulo: 'A tua morada de email', sub: morada };
+    const nomes = portas.join(' e ');
+    return {
+      titulo: 'A conta está guardada',
+      sub: morada ? `${nomes} · ${morada}` : `Entras com a ${nomes}`,
+    };
   };
   const guardada = comoEstaGuardada();
 
@@ -1157,16 +1270,6 @@ async function ecraPerfil(principal) {
       el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
 
 
-    /* AVISAR-ME. Só aparece onde pode funcionar: o servidor tem de ter chave,
-       o browser tem de saber de notificações, e num iPhone isto só existe
-       dentro de uma app posta no ecrã principal. Um interruptor que não liga
-       nada é pior do que interruptor nenhum. */
-    el('button', { class: 'linha', id: 'linha-avisos', aoClick: avisosDoPremio },
-      el('span', { class: 'linha-icone', html: icone('sino', { tamanho: 20 }) }),
-      el('span', { class: 'linha-texto' },
-        el('b', { texto: 'Avisar-me quando ganhar um prémio' }),
-        el('span', { id: 'estado-avisos', texto: 'A ver…' })),
-      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
 
     /* Isto era um botão que prometia «em breve» e não fazia nada. A Carteira
        do telemóvel já existe, e o botão dela está em cada cartão — que é onde
@@ -1225,6 +1328,39 @@ async function ecraPerfil(principal) {
   principal.append(el('section', { class: 'seccao' },
     el('h2', { class: 'seccao-titulo', texto: 'Conta' }), conta));
 
+  /* =======================================================================
+     Definições — o que é PREFERÊNCIA, e não identidade.
+
+     A «Conta» fica em primeiro e não esta, e não é convenção cega: escolher
+     mal o aspecto custa um deslize de dedo; não dar pela linha «Guardar a
+     conta» custa TODOS os cartões, sem volta e sem aviso. A secção que se
+     paga mais caro por não se ver fica onde se vê primeiro.
+     ======================================================================= */
+  const nomeDoTema = (TEMAS.find((x) => x.chave === ler('tema', 'sistema')) || TEMAS[2]).nome;
+  principal.append(el('section', { class: 'seccao' },
+    el('h2', { class: 'seccao-titulo', texto: 'Definições' }),
+    el('div', { class: 'lista' },
+      el('button', { class: 'linha', id: 'linha-aspecto', aoClick: painelDoTema },
+        el('span', { class: 'linha-icone', html: icone('lua', { tamanho: 20 }) }),
+        el('span', { class: 'linha-texto' },
+          el('b', { texto: 'Aspecto' }),
+          el('span', { id: 'estado-aspecto', texto: nomeDoTema })),
+        el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
+
+      /* AVISAR-ME. Estava na «Conta», e não é conta nenhuma: é uma
+         preferência deste aparelho — a mesma pessoa pode querer avisos no
+         telemóvel e não os querer no tablet. Só aparece onde pode funcionar:
+         o servidor tem de ter chave, o browser tem de saber de notificações,
+         e num iPhone isto só existe dentro de uma app posta no ecrã
+         principal. Um interruptor que não liga nada é pior do que
+         interruptor nenhum. */
+      el('button', { class: 'linha', id: 'linha-avisos', aoClick: avisosDoPremio },
+        el('span', { class: 'linha-icone', html: icone('sino', { tamanho: 20 }) }),
+        el('span', { class: 'linha-texto' },
+          el('b', { texto: 'Avisar-me quando ganhar um prémio' }),
+          el('span', { id: 'estado-avisos', texto: 'A ver…' })),
+        el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })))));
+
   /* A linha dos avisos nasce a dizer «A ver…» e acerta-se quando as três
      perguntas tiverem resposta — se o servidor tem chave, se o browser sabe
      disto, e se já há subscrição neste aparelho. Se alguma falhar, a linha
@@ -1234,7 +1370,7 @@ async function ecraPerfil(principal) {
   /* Dados — o que a lei exige que seja fácil de fazer, e que quase nenhuma
      app faz fácil: ver o que têm sobre nós, e apagar. */
   const dados = el('div', { class: 'lista' },
-    el('button', { class: 'linha', aoClick: exportarDados },
+    el('button', { class: 'linha', id: 'linha-exportar', aoClick: exportarDados },
       el('span', { class: 'linha-icone', html: icone('descarregar', { tamanho: 20 }) }),
       el('span', { class: 'linha-texto' },
         el('b', { texto: 'Descarregar os meus dados' }),
@@ -2829,18 +2965,23 @@ function aplicarTema() {
   document.documentElement.style.colorScheme = t === 'sistema'
     ? 'light dark' : (escuro ? 'dark' : 'light');
 
-  /* Uma meta só, sem `media`, escrita à mão. As duas com `media` não podem
-     ser sobrepostas por JavaScript — a que casa com o sistema ganha sempre. */
+  /* À CABEÇA DO `<head>`, E NÃO NO FIM. O comentário que aqui estava dizia que
+     uma meta sem `media` ganha às outras — e é ao contrário. A norma manda
+     percorrer as metas `theme-color` POR ORDEM DE ÁRVORE e usar a PRIMEIRA
+     cuja `media` case com o ambiente. As duas do `index.html` estão presas a
+     `prefers-color-scheme` e vêm antes; uma delas casa sempre, e esta,
+     acrescentada no fim, nunca era alcançada.
+
+     Consequência: com uma escolha que CONTRARIE o telemóvel — escuro escolhido
+     num telemóvel claro — o ecrã ficava escuro e a faixa do sistema ficava
+     clara. Exactamente nos dois casos em que esta função existe para mandar. */
   let faixa = document.querySelector('meta[name="theme-color"]:not([media])');
   if (!faixa) {
     faixa = document.createElement('meta');
     faixa.setAttribute('name', 'theme-color');
-    document.head.append(faixa);
   }
   faixa.setAttribute('content', escuro ? '#0E0D12' : '#FBFAF7');
-
-  const b = $('#botao-tema');
-  if (b) b.innerHTML = icone(escuro ? 'sol' : 'lua', { tipo: escuro ? 'cheio' : 'traco', tamanho: 20 });
+  if (document.head.firstChild !== faixa) document.head.prepend(faixa);
 }
 
 /* Com o tema em «sistema», mudar o telemóvel de claro para escuro trocava as
@@ -3221,12 +3362,10 @@ async function entrar() {
   carregarIdentidades().catch(() => {});
 
   aplicarTema();
-  $('#botao-tema').addEventListener('click', () => {
-    const ordem = ['sistema', 'claro', 'escuro'];
-    const atual = ler('tema', 'sistema');
-    guardar('tema', ordem[(ordem.indexOf(atual) + 1) % 3]);
-    aplicarTema();
-  });
+  /* O BOTÃO DO TEMA SAIU DO CABEÇALHO. Era um ciclo de três estados com dois
+     ícones e um rótulo que nomeava dois — um toque em cada três não mudava um
+     pixel. Agora vive em Perfil › Definições › Aspecto, com os três estados
+     escritos e um deles marcado. */
 
   /* NO ECRÃ ONDE FICOU, e não sempre no primeiro.
 

@@ -387,8 +387,16 @@ export async function correr(palco, certo) {
     String(ordem[1]));
 
   const semDemo = ordem.filter((c) => !eDaDemo(c));
-  certo(semDemo[1] && semDemo[1].includes('botao-tema'),
-    'carteira: a segunda é o botão do cabeçalho, antes do conteúdo', String(semDemo[1]));
+  /* O cabeçalho tinha um botão do tema e deixou de ter: o aspecto mudou-se
+     para Perfil › Definições. Agora o cabeçalho é só um título, e a tabulação
+     tem de o atravessar sem parar — uma paragem num cabeçalho que não faz
+     nada é um toque desperdiçado em cada ecrã, para quem navega por teclas. */
+  certo(!ordem.some((c) => String(c).includes('botao-tema')),
+    'carteira: o cabeçalho já não tem paragem nenhuma — o tema mudou-se para as definições',
+    ordem.filter((c) => String(c).includes('botao-tema')).join(' | ') || 'nenhuma');
+  certo(semDemo[1] && !semDemo[1].includes('topo'),
+    'carteira: a seguir a «Saltar» vem logo o conteúdo, e não o cabeçalho',
+    String(semDemo[1]));
   certo(semDemo.length > 5 && semDemo[semDemo.length - 1].includes('barra-item'),
     'carteira: a barra de navegação fica para o fim, como está no ecrã',
     String(semDemo[semDemo.length - 1]));

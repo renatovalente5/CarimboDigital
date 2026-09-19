@@ -238,21 +238,50 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   display: grid; place-items: center;
   border-radius: var(--r-max);
 }
-/* Vazio: o círculo tracejado do cartão de papel. */
+/* O ESTADO DE UM CARIMBO É UMA FORMA, E NÃO UMA OPACIDADE.
+
+   Estava assim: o cheio era a cor da marca com um véu branco a 16% por cima,
+   o vazio um aro branco a 30%. Medidos por cima das cores que hoje estão em
+   produção, dão 1,21:1 ao disco cheio e 1,49:1 ao aro vazio — a WCAG 1.4.11
+   pede 3:1 a um objecto gráfico de que se precisa para perceber o conteúdo, e
+   «sete de dez carimbos» é precisamente isso. Na Padaria do Forno, nove dos
+   doze círculos por fazer quase não existiam.
+   Duas opacidades a 14 pontos de distância uma da outra nunca iam dar dois
+   estados distinguíveis, por muito que se lhes mexesse nos números: o que as
+   separa é uma fracção da MESMA cor.
+   Agora cheio e vazio não partilham cor nenhuma — um é disco opaco da tinta,
+   o outro é aro tracejado. Cada um passa a conta contra o fundo sozinho, e a
+   diferença entre os dois é cheio-contra-vazio, que não tem contraste para
+   perder. */
+
+/* Vazio: o círculo tracejado do cartão de papel, numa cor medida.
+
+   2px e não 1,5: o `aroSeguro` pára no primeiro passo que passa os 3:1, e o
+   traço fica de propósito o mais perto possível da cor da loja — mas 3,01:1
+   num fio de 1,5px é legível e não é CONTÁVEL, e contar o que falta é a coisa
+   mais lida do cartão. A espessura ganha-se sem gastar contraste nenhum. */
 .carimbo[data-estado="vazio"] {
-  border: 1.5px dashed var(--m-veu-forte);
+  border: 2px dashed var(--m-aro, var(--m-veu-forte));
 }
-/* Cheio: a tinta assente. A rotação mínima é de propósito — um carimbo
+/* Cheio: a tinta assente, opaca. A rotação mínima é de propósito — um carimbo
    à mão nunca fica direito, e é isso que o faz parecer real. */
 .carimbo[data-estado="cheio"] {
-  background: var(--m-veu);
-  border: 1.5px solid transparent;
+  background: var(--m-txt);
+  /* A mesma espessura do aro vazio, transparente: sem isto os dois estados
+     têm diâmetros diferentes e a grelha fica a dançar de linha para linha. */
+  border: 2px solid transparent;
   transform: rotate(var(--inclina, 0deg));
 }
+/* O glifo passa a ser a cor da marca dentro do disco de tinta: é a mesma
+   conta do texto do cartão, já garantida a 4,5:1 pelo `marcaSegura`. */
 .carimbo[data-estado="cheio"] svg {
-  width: 58%; height: 58%; color: var(--m-txt);
+  width: 58%; height: 58%; color: var(--m);
 }
-.carimbo[data-estado="vazio"] svg { width: 44%; height: 44%; opacity: .3; }
+/* O carimbo por fazer não leva glifo nenhum. Levava-o a 30% de opacidade, o
+   que dava um desenho fantasma que nem se via nem deixava o aro respirar — e
+   ainda punha o mesmo símbolo nos dois estados, que era o que tornava a
+   leitura à distância um exercício de adivinhação. */
+.carimbo[data-estado="vazio"] svg { display: none; }
 
 /* O carimbo que acabou de ser dado: a pancada. */
 @keyframes carimbar {
@@ -268,9 +297,13 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   0%   { transform: scale(.2); opacity: .55; }
   100% { transform: scale(2.4); opacity: 0; }
 }
+/* A auréola sai do disco para fora. Assentava em `--m-txt`, que era a cor
+   do glifo — e passou a ser a cor do próprio disco: uma auréola da mesma cor
+   do que está por baixo dela não se vê a sair de lado nenhum. Sai na cor do
+   aro, que é justamente a que está medida para se ver por cima do cartão. */
 .carimbo[data-novo="sim"]::before {
   content: ""; position: absolute; inset: 0;
-  border-radius: inherit; background: var(--m-txt);
+  border-radius: inherit; background: var(--m-aro, var(--m-txt));
   animation: tinta 700ms ease-out both;
 }
 
@@ -422,6 +455,16 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   display: flex; align-items: center; gap: var(--e-2);
   font-size: .8125rem; font-weight: 600; color: #5B5966;
 }
+
+/* --- as escolhas de um painel (o aspecto, e o que vier a seguir) ---------- */
+
+/* O visto só aparece na opção marcada. `aria-checked` é a fonte da verdade, e
+   o desenho lê-se DELE: assim não há um segundo sítio para desactualizar, e o
+   que o leitor de ecrã anuncia é o mesmo que o olho vê. */
+.escolhas { display: flex; flex-direction: column; }
+.escolha .escolha-visto { opacity: 0; color: var(--marca); transition: opacity var(--t-1) ease; }
+.escolha[aria-checked="true"] .escolha-visto { opacity: 1; }
+.escolha[aria-checked="true"] b { color: var(--marca); }
 
 /* =========================================================================
    Listas
@@ -636,6 +679,9 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 
 .linha-premio { border-color: var(--marca-aro); }
 .linha-icone-marca { background: var(--marca-fundo); color: var(--marca); }
+/* Numa linha que traga a cor de uma loja, o ícone é dessa loja. A cor vem do
+   `pintarCartao`, ou seja já passou o mínimo de 4,5:1 contra a tinta dela. */
+.linha-premio { --marca: var(--m-txt); --marca-fundo: var(--m); }
 .linha-perigo .linha-icone { background: var(--mau-fundo); color: var(--mau); }
 .linha-perigo b { color: var(--mau); }
 

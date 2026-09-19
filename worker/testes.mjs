@@ -1887,6 +1887,40 @@ grupo('O cartão na Wallet');
       'e quando notifica usa o valor do documento de descoberta, não o da página velha',
       String(toca.notifyPreference));
   }
+
+  /* --- a faixa desenhada ------------------------------------------------ */
+
+  /* A Google guarda a imagem à chave do ENDEREÇO e não volta a perguntar. Um
+     cartão cujo saldo sobe e cuja imagem fica na mesma é um cartão que diz
+     «8 de 10» por cima de sete carimbos desenhados — e a pessoa acredita no
+     desenho, não no número. As duas afirmações que interessam são estas: que
+     a faixa vai no mesmo pedido que o saldo, e que o endereço MUDA. */
+  {
+    const semFaixa = w.objetoDeCartao(CARTAO, PROGRAMA, { emissor: EMISSOR, codigo: 'ABC123XYZ' });
+    certo(semFaixa.heroImage === undefined,
+      'sem faixa não se inventa um heroImage — um endereço que dá 404 é pior do que nenhum');
+
+    const sete = w.objetoDeCartao(CARTAO, PROGRAMA, {
+      emissor: EMISSOR, codigo: 'ABC123XYZ', faixa: 'https://api.exemplo/v1/faixa/c-8B5E3C-7-10-carimbo-1032x812-aaa.png',
+    });
+    certo(sete.heroImage && sete.heroImage.sourceUri
+      && sete.heroImage.sourceUri.uri.includes('-7-10-'),
+      'a faixa vai no objecto, e é a do cartão desta pessoa e não a da classe',
+      JSON.stringify(sete.heroImage));
+
+    const patch = w.actualizacaoDeSaldo({ ...CARTAO, carimbos: 8 }, PROGRAMA, {
+      faixa: 'https://api.exemplo/v1/faixa/c-8B5E3C-8-10-carimbo-1032x812-bbb.png',
+    });
+    certo(patch.heroImage && patch.heroImage.sourceUri.uri.includes('-8-10-'),
+      'e vai TAMBÉM no PATCH do saldo — senão o número sobe e o desenho fica',
+      JSON.stringify(patch.heroImage));
+    certo(patch.heroImage.sourceUri.uri !== sete.heroImage.sourceUri.uri,
+      'e o endereço muda com os carimbos: a Google guarda a imagem para sempre à chave do endereço');
+
+    const igual = w.actualizacaoDeSaldo({ ...CARTAO, carimbos: 8 }, PROGRAMA);
+    certo(igual.heroImage === undefined,
+      'um PATCH sem faixa omite o campo e deixa ficar a que lá está — não a apaga');
+  }
 }
 
 /* --------------------------------------------------------------------- */

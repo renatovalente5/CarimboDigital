@@ -194,7 +194,7 @@ export function saldoDoCartao(cartao, programa) {
  * @param {object} opcoes { emissor, codigo } — `codigo` é o `wallet_codigo`
  *                        do cartão, o token permanente do passe.
  */
-export function objetoDeCartao(cartao, programa, { emissor, codigo }) {
+export function objetoDeCartao(cartao, programa, { emissor, codigo, faixa }) {
   if (!emissor) throw new Error('Falta o id de emissor da Google.');
   if (!codigo) throw new Error('Falta o código do passe.');
   return {
@@ -211,6 +211,17 @@ export function objetoDeCartao(cartao, programa, { emissor, codigo }) {
       label: ROTULO_PONTOS,
       balance: saldoDoCartao(cartao, programa),
     },
+    /* A FAIXA VAI NO OBJECTO E NÃO NA CLASSE. A classe é partilhada por toda
+       a gente que tem o cartão daquele café; a faixa mostra os carimbos de
+       UMA pessoa. Posta na classe, toda a gente via os carimbos da última
+       pessoa que a tocou.
+
+       O endereço muda a cada carimbo de propósito — o `enderecoDaFaixa`
+       escreve o estado dentro do caminho. A Google descarrega a imagem uma
+       vez e guarda-a para sempre: com um endereço fixo, o cartão na carteira
+       ficava com os carimbos do dia em que foi guardado, e nada — nem um
+       PATCH, nem uma notificação — o obrigava a ir buscar outra vez. */
+    ...(faixa ? { heroImage: { sourceUri: { uri: faixa } } } : {}),
   };
 }
 
@@ -267,9 +278,13 @@ export const NOTIFICAR = 'NOTIFY_ON_UPDATE';
  * que FECHA o cartão. Gastá-lo nos do meio deixava em silêncio o único que a
  * pessoa quer sentir no bolso.
  */
-export function actualizacaoDeSaldo(cartao, programa, { notificar = false } = {}) {
+export function actualizacaoDeSaldo(cartao, programa, { notificar = false, faixa } = {}) {
   return {
     loyaltyPoints: { label: ROTULO_PONTOS, balance: saldoDoCartao(cartao, programa) },
+    /* Sem isto o saldo subia e a faixa ficava a mostrar os carimbos do dia em
+       que o passe foi guardado. O número em texto e o desenho ao lado dele a
+       contarem histórias diferentes é pior do que não haver desenho. */
+    ...(faixa ? { heroImage: { sourceUri: { uri: faixa } } } : {}),
     ...(notificar ? { notifyPreference: NOTIFICAR } : {}),
   };
 }

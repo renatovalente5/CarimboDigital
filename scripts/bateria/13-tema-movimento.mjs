@@ -217,21 +217,44 @@ function reprovados(medidos) {
    Ler o tema que está em vigor
    ========================================================================= */
 
+/* A FAIXA DO SISTEMA LÊ-SE COMO A NORMA MANDA: a PRIMEIRA meta «theme-color»
+   cuja «media» case com o ambiente, por ordem de árvore — e não a última.
+
+   Isto lia a última, com um «.pop()». O «aplicarTema» acrescentava a sua meta
+   no FIM do «head», por isso era sempre a última a casar e esta guarda lia-a
+   sempre. Resultado: a afirmação «a faixa do sistema segue a escolha» passava
+   a verde por cima de um defeito em que a faixa ficava da cor errada
+   exactamente quando a escolha contrariava o telemóvel — que são os dois
+   únicos casos em que o «aplicarTema» existe para mandar.
+
+   Uma guarda que lê ao contrário da norma não mede o que o telemóvel faz:
+   mede o que nós queríamos que ele fizesse.
+
+   (A prosa está aqui fora e não dentro do literal de propósito: uma crase a
+   citar código dentro de um «palco.js(`…`)» fecha o literal e parte o
+   ficheiro. Já aconteceu SETE vezes neste projecto — a sétima foi três
+   linhas abaixo desta nota, a citar «marcado» entre crases.) */
+
 const olharTema = (palco) => palco.js(`
   const html = getComputedStyle(document.documentElement);
   const corpo = getComputedStyle(document.body);
-  const b = document.querySelector('#botao-tema');
   return {
     dataset: document.documentElement.dataset.tema || null,
     guardado: localStorage.getItem('carimbo-demo:tema'),
     fundo: corpo.backgroundColor,
     tinta: corpo.color,
     esquema: html.colorScheme,
-    /* O sol tem um <circle>; a lua é só um <path>. É como se distinguem. */
-    icone: b ? (/<circle/.test(b.innerHTML) ? 'sol' : 'lua') : null,
-    /* Só uma das etiquetas está em vigor de cada vez — a que casa com o meio. */
+    /* O estado deixou de estar num ícone de dois desenhos a representar três
+       estados e passou a estar escrito. Lê-se onde ele vive: a linha do
+       perfil quando o painel está fechado, a opção marcada quando está
+       aberto. Se o painel não estiver aberto, «marcado» vale null — e isso é
+       informação, não ausência dela. */
+    rotulo: (document.querySelector('#estado-aspecto')?.textContent || '').trim() || null,
+    marcado: document.querySelector('[data-tema-opcao][aria-checked="true"]')
+      ?.dataset.temaOpcao || null,
+    /* A primeira que casa — ver a nota acima desta função. */
     barraSistema: [...document.querySelectorAll('meta[name="theme-color"]')]
-      .filter((m) => !m.media || matchMedia(m.media).matches).map((m) => m.content).pop() || null,
+      .filter((m) => !m.media || matchMedia(m.media).matches).map((m) => m.content)[0] || null,
   }`);
 
 /* =========================================================================
@@ -388,9 +411,6 @@ export async function correr(palco, certo) {
   certo(sistemaEscuro.barraSistema === '#0E0D12',
     'sistema escuro: a barra do sistema (theme-color) também escurece',
     String(sistemaEscuro.barraSistema));
-  certo(sistemaEscuro.icone === 'sol',
-    'sistema escuro: o botão mostra o sol — o que se ganha ao tocar-lhe',
-    String(sistemaEscuro.icone));
 
   /* O telemóvel passa a claro com a app aberta (é o que o relógio do
      sistema faz ao nascer do sol). A app tem de acompanhar, inteira. */
@@ -404,52 +424,74 @@ export async function correr(palco, certo) {
   certo(sistemaClaro.barraSistema === '#FBFAF7',
     'o sistema passou a claro: a barra do sistema acompanha',
     String(sistemaClaro.barraSistema));
-  /* O ícone é desenhado uma vez, no arranque, a partir do `matchMedia`.
-     Se ninguém ouvir a mudança, fica a prometer o contrário do que faz. */
-  certo(sistemaClaro.icone === 'lua',
-    'o sistema passou a claro: o botão passa a mostrar a lua',
-    `mostra a ${sistemaClaro.icone}`);
 
   /* =======================================================================
-     2 · O botão: sistema → claro → escuro → sistema
+     2 · A escolha: Perfil › Definições › Aspecto
+
+     Era um botão no cabeçalho a ciclar entre três estados por toques. Um
+     ciclo é a pior forma de oferecer três coisas: para chegar à terceira
+     passa-se pelas outras duas, e o ícone — que só sabia desenhar duas —
+     nunca conseguiu dizer em qual delas se estava. Agora os três têm nome, e
+     chega-se a qualquer um num toque.
      ======================================================================= */
 
-  await palco.clicar('#botao-tema');
-  const um = await olharTema(palco);
-  certo(um.dataset === 'claro' && um.guardado === '"claro"',
-    'botão, 1.º toque: fixa o claro e guarda a escolha', JSON.stringify(um));
-  certo(um.fundo === PAPEL_CLARO,
-    'botão, 1.º toque: e o ecrã fica claro', String(um.fundo));
+  const abrirAspecto = async () => {
+    await palco.clicar('.barra-item:nth-child(5)');
+    await palco.esperar('#linha-aspecto');
+    await palco.clicar('#linha-aspecto');
+    await palco.esperar('[data-tema-opcao]');
+  };
+  const escolher = async (chave) => {
+    if (!(await palco.ver('[data-tema-opcao]'))) await abrirAspecto();
+    await palco.clicar(`[data-tema-opcao="${chave}"]`);
+    return olharTema(palco);
+  };
 
-  await palco.clicar('#botao-tema');
-  const dois = await olharTema(palco);
+  await abrirAspecto();
+
+  const um = await escolher('claro');
+  certo(um.dataset === 'claro' && um.guardado === '"claro"',
+    'aspecto: escolher o claro fixa-o e guarda a escolha', JSON.stringify(um));
+  certo(um.fundo === PAPEL_CLARO,
+    'aspecto: e o ecrã fica claro por trás do painel', String(um.fundo));
+  certo(um.marcado === 'claro',
+    'aspecto: e a marca no painel acompanha o que está a acontecer no ecrã',
+    String(um.marcado));
+
+  const dois = await escolher('escuro');
   certo(dois.dataset === 'escuro' && dois.guardado === '"escuro"',
-    'botão, 2.º toque: fixa o escuro', JSON.stringify(dois));
+    'aspecto: escolher o escuro troca', JSON.stringify(dois));
   certo(dois.fundo === PAPEL_ESCURO && dois.tinta === TINTA_ESCURA,
-    'botão, 2.º toque: o ecrã escurece mesmo, com o sistema em claro',
+    'aspecto: o ecrã escurece mesmo, com o sistema em claro',
     `${dois.fundo} / ${dois.tinta}`);
-  certo(dois.icone === 'sol',
-    'botão, 2.º toque: o ícone acompanha a escolha', String(dois.icone));
   await palco.captura('13-app-escuro-por-escolha');
 
-  await palco.clicar('#botao-tema');
-  const tres = await olharTema(palco);
+  /* Fechado o painel, quem conta o estado é a linha do perfil. Era aqui que
+     o ícone mentia: desenhado uma vez no arranque, ficava a prometer o
+     contrário do que a app estava a fazer assim que alguma coisa mudasse. */
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
+  const fechado = await olharTema(palco);
+  certo(fechado.rotulo === 'Escuro',
+    'aspecto: fechado o painel, a linha do perfil diz em que estado se ficou',
+    String(fechado.rotulo));
+
+  const tres = await escolher('sistema');
   certo(tres.dataset === null && tres.guardado === '"sistema"',
-    'botão, 3.º toque: devolve a escolha ao sistema e o ciclo fecha',
+    'aspecto: o automático devolve a escolha ao telemóvel e tira a marca do html',
     JSON.stringify(tres));
   certo(tres.fundo === PAPEL_CLARO,
-    'botão, 3.º toque: o ecrã volta ao que o telemóvel manda (claro)',
+    'aspecto: e o ecrã volta ao que o telemóvel manda (claro)',
     String(tres.fundo));
 
   /* =======================================================================
      3 · A escolha ganha ao sistema, e aguenta-se depois de recarregar
      ======================================================================= */
 
-  await palco.clicar('#botao-tema');           /* claro   */
-  await palco.clicar('#botao-tema');           /* escuro  */
   await palco.tema('dark');
-  await palco.clicar('#botao-tema');           /* sistema */
-  await palco.clicar('#botao-tema');           /* claro, contra um sistema escuro */
+  await escolher('claro');           /* claro, contra um telemóvel escuro */
+  await palco.tecla('Escape');
+  await palco.sumir('#painel');
 
   const contraCorrente = await olharTema(palco);
   certo(contraCorrente.dataset === 'claro' && contraCorrente.fundo === PAPEL_CLARO,

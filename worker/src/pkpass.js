@@ -605,6 +605,25 @@ export function passeDeCartao(cartao, programa, negocio, { passTipo, equipa, cod
     traseira.push({ key: 'onde', label: 'Onde fica',
       value: [negocio.morada, negocio.localidade].filter(Boolean).join('\n') });
   }
+  /* O PASSE DA APPLE NÃO SE ACTUALIZA SOZINHO, e isso tem de estar escrito.
+
+     Um passe só se actualiza sozinho com um servidor de web service e um
+     `authenticationToken` — que a Apple exige, mas que obriga a guardar um
+     registo por aparelho e a responder a pedidos de push da Apple. Não temos
+     isso, e por isso o passe é um retrato do momento em que foi guardado: o
+     carimbo dado hoje ao balcão está na app e no balcão, mas o passe na
+     carteira continua a mostrar o de ontem.
+
+     Uma pessoa que abra a carteira e veja sete carimbos quando tem oito não
+     conclui «falta aqui um servidor de push»: conclui que o café não lhe deu
+     o carimbo. A frase custa uma linha e evita uma discussão ao balcão.
+
+     O cartão da GOOGLE não tem este problema — esse actualiza-se por PATCH e
+     o desenho vai com ele. É só a Apple. */
+  traseira.push({ key: 'actualizar', label: 'Este cartão não se actualiza sozinho',
+    value: 'Os carimbos que vês aqui são os do momento em que guardaste o cartão. '
+      + 'Para o pôr em dia, abre a app e volta a tocar em «Adicionar à Wallet» — '
+      + 'o passe novo substitui este.' });
   traseira.push({ key: 'sitio', label: 'Carimbo Digital',
     value: `https://${dominio || 'carimbodigital.pt'}/app/` });
 

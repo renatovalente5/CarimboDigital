@@ -577,6 +577,25 @@ function moldeDeCartao(env, cartao, p, premios) {
     premiosGanhos: cartao.premios_ganhos,
     aderiuEm: cartao.aderiu_em,
     ultimoEm: cartao.ultimo_em,
+    /* SE O PASSE DA APPLE JÁ FOI GUARDADO, e quando. A app precisa de saber
+       porque o passe da Apple não se actualiza sozinho — não temos servidor
+       de web service — e por isso o botão tem de passar a dizer «Actualizar»
+       em vez de «Adicionar» a quem já o tem. Sem isto, a pessoa lia
+       «Adicionar à Apple Wallet» num cartão que já lá estava e não tinha
+       razão nenhuma para lhe tocar; e o passe ficava a mostrar os carimbos do
+       dia em que foi guardado, para sempre.
+
+       CAMPO NOVO, nome novo: esta API acrescenta e não renomeia. Uma app em
+       cache que não o conheça continua a ver «Adicionar», que é o que via
+       antes — perde a melhoria, não perde o botão.
+
+       Só a Apple. O cartão da Google actualiza-se por PATCH, e desde que a
+       faixa passou a ir no mesmo pedido, o desenho vai com o saldo. */
+    naApple: Boolean(cartao.apple_em),
+    /* Quando a pessoa o guardou, para se lhe poder dizer o que mudou desde
+       então em vez de um aviso permanente que ninguém lê ao fim da terceira
+       vez. */
+    appleEm: cartao.apple_em || null,
     /* A ALCUNHA VAI PARA OS DOIS LADOS, e é isso que a torna aceitável: é o
        café que a escreve, mas é o cliente que a lê. Uma nota sobre uma pessoa
        que ela não pode ver é o contrário do que este produto diz ser — e o
@@ -3880,6 +3899,27 @@ async function googlePedir(env, caminho, { metodo = 'GET', corpo } = {}) {
 const origemDaAPI = (pedido) => new URL(pedido.url).origin;
 
 /**
+ * A mesma origem, para quem NÃO tem pedido — o reconciliador do cron.
+ *
+ * É a única coisa neste ficheiro que repete, numa variável, algo que está
+ * escrito noutro sítio. E uma coisa escrita em dois sítios desactualiza-se
+ * num deles. Por isso não fica sozinha: o `confirmarOrigemDaAPI` compara-a
+ * com a origem verdadeira sempre que passa um pedido de verdade por aqui.
+ */
+const origemDaAPIsemPedido = (env) =>
+  (env.DOMINIO_API ? `https://${env.DOMINIO_API}` : null);
+
+/** A guarda. Grita uma vez por pedido e não estraga nada se estiver errada. */
+function confirmarOrigemDaAPI(env, origemReal) {
+  const escrita = origemDaAPIsemPedido(env);
+  if (escrita && origemReal && escrita !== origemReal) {
+    console.error('wallet: DOMINIO_API está desactualizado —'
+      + ` a variável diz ${escrita} e o pedido chegou a ${origemReal}.`
+      + ' O reconciliador do cron vai escrever endereços de faixa que não existem.');
+  }
+}
+
+/**
  * O endereço do logótipo, com a versão colada.
  *
  * O `?v=` não é enfeite: é o que faz a Google ver uma imagem nova. Ela guarda
@@ -3970,6 +4010,40 @@ async function enderecoDaFaixa(env, { cor, tipo, selo, feitos, objetivo, marcos 
   return `${origemAPI}/v1/faixa/${corpo}-${await seloDaFaixa(env, corpo)}.png`;
 }
 
+/**
+ * A faixa de um cartão, pronta a pôr num `heroImage` da Google.
+ *
+ * Existe para os dois sítios que precisam dela — a criação do objecto e o
+ * PATCH do saldo — escreverem exactamente o mesmo endereço. Escrito à mão nos
+ * dois, bastava um esquecer o selo ou os marcos para o mesmo cartão ter dois
+ * desenhos consoante o caminho por onde passou.
+ *
+ * Devolve `null` sem se queixar quando não há origem (o cron sem
+ * `DOMINIO_API`) ou quando um programa de pontos não tem marcos nenhuns: aí
+ * não há barra para desenhar, e um `heroImage` omitido deixa ficar o que lá
+ * estava, que é melhor do que um endereço que responde 404.
+ */
+async function faixaDoCartao(env, cartao, programa, negocio, origemAPI) {
+  if (!origemAPI || !cartao || !programa) return null;
+  const prog = moldarPrograma(programa);
+  /* Os marcos vivem noutra tabela e o `moldarPrograma` só os passa adiante se
+     já lá estiverem. Num programa de pontos sem eles, o `enderecoDaFaixa`
+     devolvia null e o cartão ficava sem desenho nenhum — silenciosamente. */
+  if (prog.tipo === 'pontos' && !prog.marcos) {
+    prog.marcos = (await env.DB.prepare(
+      'SELECT pontos, premio FROM marcos WHERE programa_id = ? ORDER BY pontos'
+    ).bind(programa.id).all()).results || [];
+  }
+  return enderecoDaFaixa(env, {
+    cor: negocio && negocio.cor,
+    tipo: prog.tipo === 'pontos' ? 'pontos' : 'carimbos',
+    selo: prog.selo,
+    feitos: prog.tipo === 'pontos' ? (cartao.pontos ?? 0) : (cartao.carimbos ?? 0),
+    objetivo: prog.objetivo,
+    marcos: prog.marcos,
+  }, origemAPI, `${GOOGLE_HERO.largura}x${GOOGLE_HERO.altura}`);
+}
+
 function enderecoDoLogotipo(negocio, origemAPI) {
   if (!negocio || !negocio.logotipo) return null;
   const base = `${origemAPI}/v1/negocio/${negocio.slug}/logotipo`;
@@ -4056,7 +4130,10 @@ rota('POST', /^\/v1\/cliente\/cartoes\/([\w-]+)\/wallet$/, async (env, pedido, [
      e é por ele que o balcão reconhece o passe — se mudasse, os passes já
      guardados deixavam de servir. */
   const codigo = cartao.wallet_codigo || publicoNovo(16);
-  const objeto = objetoDeCartao(cartao, programa, { emissor: env.GOOGLE_EMISSOR, codigo });
+  const objeto = objetoDeCartao(cartao, programa, {
+    emissor: env.GOOGLE_EMISSOR, codigo,
+    faixa: await faixaDoCartao(env, cartao, programa, negocio, origemDaAPI(pedido)),
+  });
   await googlePedir(env, '/loyaltyObject', { metodo: 'POST', corpo: objeto });
 
   await env.DB.prepare(
@@ -4140,16 +4217,25 @@ async function espelharClasse(env, programaId, origemAPI) {
  * carimbo falhar porque a Google não respondeu seria deixar o cliente sem o
  * seu café por causa de uma coisa que ele nem sabe que existe.
  */
-async function espelharNaWallet(env, cartaoId, { notificar = false } = {}) {
+async function espelharNaWallet(env, cartaoId, { notificar = false, origemAPI } = {}) {
   if (!walletLigada(env)) return;
+  confirmarOrigemDaAPI(env, origemAPI);
   try {
     const cartao = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(cartaoId).first();
     if (!cartao || !cartao.wallet_em || !cartao.wallet_codigo) return;
     const programa = await env.DB.prepare('SELECT * FROM programas WHERE id = ?')
       .bind(cartao.programa_id).first();
+    const negocio = await env.DB.prepare('SELECT * FROM negocios WHERE id = ?')
+      .bind(cartao.negocio_id).first();
+    /* A faixa TEM de ir no mesmo PATCH que o saldo. Se fosse só o número, o
+       cartão na carteira ficava a dizer «8 de 10» por cima de sete carimbos
+       desenhados — e a Google guarda a imagem à chave do endereço, para
+       sempre, por isso nada a mandaria buscar outra vez. */
+    const faixa = await faixaDoCartao(env, cartao, programa, negocio,
+      origemAPI || origemDaAPIsemPedido(env));
     await googlePedir(env, `/loyaltyObject/${env.GOOGLE_EMISSOR}.${cartao.id}`, {
       metodo: 'PATCH',
-      corpo: actualizacaoDeSaldo(cartao, programa, { notificar }),
+      corpo: actualizacaoDeSaldo(cartao, programa, { notificar, faixa }),
     });
     await env.DB.prepare('UPDATE cartoes SET wallet_sincronizado = ? WHERE id = ?')
       .bind(agora(), cartao.id).run();
@@ -4686,8 +4772,10 @@ rota('POST', '/v1/balcao/carimbar', async (env, pedido, _p, ctx) => {
        bolso que esta aplicação dá nunca saiu de casa. O tecto da Google são
        três notificações por dia; gasta-se no carimbo que fecha o cartão, que
        é o único que a pessoa quer sentir. */
-    ctx.waitUntil(espelharNaWallet(env, r.cartao.id,
-      { notificar: Boolean(r.ganhos && r.ganhos.length) }));
+    ctx.waitUntil(espelharNaWallet(env, r.cartao.id, {
+      notificar: Boolean(r.ganhos && r.ganhos.length),
+      origemAPI: origemDaAPI(pedido),
+    }));
     /* E o toque no bolso de quem não tem passe na carteira. Mesma condição, e
        pela mesma razão: é o carimbo que fecha o cartão que a pessoa quer
        sentir, e ela está a sair do café quando ele acontece. */
@@ -4727,7 +4815,8 @@ rota('POST', '/v1/balcao/resgatar', async (env, pedido, _p, ctx) => {
   const c = await env.DB.prepare('SELECT * FROM cartoes WHERE id = ?').bind(premio.cartao_id).first();
   /* Sem notificar: o cliente está ali à frente a receber o prémio, não
      precisa de um toque no bolso a dizer-lho. */
-  if (ctx) ctx.waitUntil(espelharNaWallet(env, premio.cartao_id));
+  if (ctx) ctx.waitUntil(espelharNaWallet(env, premio.cartao_id,
+    { origemAPI: origemDaAPI(pedido) }));
   return { premio: { id: premioId, resgatadoEm: agora() }, cartao: await moldarCartao(env, c) };
 });
 
@@ -4818,7 +4907,8 @@ rota('POST', '/v1/balcao/anular', async (env, pedido, _p, ctx) => {
   /* Anular também muda o saldo, e o passe tem de o acompanhar — senão a
      carteira fica a dizer um número que já não é verdade, e é a carteira que
      a pessoa vê. */
-  if (ctx) ctx.waitUntil(espelharNaWallet(env, atualizado.id));
+  if (ctx) ctx.waitUntil(espelharNaWallet(env, atualizado.id,
+    { origemAPI: origemDaAPI(pedido) }));
   return { cartao: await moldarCartao(env, atualizado) };
 });
 

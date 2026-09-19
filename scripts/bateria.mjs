@@ -36,7 +36,7 @@
    ========================================================================= */
 
 import { spawn } from 'node:child_process';
-import { readdirSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { readdirSync, existsSync, mkdirSync, writeFileSync, rmSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { abrirChrome, novoSeparador, esperar } from './chrome.mjs';
@@ -742,6 +742,40 @@ async function correrModulo(enviar, servidor, mod, ficheiro) {
 if (!existsSync(join(RAIZ, '_site', 'app', 'index.html'))) {
   console.error('Falta o _site. Corre `node scripts/gerar.mjs` primeiro.');
   process.exit(1);
+}
+
+/* O _SITE TEM DE SER MAIS NOVO DO QUE O _FONTE.
+
+   Isto verificava só que o _site EXISTIA. Um _site velho existe na mesma — e
+   a bateria corre contra ele e passa, a medir código que já não é o que está
+   escrito. Aconteceu: mudei três módulos e o perfil da app, corri a bateria,
+   e o verde que li era de um build de antes. Um verde falso é pior do que um
+   vermelho, porque não se volta a olhar.
+
+   Compara-se o ficheiro mais recente de cada lado. Não é preciso mais: basta
+   um ficheiro do _fonte ser mais novo do que TUDO no _site para o _site estar
+   desactualizado. */
+function maisRecente(pasta) {
+  let topo = 0;
+  const andar = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.startsWith('.')) continue;
+      const caminho = join(dir, e.name);
+      if (e.isDirectory()) andar(caminho);
+      else topo = Math.max(topo, statSync(caminho).mtimeMs);
+    }
+  };
+  andar(pasta);
+  return topo;
+}
+{
+  const fonte = maisRecente(join(RAIZ, '_fonte'));
+  const site = maisRecente(join(RAIZ, '_site'));
+  if (fonte > site) {
+    console.error('O _site está mais velho do que o _fonte — a bateria ia medir código'
+      + ' que já não é o que está escrito.\n  Corre `node scripts/gerar.mjs` primeiro.');
+    process.exit(1);
+  }
 }
 
 /* Só se limpa quando se vai fotografar. De outra forma duas corridas ao

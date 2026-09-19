@@ -126,11 +126,78 @@ export function marcaSegura(cor, minimo = 4.5) {
   return { cor: atual, tinta };
 }
 
-/** Aplica a cor de um comerciante a um elemento de cartão. */
+/** Mistura duas cores em sRGB. `p` é quanto vai de `b` (0 a 1). */
+export function misturar(a, b, p) {
+  const x = paraRGB(a), y = paraRGB(b);
+  return paraHex({
+    r: x.r + (y.r - x.r) * p,
+    g: x.g + (y.g - x.g) * p,
+    b: x.b + (y.b - x.b) * p,
+  });
+}
+
+/**
+ * A cor de um traço que tem MESMO de se ver — o aro do carimbo por fazer.
+ *
+ * Existe porque os dois véus que cá estavam na folha de estilo
+ * (branco a 16% e a 30%) eram opacidades escolhidas a olho, e medidas dão
+ * 1,21:1 ao disco do carimbo cheio e 1,49:1 ao aro do carimbo por fazer, por
+ * cima de cores que estão hoje em produção. A WCAG 1.4.11 pede 3:1 a um
+ * objecto gráfico de que se precisa para perceber o conteúdo, e «sete de dez
+ * carimbos» é exactamente isso: na Padaria do Forno, nove dos doze círculos
+ * por fazer quase não existiam.
+ *
+ * Recebe TODOS os fundos em que o traço vai assentar e devolve a cor que
+ * passa em todos. Medir contra um só seria medir contra o mais fácil.
+ */
+export function aroSeguro(fundos, tinta, minimo = 3) {
+  /* Se os fundos forem um gradiente, o traço não assenta só nos extremos:
+     assenta em todas as misturas deles. Passar nos extremos NÃO chega — uma
+     cor a meio caminho pode ter luminância mais parecida com a do traço do
+     que qualquer extremo, e aí o contraste cai para 1:1 num sítio onde
+     ninguém o foi medir.
+     A condição que fecha isso é de uma linha: a luminância do traço tem de
+     ficar FORA do intervalo das luminâncias dos fundos. Como a mistura de
+     duas cores em sRGB dá, canal a canal, um valor entre os dois, a
+     luminância de qualquer mistura fica entre a menor e a maior — logo, se o
+     traço está fora do intervalo, o pior caso é mesmo um dos extremos. */
+  const luzes = fundos.map(luminancia);
+  const baixo = Math.min(...luzes), alto = Math.max(...luzes);
+  let escolhido = tinta;
+  for (let p = 4; p <= 100; p += 2) {
+    /* O candidato nasce do fundo MAIS DIFÍCIL — aquele contra o qual esta
+       dose de tinta rende menos — e depois prova-se contra todos. Nascer do
+       mais fácil dava uma cor que passava onde foi calculada e falhava ao
+       lado. */
+    let pior = fundos[0], min = Infinity;
+    for (const f of fundos) {
+      const r = contraste(misturar(f, tinta, p / 100), f);
+      if (r < min) { min = r; pior = f; }
+    }
+    const candidato = misturar(pior, tinta, p / 100);
+    escolhido = candidato;
+    const luz = luminancia(candidato);
+    if (luz >= baixo && luz <= alto) continue;          /* dentro do intervalo */
+    if (fundos.every((f) => contraste(candidato, f) >= minimo)) return candidato;
+  }
+  /* Nem a tinta cheia chegou. Devolve-se o melhor que houve em vez de nada:
+     um aro fraco vê-se pior, um aro nenhum não se vê de todo. */
+  return escolhido;
+}
+
+/**
+ * Aplica a cor de um comerciante a um elemento de cartão.
+ *
+ * A REGRA DA CASA: dentro de um cartão nada assenta numa opacidade
+ * adivinhada — assenta numa cor que passou a conta antes de chegar ao ecrã.
+ * Uma opacidade escolhida a olho numa cor acerta nessa e falha nas outras
+ * todas, em silêncio, porque ninguém vai medir doze círculos à lupa.
+ */
 export function pintarCartao(no, cor) {
   const { cor: segura, tinta } = marcaSegura(cor);
   no.style.setProperty('--m', segura);
   no.style.setProperty('--m-txt', tinta);
+  no.style.setProperty('--m-aro', aroSeguro([segura], tinta, 3));
   no.dataset.claro = tinta === PRETO ? 'sim' : 'nao';
 }
 
