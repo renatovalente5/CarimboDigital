@@ -33,6 +33,8 @@ import {
   construirPasse, passeDeCartao, certificadosDoPEM, emissorESerie, doPEM,
   validadeDoCertificado,
 } from './pkpass.js';
+import { faixaDeCartao, APPLE_STRIP } from './faixa.js';
+import * as SELOS from './selos-mapa.js';
 import { enviarPush, pushPronto } from './push.js';
 
 const JANELA = 15;                 // segundos de vida de um código
@@ -4359,6 +4361,17 @@ async function pecasDoPasse(env, cartaoId) {
       + 'que a converte.',
       { estado: 409, codigo: 'logotipo-nao-png' });
   }
+  /* OS MARCOS SÓ SE VÃO BUSCAR A UM CARTÃO DE PONTOS, e até aqui não se iam
+     buscar de todo: esta função lê a LINHA CRUA da tabela `programas`, onde a
+     coluna `marcos` não existe — os marcos vivem numa tabela à parte. O
+     `moldarPrograma` faz `marcos: p.marcos || null`, por isso chegava sempre
+     null ao passe, e a barra de um cartão de pontos não tinha onde pôr os
+     destinos. Uma consulta a mais, e só para um tipo de programa. */
+  if (programa && programa.tipo === 'pontos') {
+    programa.marcos = (await env.DB.prepare(
+      'SELECT pontos, premio FROM marcos WHERE programa_id = ? ORDER BY pontos'
+    ).bind(programa.id).all()).results;
+  }
   return { cartao, programa, negocio };
 }
 
@@ -4385,7 +4398,8 @@ async function passeDoCartao(env, cartaoId) {
     ).bind(codigo, cartao.apple_em || agora(), cartao.id).run();
   }
 
-  const passe = passeDeCartao(cartao, moldarPrograma(programa), negocio, {
+  const prog = moldarPrograma(programa);
+  const passe = passeDeCartao(cartao, prog, negocio, {
     passTipo: env.APPLE_PASS_TIPO, equipa: env.APPLE_EQUIPA,
     codigo, dominio: env.DOMINIO,
     /* Quem responde pelo passe somos NÓS, e não o café: é o nosso certificado
@@ -4402,9 +4416,37 @@ async function passeDoCartao(env, cartaoId) {
      obrigava a mais colunas e a mais um gesto no balcão, para poupar umas
      dezenas de kilobytes num ficheiro que se descarrega uma vez. */
   const imagem = imagemDoNegocio(negocio);
+
+  /* A FAIXA, que é a peça que faltava. O passe era um rectângulo de cor com
+     texto: dizia «Carimbos 7/10» num campo de cabeçalho, e mais nada. Ninguém
+     olha para um cartão de fidelidade para LER quantos carimbos tem — olha
+     para ver quantos faltam, e isso quer-se desenhado.
+
+     `strip@2x.png` E NÃO `strip.png`: o sufixo carrega peso. Um ficheiro
+     chamado `strip.png` com 750 px de largura diz ao iOS que aquilo são 750
+     PONTOS, e ele desenha-o ao dobro do tamanho, cortado — sem erro nenhum, só
+     uma faixa errada.
+
+     UMA ESCALA SÓ. Medido em Node: @2x custa ~2 ms e 15 KB; @3x custa mais 4
+     ms e mais 24 KB. Este pedido já paga uma assinatura RSA-2048, quatro
+     SHA-1 e o ZIP, e o tecto do plano gratuito são 10 ms de CPU por pedido. A
+     segunda escala acrescenta-se no dia em que houver uma leitura de CPU a
+     sério desta rota no painel — e não antes, por adivinhação. */
+  const { bytes: faixa } = await faixaDeCartao({
+    cor: negocio.cor,
+    tipo: prog.tipo === 'pontos' ? 'pontos' : 'carimbos',
+    selo: prog.selo,
+    feitos: prog.tipo === 'pontos' ? (cartao.pontos ?? 0) : (cartao.carimbos ?? 0),
+    objetivo: prog.objetivo,
+    marcos: prog.marcos,
+    largura: APPLE_STRIP.largura * 2,
+    altura: APPLE_STRIP.altura * 2,
+    selos: SELOS,
+  });
+
   return construirPasse({
     passe,
-    imagens: { 'icon.png': imagem, 'logo.png': imagem },
+    imagens: { 'icon.png': imagem, 'logo.png': imagem, 'strip@2x.png': faixa },
     certificado: env.APPLE_CERTIFICADO,
     chave: env.APPLE_CHAVE,
     cadeia: env.APPLE_CADEIA ? [env.APPLE_CADEIA] : [],

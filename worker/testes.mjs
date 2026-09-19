@@ -2217,6 +2217,7 @@ grupo('O cartão na Apple Wallet');
     const manifesto = JSON.parse(readFileSync(join(caminho('fora'), 'manifest.json'), 'utf8'));
     certo(['pass.json', 'icon.png', 'logo.png'].every((n) => manifesto[n]),
       'o manifesto tem o SHA-1 de cada ficheiro', JSON.stringify(Object.keys(manifesto)));
+
     certo(!manifesto['manifest.json'] && !manifesto.signature,
       'e não se inclui a si próprio nem à assinatura — não daria');
 
@@ -2568,6 +2569,38 @@ grupo('O passe da Apple, de ponta a ponta');
       const passe = JSON.parse(readFileSync(join(pasta, 'fora', 'pass.json'), 'utf8'));
       certo(passe.serialNumber === cartaoId,
         'o passe é do cartão certo', String(passe.serialNumber));
+
+      /* A FAIXA, e medida NO PASSE QUE O PRODUTO EMITE.
+ 
+         A primeira versão desta afirmação ficou no teste que constrói um passe
+         à mão com `imagens: { icon.png, logo.png }` — nunca passa pelo
+         `index.js`, por isso media o que o teste lhe deu em vez do que o
+         produto faz. Reprovou, e ainda bem: uma afirmação no sítio errado que
+         passasse era pior.
+ 
+         O `every` da outra é sobre três nomes, e uma chave a MAIS passa
+         sempre: não notaria se a faixa desaparecesse amanhã. Esta nota.
+ 
+         O sufixo faz parte da afirmação. Um ficheiro chamado `strip.png` com
+         750 px de largura diz ao iOS que aquilo são 750 PONTOS, e ele desenha-o
+         ao dobro do tamanho, cortado, sem erro nenhum. */
+      const manifestoReal = JSON.parse(
+        readFileSync(join(pasta, 'fora', 'manifest.json'), 'utf8'));
+      certo(!!manifestoReal['strip@2x.png'],
+        'o passe leva a FAIXA — sem ela volta a ser um rectângulo de cor com texto',
+        JSON.stringify(Object.keys(manifestoReal)));
+      certo(!manifestoReal['strip.png'],
+        'e não leva um «strip.png» sem escala, que o iOS leria ao dobro');
+
+      /* E é mesmo um PNG das medidas certas: a Apple quer 375 × 144 pt na
+         faixa de um storeCard, o que a 2× são 750 × 288. Lê-se o cabeçalho do
+         ficheiro, em vez de acreditar no nome dele. */
+      const faixaBytes = readFileSync(join(pasta, 'fora', 'strip@2x.png'));
+      certo([137, 80, 78, 71, 13, 10, 26, 10].every((b, i) => faixaBytes[i] === b),
+        'e a faixa é um PNG a sério', [...faixaBytes.slice(0, 8)].join(' '));
+      certo(faixaBytes.readUInt32BE(16) === 750 && faixaBytes.readUInt32BE(20) === 288,
+        'com as medidas que a Apple pede, a 2×',
+        `${faixaBytes.readUInt32BE(16)}×${faixaBytes.readUInt32BE(20)}`);
       certo(passe.passTypeIdentifier === 'pass.pt.carimbodigital.dementira'
          && passe.teamIdentifier === 'DEMENTIRA1',
         'com o Pass Type ID e a equipa que o Worker tem configurados',
