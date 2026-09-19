@@ -92,6 +92,12 @@ GOOGLE_EMAIL = "carimbo-wallet@project-8cb31867-5da0-4e4e-9c3.iam.gserviceaccoun
 # presa a um bundle dá 403 a isto sem dizer porquê.
 #
 # O `iss` do bilhete é o APPLE_EQUIPA que já está mais abaixo.
+#
+# Criada a 19 de Setembro de 2026: «Carimbo Digital Wallet APNs», Team Scoped
+# (All Topics), ambiente Sandbox & Production. O ambiente e o âmbito NÃO se
+# podem mudar depois de gravados — a Apple di-lo no próprio formulário — e por
+# isso ficaram os dois ambientes, que não custa nada e evita ficar preso.
+APNS_KID = "455RQPWZK5"
 GOOGLE_EMISSOR = "3388000000023200429"
 
 # ENTRAR COM A GOOGLE — outra coisa, e outro projecto da consola. A carteira,
