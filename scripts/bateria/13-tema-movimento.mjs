@@ -476,6 +476,56 @@ export async function correr(palco, certo) {
     'aspecto: fechado o painel, a linha do perfil diz em que estado se ficou',
     String(fechado.rotulo));
 
+  /* O QUE O `radiogroup` PROMETE. Declarar o papel não escreve comportamento
+     nenhum — é a mesma lição do `aria-modal`, que prometia quatro coisas e não
+     fazia uma. Aqui são duas: UMA paragem de tabulação para o grupo inteiro, e
+     as setas a andar entre as opções. Medi-as antes de as escrever: os três
+     botões tinham `tabIndex` 0 e as setas não faziam nada, debaixo de um
+     `role="radiogroup"` que dizia a um leitor de ecrã «2 de 3».
+
+     O painel fechou-se na afirmação anterior, e sem ele não há opção nenhuma
+     no documento: reabre-se aqui em vez de se assumir que ficou aberto. */
+  await abrirAspecto();
+  const teclado = await palco.js(`
+    const opcoes = () => [...document.querySelectorAll('[data-tema-opcao]')];
+    const grupo = document.querySelector('.escolhas');
+    /* Parte-se do ÚLTIMO de propósito. O estado com que se chega aqui depende
+       do que as afirmações anteriores fizeram, e uma guarda que muda de
+       resposta conforme a ordem dos blocos não prova nada. E é do último que a
+       volta à primeira se vê. */
+    opcoes().find((b) => b.dataset.temaOpcao === 'sistema').click();
+    await new Promise((r) => setTimeout(r, 120));
+    const marcado = opcoes().find((b) => b.getAttribute('aria-checked') === 'true');
+    marcado.focus();
+    const paragens = opcoes().map((b) => b.tabIndex);
+    const foco = () => document.activeElement.dataset.temaOpcao || null;
+    const seta = async (k) => {
+      grupo.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+      await new Promise((r) => setTimeout(r, 120));
+      return { foco: foco(), html: document.documentElement.dataset.tema || null };
+    };
+    const partida = foco();
+    const direita = await seta('ArrowRight');
+    const esquerda = await seta('ArrowLeft');
+    return { paragens, partida, direita, esquerda,
+             depois: opcoes().map((b) => b.tabIndex) }`);
+
+  certo(teclado.paragens.filter((t) => t === 0).length === 1,
+    'aspecto: o grupo é UMA paragem de tabulação e não três — é o que um radiogroup promete',
+    JSON.stringify(teclado.paragens));
+  certo(teclado.partida === 'sistema',
+    'aspecto: e o Tab aterra na opção escolhida, não na primeira da lista',
+    String(teclado.partida));
+  certo(teclado.direita.foco === 'claro' && teclado.direita.html === 'claro',
+    'aspecto: do último, a seta dá a volta à primeira — e ESCOLHE, que é o que um rádio faz',
+    JSON.stringify(teclado.direita));
+  certo(teclado.esquerda.foco === 'sistema' && teclado.esquerda.html === null,
+    'aspecto: e a volta dá-se nas duas pontas — senão obriga a contar toques',
+    JSON.stringify(teclado.esquerda));
+  certo(teclado.depois.filter((t) => t === 0).length === 1,
+    'aspecto: e continua a ser uma paragem só depois de andar',
+    JSON.stringify(teclado.depois));
+
   const tres = await escolher('sistema');
   certo(tres.dataset === null && tres.guardado === '"sistema"',
     'aspecto: o automático devolve a escolha ao telemóvel e tira a marca do html',

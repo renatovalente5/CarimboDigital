@@ -2618,7 +2618,9 @@ function barraDaDemonstracao() {
 async function arrancar() {
   barraDaDemonstracao();
 
-  /* Escuro sempre — ver o comentário no topo de balcao.css. */
+  /* Escuro sempre — ver o comentário no topo de balcao.css. O atributo já vem
+     escrito no `index.html`, antes do primeiro pixel; isto fica como rede para
+     quem chegue aqui por outro caminho, e é uma atribuição idempotente. */
   document.documentElement.dataset.tema = 'escuro';
   const convite = convitePelaLigacao();
 

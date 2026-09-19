@@ -1168,24 +1168,66 @@ function painelDoTema() {
      que faz um leitor de ecrã anunciar «2 de 3» em vez de ler três botões
      soltos sem relação nenhuma. */
   const grupo = el('div', { class: 'escolhas', role: 'radiogroup', 'aria-label': 'Aspecto' });
+
+  /* O QUE UM `radiogroup` PROMETE, E QUE NÃO ACONTECE SOZINHO.
+
+     Declarar o papel não escreve comportamento nenhum — é a mesma lição do
+     `aria-modal`, que prometia quatro coisas e não fazia uma. Um grupo de
+     rádios promete duas: UMA paragem de tabulação para o grupo inteiro (e não
+     uma por opção), e as setas a andar entre as opções. Sem isto, quem navega
+     por teclado gastava três Tabs onde devia gastar um, e as setas — que é o
+     que um leitor de ecrã lhe manda usar depois de anunciar «2 de 3» — não
+     faziam nada.
+
+     Um `<input type="radio">` de verdade trazia isto de borla, mas não se
+     desenha como uma linha da lista e obrigava a um rótulo à volta. Quinze
+     linhas aqui custam menos do que uma folha de estilo a lutar com o browser. */
+  const escolher = (chave) => {
+    guardar('tema', chave);
+    aplicarTema();
+    const eco = $('#estado-aspecto');
+    const nome = (TEMAS.find((x) => x.chave === chave) || {}).nome;
+    if (eco && nome) eco.textContent = nome;
+    for (const b of grupo.querySelectorAll('[data-tema-opcao]')) {
+      const eEsta = b.dataset.temaOpcao === chave;
+      b.setAttribute('aria-checked', eEsta ? 'true' : 'false');
+      /* O tabindex anda com a marca: a próxima vez que o Tab entrar no grupo
+         aterra na opção escolhida, e não na primeira da lista. */
+      b.tabIndex = eEsta ? 0 : -1;
+    }
+  };
+
+  grupo.addEventListener('keydown', (ev) => {
+    const passo = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[ev.key];
+    if (!passo) return;
+    ev.preventDefault();
+    const botoes = [...grupo.querySelectorAll('[data-tema-opcao]')];
+    const onde = botoes.indexOf(document.activeElement);
+    /* Dá a volta nas duas pontas, como manda o padrão: da última à primeira e
+       ao contrário. Um grupo de três em que a seta pára na ponta obriga a
+       adivinhar quantas vezes se carregou. */
+    const alvo = botoes[(onde + passo + botoes.length) % botoes.length];
+    if (!alvo) return;
+    /* A seta ESCOLHE, e não só move. É o que um rádio faz, e é o que torna
+       isto útil: com o painel aberto, a pessoa percorre os três e vê o ecrã
+       mudar por trás. */
+    escolher(alvo.dataset.temaOpcao);
+    alvo.focus();
+  });
+
   for (const tema of TEMAS) {
     grupo.append(el('button', {
       class: 'linha escolha', type: 'button', role: 'radio',
       'aria-checked': tema.chave === escolhido ? 'true' : 'false',
+      tabindex: tema.chave === escolhido ? '0' : '-1',
       'data-tema-opcao': tema.chave,
       aoClick: () => {
-        guardar('tema', tema.chave);
-        aplicarTema();
-        /* A linha do perfil, por trás do painel, diz qual é a escolha. Sem
-           isto, fechar o painel deixava lá o nome do tema anterior — e um
-           ecrã que mostra o estado errado é pior do que um que não o mostra. */
-        const eco = $('#estado-aspecto');
-        if (eco) eco.textContent = tema.nome;
-        for (const b of grupo.querySelectorAll('[data-tema-opcao]')) {
-          b.setAttribute('aria-checked', b.dataset.temaOpcao === tema.chave ? 'true' : 'false');
-        }
+        escolher(tema.chave);
         /* Sem botão de guardar: aplica-se ao toque, e o ecrã por trás do
-           painel muda à vista. A confirmação é o próprio resultado. */
+           painel muda à vista. A confirmação é o próprio resultado. E a linha
+           do perfil, por trás, passa a dizer o nome novo — senão fechar o
+           painel deixava lá o anterior, e um ecrã que mostra o estado errado é
+           pior do que um que não o mostra. */
       },
     },
       el('span', { class: 'linha-icone', html: icone(tema.icone, { tamanho: 20 }) }),
@@ -1267,27 +1309,7 @@ async function ecraPerfil(principal) {
       el('span', { class: 'linha-texto' },
         el('b', { texto: guardada.titulo }),
         el('span', { texto: guardada.sub })),
-      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })),
-
-
-
-    /* Isto era um botão que prometia «em breve» e não fazia nada. A Carteira
-       do telemóvel já existe, e o botão dela está em cada cartão — que é onde
-       tem de estar, porque o passe é de um cartão e não da conta. Aqui fica só
-       a placa que diz onde é.
-
-       DIZIA «A Apple Wallet ainda não», E DEIXOU DE SER VERDADE no dia em que
-       o certificado da Apple entrou no Worker. Ligar uma coisa do lado do
-       servidor tornou falsa uma frase que estava certa na véspera, e ninguém
-       teria ido ler o perfil por causa disso. Agora a frase não nomeia
-       carteira nenhuma: o cartão sabe quais é que estão prontas e mostra os
-       botões que existem. */
-    el('div', { class: 'linha' },
-      el('span', { class: 'linha-icone', html: icone('carteira', { tamanho: 20 }) }),
-      el('span', { class: 'linha-texto' },
-        el('b', { texto: 'Carteira do telemóvel' }),
-        el('span', { texto: 'Abre um cartão e junta-o à carteira a partir de lá — '
-          + 'o passe é de cada cartão, não da conta.' }))));
+      el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
 
   /* A CONTA QUE FICOU POR JUNTAR. O painel da recuperação diz «podes juntar
      mais tarde no perfil», e uma frase dessas obriga — sem esta linha era mais
@@ -1326,7 +1348,26 @@ async function ecraPerfil(principal) {
   }
 
   principal.append(el('section', { class: 'seccao' },
-    el('h2', { class: 'seccao-titulo', texto: 'Conta' }), conta));
+    el('h2', { class: 'seccao-titulo', texto: 'Conta' }), conta,
+    /* UMA PLACA, E NÃO UMA LINHA. Isto era um botão que prometia «em breve» e
+       não fazia nada; virou `.linha`, e uma `.linha` no meio de uma lista de
+       linhas tocáveis é um botão à vista — mesmo altura, mesmo ícone, mesma
+       seta ausente que ninguém repara que falta. Quem lhe toca não recebe
+       resposta nenhuma e conclui que a app está avariada.
+
+       A Carteira do telemóvel existe, e o botão dela está em CADA cartão —
+       que é onde tem de estar, porque o passe é de um cartão e não da conta.
+       Aqui fica só a placa que diz onde é, com ar de placa.
+
+       DIZIA «A Apple Wallet ainda não», E DEIXOU DE SER VERDADE no dia em que
+       o certificado da Apple entrou no Worker. Ligar uma coisa do lado do
+       servidor tornou falsa uma frase que estava certa na véspera, e ninguém
+       teria ido ler o perfil por causa disso. Agora a frase não nomeia
+       carteira nenhuma: o cartão sabe quais é que estão prontas. */
+    el('div', { class: 'folha caixa-texto', style: 'margin-top:12px' },
+      el('p', { class: 'miudo', html:
+        '<b>Carteira do telemóvel.</b> Abre um cartão e junta-o à carteira a '
+        + 'partir de lá — o passe é de cada cartão, não da conta.' }))));
 
   /* =======================================================================
      Definições — o que é PREFERÊNCIA, e não identidade.
@@ -1440,14 +1481,23 @@ function sairDosOutros() {
         + 'isso que fecha a porta a quem tenha ficado com o telemóvel.<br>'
         + '<b>Os cartões que tenhas na Carteira do telemóvel também deixam de '
         + 'valer</b>, incluindo neste. Voltas a juntá-los quando quiseres, a '
-        + 'partir de cada cartão.' })),
+        + 'partir de cada cartão.<br>'
+        + '<b>E os outros aparelhos deixam de receber avisos de prémio.</b> '
+        + 'Um telemóvel perdido deixava de entrar na conta e continuava a '
+        + 'mostrar no ecrã bloqueado o nome do café e o prémio que ganhaste.' })),
     el('button', {
       class: 'btn btn-cheio btn-bloco btn-grande', texto: 'Terminar nos outros',
       aoClick: async (ev) => {
         const botao = ev.currentTarget;
         botao.disabled = true;
         try {
-          const r = await api.sairDosOutros();
+          /* O endereço de push DESTE aparelho vai no pedido: é o único que
+             fica. O servidor não o consegue adivinhar — uma subscrição não
+             traz sessão — e sem ele caem todas, incluindo a deste telemóvel.
+             Se não houver subscrição nenhuma aqui, não vai nada e o servidor
+             apaga tudo, que é o mesmo resultado. */
+          const minha = await subscricaoDeste().catch(() => null);
+          const r = await api.sairDosOutros(minha ? minha.endpoint : '');
           /* O SEGREDO NOVO GUARDA-SE, e é o passo que não se pode falhar: sem
              ele este aparelho fica com o segredo da versão anterior e o seu
              próprio código deixa de carimbar — a pessoa expulsava-se a si
@@ -1455,6 +1505,11 @@ function sairDosOutros() {
           if (r && r.segredo) await guardarSegredo(r.segredo);
           estado.cartoes = await api.cartoes(estado.cliente.id);
           fecharPainel();
+          /* Se os avisos deste aparelho também caíram — porque não havia
+             subscrição para poupar — diz-se, e a linha do perfil acerta-se.
+             Um interruptor que ficou ligado no ecrã e desligado no servidor é
+             a app a mentir sobre uma coisa que a pessoa não vai verificar. */
+          if (r && r.avisosMantidos === false) arrumarLinhaDeAvisos().catch(() => {});
           avisar(r && r.passesRevogados
             ? 'Feito. Os cartões que tinhas na Carteira precisam de ser juntos outra vez.'
             : 'Feito. Os outros aparelhos deixaram de ter acesso.', 'bom');

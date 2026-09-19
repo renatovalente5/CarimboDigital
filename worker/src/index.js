@@ -1709,6 +1709,28 @@ rota('POST', '/v1/cliente/sair-dos-outros', async (env, pedido) => {
   if (!s || s.tipo !== 'cliente') throw new Falha('Sessão inválida', { estado: 401 });
   const clienteId = s.id;
 
+  /* OS AVISOS DOS OUTROS APARELHOS TÊM DE MORRER TAMBÉM, e não morriam.
+
+     Esta rota subia o `chave_versao`, apagava as sessões e matava os passes —
+     e não tocava em `subscricoes`. O `avisarDoPremio` procura por `cliente_id`
+     e não precisa de sessão nenhuma para mandar: o telemóvel perdido continuava
+     a receber «Café Central — um café grátis» no ecrã bloqueado, indefinidamente,
+     depois de a pessoa ter carregado no botão que existe precisamente para o
+     calar. E o aviso diz o nome do café e o prémio: é a rotina de quem o perdeu,
+     escrita num ecrã que não precisa de desbloquear.
+
+     QUAL FICA. Uma subscrição de push não traz sessão, por isso o servidor não
+     consegue saber qual delas é a deste aparelho — é a app que a sabe, e manda-a.
+     Sem ela caem todas, incluindo a deste telemóvel: é o lado seguro do engano.
+     Uma app em cache antiga que não mande nada perde os avisos aqui e volta a
+     ligá-los no perfil; perder um aviso é uma chatice, deixar um telemóvel
+     roubado a receber a vida de alguém não é. */
+  let manter = '';
+  try {
+    const corpo = await corpoJSON(pedido);
+    if (typeof corpo.manterAviso === 'string') manter = corpo.manterAviso;
+  } catch { /* sem corpo: caem todas */ }
+
   const comPasse = (await env.DB.prepare(
     'SELECT id FROM cartoes WHERE cliente_id = ? AND wallet_codigo IS NOT NULL'
   ).bind(clienteId).all()).results;
@@ -1753,6 +1775,14 @@ rota('POST', '/v1/cliente/sair-dos-outros', async (env, pedido) => {
       `UPDATE cartoes SET wallet_codigo = NULL, wallet_em = NULL, apple_em = NULL
         WHERE cliente_id = ?`
     ).bind(clienteId),
+    /* Vai no MESMO batch que as sessões, de propósito: são a mesma decisão. Um
+       apagar que corresse à parte podia falhar sozinho e deixar a conta com as
+       sessões fechadas e os avisos abertos — que é exactamente o estado que
+       esta rota existe para não deixar acontecer. */
+    manter
+      ? env.DB.prepare('DELETE FROM subscricoes WHERE cliente_id = ? AND endereco != ?')
+        .bind(clienteId, manter)
+      : env.DB.prepare('DELETE FROM subscricoes WHERE cliente_id = ?').bind(clienteId),
   ]);
 
   const c = await env.DB.prepare('SELECT chave_versao FROM clientes WHERE id = ?')
@@ -1764,6 +1794,10 @@ rota('POST', '/v1/cliente/sair-dos-outros', async (env, pedido) => {
   return {
     segredo: await derivarSegredo(env, clienteId, c.chave_versao),
     passesRevogados: comPasse.length,
+    /* Para a app poder dizer a verdade no aviso: se os avisos deste aparelho
+       também caíram, a frase tem de o dizer em vez de prometer que «este
+       continua». Campo novo — esta API acrescenta. */
+    avisosMantidos: Boolean(manter),
     horaDoServidor: agora(),
   };
 });

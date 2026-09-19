@@ -2887,8 +2887,11 @@ grupo('Expulsar os outros aparelhos');
      Worker. Um telemóvel perdido com a app aberta era uma conta perdida para
      sempre: quem o apanhasse mostrava o código e levava carimbos.
 
-     São TRÊS credenciais, e o teste prova as três. Provar só uma dava um botão
-     que diz «expulsei os outros» e deixa lá dentro as outras duas. */
+     São QUATRO credenciais, e o teste prova as quatro. Eram três até se ter
+     percebido que um aviso de push não precisa de sessão nenhuma para sair: o
+     telemóvel perdido deixava de entrar e de carimbar, e continuava a mostrar
+     o nome do café e o prémio no ecrã bloqueado. Provar só uma dava um botão
+     que diz «expulsei os outros» e deixa lá dentro as outras três. */
   sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
   const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
   const sessaoA = c.dados.sessao;
@@ -2925,8 +2928,30 @@ grupo('Expulsar os outros aparelhos');
     corpo: { codigo: `W1.${codigoPasse}`, programaId: 'p1' } });
   certo(passeAntes.estado === 200, 'que carimba, como deve ser', String(passeAntes.estado));
 
+  /* E DOIS APARELHOS A RECEBER AVISOS — a quarta credencial, e a que escapou.
+
+     Um aviso de push não precisa de sessão nenhuma para sair: o `avisarDoPremio`
+     procura por `cliente_id`. O telemóvel perdido deixava de entrar na conta,
+     deixava de carimbar, e continuava a mostrar «Café Central — um café grátis»
+     no ecrã bloqueado, indefinidamente. O aviso diz o nome do café e o prémio:
+     é a rotina de quem o perdeu, num ecrã que nem é preciso desbloquear. */
+  const PUSH_MEU = 'https://push.exemplo/este-telemovel';
+  const PUSH_PERDIDO = 'https://push.exemplo/telemovel-perdido';
+  for (const [i, e] of [PUSH_MEU, PUSH_PERDIDO].entries()) {
+    sql(`INSERT INTO subscricoes (id, cliente_id, endereco, p256dh, auth, criada_em)
+         VALUES ('sub-teste-${i}', '${c.dados.cliente.id}', '${e}', 'p', 'a',
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+  }
+  const contarAvisos = () => {
+    const o = sql(`SELECT endereco FROM subscricoes WHERE cliente_id = '${c.dados.cliente.id}' ORDER BY endereco`);
+    return JSON.parse(o.slice(o.indexOf('[')))[0].results.map((r) => r.endereco);
+  };
+  certo(contarAvisos().length === 2, 'os dois aparelhos estão a receber avisos (o teste é válido)',
+    contarAvisos().join(' '));
+
   /* --- a expulsão --- */
-  const fora = await pedir('/v1/cliente/sair-dos-outros', { metodo: 'POST', sessao: sessaoA });
+  const fora = await pedir('/v1/cliente/sair-dos-outros', {
+    metodo: 'POST', sessao: sessaoA, corpo: { manterAviso: PUSH_MEU } });
   certo(fora.estado === 200, 'a conta manda expulsar os outros aparelhos',
     JSON.stringify(fora.dados).slice(0, 120));
 
@@ -2976,6 +3001,32 @@ grupo('Expulsar os outros aparelhos');
   certo(carteiras.wallet_em === null && carteiras.apple_em === null,
     'o cartão volta a dizer que não tem passe — senão a app não oferecia juntá-lo outra vez',
     JSON.stringify(carteiras));
+
+  /* 4. os avisos */
+  const avisosDepois = contarAvisos();
+  certo(!avisosDepois.includes(PUSH_PERDIDO),
+    'O TELEMÓVEL PERDIDO DEIXA DE RECEBER AVISOS — um aviso de push não precisa de sessão, e este caminho não lhe tocava',
+    avisosDepois.join(' ') || 'nenhum');
+  certo(avisosDepois.includes(PUSH_MEU),
+    'e o deste aparelho fica — quem carregou no botão não se cala a si próprio',
+    avisosDepois.join(' ') || 'nenhum');
+  certo(fora.dados.avisosMantidos === true,
+    'e a resposta diz que ficou, para a app não mentir sobre o interruptor que mostra',
+    String(fora.dados.avisosMantidos));
+
+  /* Sem dizer qual é o deste aparelho, caem TODAS. É o lado seguro do engano:
+     perder um aviso é uma chatice, deixar um telemóvel roubado a receber a
+     vida de alguém não é. Uma app em cache antiga cai exactamente aqui. */
+  sql(`INSERT INTO subscricoes (id, cliente_id, endereco, p256dh, auth, criada_em)
+       VALUES ('sub-teste-9', '${c.dados.cliente.id}', 'https://push.exemplo/outro', 'p', 'a',
+               strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+  const cego = await pedir('/v1/cliente/sair-dos-outros', { metodo: 'POST', sessao: sessaoA });
+  certo(cego.estado === 200 && contarAvisos().length === 0,
+    'sem dizer qual é o deste aparelho, caem todas — o lado seguro do engano',
+    `${cego.estado} ${contarAvisos().join(' ') || 'nenhum'}`);
+  certo(cego.dados.avisosMantidos === false,
+    'e a resposta di-lo, para a app poder acertar a linha em vez de mostrar um interruptor ligado que não liga nada',
+    String(cego.dados.avisosMantidos));
 
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: sessaoA });
 }
@@ -4456,11 +4507,11 @@ grupo('Avisar quando o cartão fica cheio');
 
   const sub = await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
   certo(sub.estado === 200, 'a subscrição entra', JSON.stringify(sub.dados));
-  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 1,
+  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${c.dados.cliente.id}'`)[0].n === 1,
     'e fica uma linha');
 
   await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
-  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 1,
+  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${c.dados.cliente.id}'`)[0].n === 1,
     'subscrever duas vezes com o mesmo endereço NÃO duplica — seriam dois avisos iguais no mesmo ecrã');
 
   /* --- carimbar até fechar o cartão ------------------------------------- */
@@ -4472,7 +4523,7 @@ grupo('Avisar quando o cartão fica cheio');
      manda aviso. */
   const objetivo = linhas(`SELECT objetivo FROM programas WHERE id = 'p1'`)[0].objetivo;
   sql(`UPDATE cartoes SET carimbos = ${objetivo - 1}, ultimo_em = NULL
-        WHERE cliente_id = '${clienteId}' AND programa_id = 'p1'`);
+        WHERE cliente_id = '${c.dados.cliente.id}' AND programa_id = 'p1'`);
 
   const carimbo = await pedir('/v1/balcao/carimbar', {
     metodo: 'POST', sessao: sessaoBalcao, cabecalhos: ORIGEM,
@@ -4527,7 +4578,7 @@ grupo('Avisar quando o cartão fica cheio');
   /* --- uma subscrição que morreu apaga-se ------------------------------- */
   await fetch(`${GOOGLE}/__matar?id=${idDoAparelho}`, { method: 'POST' });
   sql(`UPDATE cartoes SET carimbos = ${objetivo - 1}, ultimo_em = NULL,
-        premios_ganhos = 0 WHERE cliente_id = '${clienteId}' AND programa_id = 'p1'`);
+        premios_ganhos = 0 WHERE cliente_id = '${c.dados.cliente.id}' AND programa_id = 'p1'`);
   /* OUTRA JANELA. O mesmo código QR não serve duas vezes — é a defesa contra a
      fotografia do ecrã de um amigo — e dois carimbos no mesmo minuto usariam o
      mesmo. O `deslocamento` pede o da janela seguinte, que continua dentro da
@@ -4541,7 +4592,7 @@ grupo('Avisar quando o cartão fica cheio');
   let restam = 1;
   for (let i = 0; i < 20 && restam; i++) {
     await dormir(250);
-    restam = linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n;
+    restam = linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${c.dados.cliente.id}'`)[0].n;
   }
   certo(restam === 0,
     'um 410 do serviço de push apaga a subscrição — o aparelho já não existe e insistir é gastar contra uma parede',
@@ -4551,12 +4602,12 @@ grupo('Avisar quando o cartão fica cheio');
   await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
   const fora = await pedir('/v1/cliente/push', { metodo: 'DELETE', sessao, cabecalhos: ORIGEM, corpo: {} });
   certo(fora.estado === 200
-    && linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 0,
+    && linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${c.dados.cliente.id}'`)[0].n === 0,
     'desligar sem endereço desliga todos os aparelhos desta conta');
 
   await pedir('/v1/cliente/push', { metodo: 'POST', sessao, cabecalhos: ORIGEM, corpo: subscricao });
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao, cabecalhos: ORIGEM });
-  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${clienteId}'`)[0].n === 0,
+  certo(linhas(`SELECT COUNT(*) AS n FROM subscricoes WHERE cliente_id = '${c.dados.cliente.id}'`)[0].n === 0,
     'e apagar a conta leva os aparelhos — mandar um aviso a quem pediu para desaparecer seria o pior fim');
 
   await fetch(`${GOOGLE}/__limpar`, { method: 'POST' });

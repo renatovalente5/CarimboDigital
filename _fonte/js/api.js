@@ -1251,7 +1251,7 @@ function criarDemo() {
     },
 
     async sairDosOutros() {
-      return { segredo: null, passesRevogados: 0, demo: true };
+      return { segredo: null, passesRevogados: 0, avisosMantidos: true, demo: true };
     },
 
     async limpar() {
@@ -1377,7 +1377,12 @@ export const api = MODO === 'remoto'
          corpo. */
       fundir: (sessaoOrigem) =>
         remoto.pedir('/v1/cliente/fundir', { metodo: 'POST', corpo: { sessaoOrigem } }),
-      sairDosOutros: () => remoto.pedir('/v1/cliente/sair-dos-outros', { metodo: 'POST' }),
+      /* O `manterAviso` é o endereço de push DESTE aparelho. O servidor não o
+         consegue adivinhar — uma subscrição não traz sessão — e sem ele caem
+         as subscrições todas, incluindo a de quem carregou no botão. Ver a
+         rota no Worker. */
+      sairDosOutros: (manterAviso) => remoto.pedir('/v1/cliente/sair-dos-outros',
+        { metodo: 'POST', corpo: manterAviso ? { manterAviso } : {} }),
       apagarTudo: () => remoto.pedir('/v1/cliente', { metodo: 'DELETE' }),
       exportar: () => remoto.pedir('/v1/cliente/dados'),
       semear: async () => {},

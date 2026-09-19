@@ -1,5 +1,20 @@
 <!doctype html>
-<html lang="pt-PT">
+<!-- O BALCÃO É SEMPRE ESCURO, e di-lo no atributo — antes do primeiro pixel.
+
+     Havia aqui um guião a ler a chave do tema e a aplicá-la. A chave é a do
+     CLIENTE, e as duas apps partilham a origem: com o cliente em «claro», o
+     balcão abria claro e só depois o `balcao.js` forçava o escuro. Medido a
+     20× de abrandamento — um telemóvel barato: quatro frames claros, 66 ms de
+     branco. É exactamente o clarão que o comentário desse guião dizia existir
+     para evitar («de noite, na mão, é uma lanterna»).
+
+     Um atributo no HTML não tem guião nenhum para correr e não chega tarde. O
+     `cartaz.html` já fazia assim.
+
+     E o balcão não dá escolha de tema de propósito: não cegar ninguém às sete
+     da manhã, a imagem da câmara destacar-se do cromado, e quem tem as duas
+     apps nunca abrir a errada por engano. -->
+<html lang="pt-PT" data-tema="escuro">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -18,26 +33,6 @@
 <link rel="stylesheet" href="{{BASE}}/estilos/app.css?v={{VERSAO}}">
 <link rel="stylesheet" href="{{BASE}}/estilos/balcao.css?v={{VERSAO}}">
 <script>window.CARIMBO_CONFIG = {{CONFIG}};</script>
-<script>
-  /* O tema, antes da primeira pintura.
-
-     Isto tinha de ser aqui e não no módulo: os módulos carregam depois de o
-     browser já ter pintado o fundo, e em modo escuro havia um clarão branco
-     de uns vinte milissegundos a cada arranque. Vinte milissegundos não
-     parecem nada escritos, mas de noite, na mão, é uma lanterna.
-
-     Sem `type="module"` de propósito — um módulo é sempre adiado. */
-  (function () {
-    try {
-      var t = null;
-      for (var e of ['carimbo:', 'carimbo-demo:']) {
-        var v = localStorage.getItem(e + 'tema');
-        if (v) { t = JSON.parse(v); break; }
-      }
-      if (t === 'claro' || t === 'escuro') document.documentElement.dataset.tema = t;
-    } catch (e) { /* armazenamento trancado: fica o tema do sistema */ }
-  })();
-</script>
 </head>
 <body class="app balcao">
 <a class="saltar" href="#principal">Saltar para o conteúdo</a>
