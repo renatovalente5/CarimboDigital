@@ -4380,9 +4380,32 @@ rota('PUT', '/v1/balcao/logotipo', async (env, pedido, _p, ctx) => {
    ficado convencido de que a rota estava provada. Foi a afirmação de SUCESSO
    que a apanhou. */
 rota('GET', /^\/v1\/faixa\/([A-Za-z0-9._-]{1,140})\.png$/, async (env, pedido, [nome]) => {
-  const corte = nome.lastIndexOf('-');
-  const corpo = nome.slice(0, corte);
-  const selo = nome.slice(corte + 1);
+  /* O CORTE É PELA POSIÇÃO, E NÃO PELO ÚLTIMO HÍFEN.
+
+     Estava `lastIndexOf('-')`, e o selo é base64url — um alfabeto que INCLUI
+     o hífen. Um selo de 12 caracteres tem 17,2% de probabilidade de conter
+     pelo menos um: nesses casos o corte caía dentro do próprio selo, o corpo
+     ficava com um pedaço dele colado, e a rota devolvia 404 a um endereço que
+     ela própria tinha assinado.
+
+     Em produção isso é um em cada seis cartões da Wallet do Google a ficar
+     sem desenho nenhum — e para sempre, porque a Google guarda o resultado à
+     chave do endereço. E não dava erro em lado nenhum: dava uma imagem que
+     não carrega.
+
+     O CI apanhou-o porque a chave-mestra é sorteada a cada corrida e um dia
+     saiu uma que produzia um selo com hífen. Cinco corridas verdes antes
+     disso não provaram nada: a falha era de um em seis, e eu teria lido o
+     vermelho como «o CI está instável». O teste passou a forçar o caso.
+
+     O selo tem sempre 12 caracteres e vem sempre a seguir a um hífen, por
+     isso a posição é fixa e não depende do que lá está dentro. */
+  const SELO_TAMANHO = 12;
+  if (nome.length < SELO_TAMANHO + 2 || nome[nome.length - SELO_TAMANHO - 1] !== '-') {
+    throw new Falha('Não existe', { estado: 404 });
+  }
+  const corpo = nome.slice(0, -(SELO_TAMANHO + 1));
+  const selo = nome.slice(-SELO_TAMANHO);
 
   /* COMPARAÇÃO EM TEMPO CONSTANTE, como a do bilhete do passe. Um `===` sobre
      um HMAC vaza o tamanho do prefixo certo pelo tempo que demora a falhar. */

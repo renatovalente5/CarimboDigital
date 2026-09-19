@@ -375,6 +375,43 @@ grupo('A faixa servida à Google');
   const gigante = await fetch(`${BASE}/v1/faixa/${gigCorpo}-${selar(gigCorpo)}.png`);
   certo(gigante.status === 404,
     'e uma medida fora da lista não se serve, mesmo bem assinada', String(gigante.status));
+
+  /* UM SELO COM HÍFEN LÁ DENTRO, e este é o caso que a rota falhava.
+
+     O selo é base64url, e base64url inclui o hífen. A rota partia o nome em
+     `lastIndexOf('-')`: quando o selo trazia um, o corte caía dentro dele e o
+     endereço que o servidor tinha acabado de assinar dava 404. São 17,2% dos
+     selos de doze caracteres — um em cada seis cartões da Wallet do Google a
+     ficar sem desenho, para sempre, porque a Google guarda o resultado à
+     chave do endereço. E sem erro nenhum: só uma imagem que não carrega.
+
+     O CI apanhou-o por acaso, porque a chave-mestra é sorteada a cada corrida
+     e um dia saiu uma que dava selo com hífen. As corridas verdes de antes
+     não provaram nada. Por isso este caso não se espera: PROCURA-SE — varre-se
+     o número de carimbos até sair um corpo cujo selo tenha mesmo um hífen, e
+     é esse que se pede. Uma guarda que depende de sorteio é uma guarda que um
+     dia se lê como «o CI está instável». */
+  let comHifen = null;
+  for (let n = 0; n <= 60 && !comHifen; n += 1) {
+    const c = `c-EE9125-${n}-60-tesoura-750x288`;
+    if (selar(c).includes('-')) comHifen = c;
+  }
+  certo(!!comHifen,
+    'consegui construir um endereço cujo selo tem um hífen (senão o resto não prova nada)',
+    String(comHifen));
+  if (comHifen) {
+    const r = await fetch(`${BASE}/v1/faixa/${comHifen}-${selar(comHifen)}.png`);
+    certo(r.status === 200 && r.headers.get('content-type') === 'image/png',
+      'UM SELO COM HÍFEN SERVE A FAIXA — o corte é pela posição e não pelo último hífen',
+      `${r.status} ${r.headers.get('content-type')} · ${selar(comHifen)}`);
+  }
+
+  /* E o contrário: um nome curto de mais não pode passar pelo corte fixo e
+     chegar ao HMAC com um corpo vazio. */
+  const curto = await fetch(`${BASE}/v1/faixa/abc.png`);
+  certo(curto.status === 404,
+    'e um nome demasiado curto para ter selo é recusado antes de se calcular seja o que for',
+    String(curto.status));
 }
 
 grupo('Arrefecimento');
