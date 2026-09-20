@@ -329,11 +329,11 @@ grupo('A faixa servida à Google');
 {
   /* A rota é ABERTA — a Google não leva cabeçalho nenhum — e desenha uma
      imagem, que custa CPU. Tudo o que a protege é o selo no fim do nome. */
-  const r404 = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-d2-750x288-lixolixolixo.png`);
+  const r404 = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-d3-750x288-lixolixolixo.png`);
   certo(r404.status === 404,
     'um endereço de faixa com o selo errado não desenha nada', String(r404.status));
 
-  const semSelo = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-d2-750x288.png`);
+  const semSelo = await fetch(`${BASE}/v1/faixa/c-EE9125-7-10-tesoura-d3-750x288.png`);
   certo(semSelo.status === 404,
     'e um endereço sem selo nenhum também não', String(semSelo.status));
 
@@ -353,7 +353,7 @@ grupo('A faixa servida à Google');
     .update(`faixa:${caminho}`).digest('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 12);
 
-  const corpo = 'c-EE9125-7-10-tesoura-d2-750x288';
+  const corpo = 'c-EE9125-7-10-tesoura-d3-750x288';
   const boa = await fetch(`${BASE}/v1/faixa/${corpo}-${selar(corpo)}.png`);
   certo(boa.status === 200 && boa.headers.get('content-type') === 'image/png',
     'um endereço BEM assinado serve a faixa',
@@ -371,7 +371,7 @@ grupo('A faixa servida à Google');
      4000×4000 era um pedido de 48 MB de memória e de muito mais CPU do que o
      tecto do plano gratuito. Aqui o selo vai CERTO, para a recusa ser da
      medida e não da assinatura. */
-  const gigCorpo = 'c-EE9125-7-10-tesoura-d2-4000x4000';
+  const gigCorpo = 'c-EE9125-7-10-tesoura-d3-4000x4000';
   const gigante = await fetch(`${BASE}/v1/faixa/${gigCorpo}-${selar(gigCorpo)}.png`);
   certo(gigante.status === 404,
     'e uma medida fora da lista não se serve, mesmo bem assinada', String(gigante.status));
@@ -393,7 +393,7 @@ grupo('A faixa servida à Google');
      dia se lê como «o CI está instável». */
   let comHifen = null;
   for (let n = 0; n <= 60 && !comHifen; n += 1) {
-    const c = `c-EE9125-${n}-60-tesoura-d2-750x288`;
+    const c = `c-EE9125-${n}-60-tesoura-d3-750x288`;
     if (selar(c).includes('-')) comHifen = c;
   }
   certo(!!comHifen,
@@ -418,7 +418,7 @@ grupo('A faixa servida à Google');
   certo(velhaVersao.status === 404,
     'um endereço SEM versão de desenho não se serve — é a marca que faz a Google ir buscar a imagem nova',
     String(velhaVersao.status));
-  const versaoAntiga = 'c-EE9125-7-10-tesoura-d1-750x288';
+  const versaoAntiga = 'c-EE9125-7-10-tesoura-d2-750x288';
   const d1 = await fetch(`${BASE}/v1/faixa/${versaoAntiga}-${selar(versaoAntiga)}.png`);
   certo(d1.status === 200,
     'mas uma versão ANTIGA ainda serve — um endereço em cache na Google não pode passar a dar imagem partida',

@@ -236,8 +236,35 @@ function opacidadeDesenhada(base, tinta, sombra, lavagens, alvo, minimo = 0.16) 
 
 const NEUTRO = 128;
 
-/* Quanto o fundo desce para o lado da sombra, do topo ao pé da faixa. */
-const LAVAGEM = 0.10;
+/* Quanto o fundo desce para o lado da sombra, ao pé da faixa. */
+const LAVAGEM = 0.16;
+
+/**
+ * As duas pontas da faixa, em fracções da rampa.
+ *
+ * A FAIXA SÓ DESCIA. Era `NEUTRO` no topo e 10 % para a sombra em baixo — num
+ * cartão quase preto isso é invisível, e o passe saía um rectângulo liso
+ * enquanto a app já tinha planos. O mesmo cartão com profundidade num sítio e
+ * sem ela no outro.
+ *
+ * Agora sobe no topo e desce em baixo, exactamente como o `panoSeguro` do
+ * nucleo.js faz do lado da app — e com a MESMA conta, porque duas contas
+ * diferentes para a mesma faixa é como a tinta dos dois lados se afastou da
+ * primeira vez.
+ *
+ * A ponta que se aproxima da tinta anda de dois em dois por cento e fica no
+ * último passo que ainda dá 4,5:1 — numa cor sem folga não anda passo nenhum e
+ * a faixa sai lisa, que é a resposta certa: mais vale lisa do que a fingir
+ * profundidade por cima de um carimbo que deixou de se ver.
+ */
+function pontasDaFaixa(base, tinta) {
+  let cima = 0;
+  for (let p = 2; p <= 26; p += 2) {
+    if (contraste(mistura(base, tinta, p / 100), tinta) < 4.5) break;
+    cima = p / 100;
+  }
+  return { cima, baixo: -LAVAGEM };
+}
 
 /** Compõe `a` (de −1, sombra cheia, a +1, tinta cheia) por cima do que lá está. */
 function compor(quadro, i, a) {
@@ -395,14 +422,17 @@ function sombraDeFicha(quadro, W, H, cx, cy, raio) {
  * barra e ficava um borrão. Um buraco é a ausência de tinta, e a ausência
  * escreve-se, não se compõe.
  */
-function limparDisco(quadro, W, H, cx, cy, raio, lavagem) {
+function limparDisco(quadro, W, H, cx, cy, raio, indiceDaLinha) {
   const x0 = Math.max(0, Math.floor(cx - raio - 1));
   const x1 = Math.min(W - 1, Math.ceil(cx + raio + 1));
   const y0 = Math.max(0, Math.floor(cy - raio - 1));
   const y1 = Math.min(H - 1, Math.ceil(cy + raio + 1));
   for (let y = y0; y <= y1; y += 1) {
     const dy = y + 0.5 - cy; const dy2 = dy * dy;
-    const alvo = NEUTRO - Math.round(lavagem * (y / (H - 1)) * 127);
+    /* Recebe a FUNÇÃO do desvio e não a constante: a faixa deixou de ser uma
+       lavagem só para baixo e passou a ter duas pontas, e repetir a conta aqui
+       era deixar os discos limpos a apagar para a cor errada. */
+    const alvo = indiceDaLinha(y);
     let i = y * W + x0;
     for (let x = x0; x <= x1; x += 1, i += 1) {
       const dx = x + 0.5 - cx;
@@ -687,10 +717,20 @@ export async function faixaDeCartao({
 
      O degradê é representável na rampa porque é a própria sombra a opacidades
      crescentes — não é uma cor nova. Sai de graça. */
+  /* UMA CONTA SÓ para o desvio de cada linha, e cinco sítios a chamá-la. Ela
+     estava escrita à mão nos cinco — a pintura, as amostras, o fundo de cada
+     linha, o `limparDisco` e a medição — e bastava um deles ficar para trás
+     para a medição passar a descrever uma imagem que não existe. */
+  const pontas = pontasDaFaixa(base, tinta);
+  const desvioDaLinha = (y) => pontas.cima + (pontas.baixo - pontas.cima) * (y / (H - 1));
+  const indiceDaLinha = (y) => {
+    const v = NEUTRO + Math.round(desvioDaLinha(y) * 127);
+    return v < 0 ? 0 : (v > 255 ? 255 : v);
+  };
+
   const quadro = new Uint8Array(W * H);
   for (let y = 0; y < H; y += 1) {
-    const a = LAVAGEM * (y / (H - 1));
-    quadro.fill(NEUTRO - Math.round(a * 127), y * W, y * W + W);
+    quadro.fill(indiceDaLinha(y), y * W, y * W + W);
   }
   const alturaUtil = Math.round(H * BANDA_SEGURA);
   const topoUtil = (H - alturaUtil) / 2;
@@ -702,10 +742,9 @@ export async function faixaDeCartao({
   const lavagens = [];
   for (let k = 0; k <= 8; k += 1) {
     const y = topoUtil + (alturaUtil - 1) * (k / 8);
-    lavagens.push(LAVAGEM * (y / (H - 1)));
+    lavagens.push(-desvioDaLinha(y));
   }
-  const fundoDeLinha = (y) => corDaRampa(base, tinta, sombra,
-    NEUTRO - Math.round(LAVAGEM * (y / (H - 1)) * 127));
+  const fundoDeLinha = (y) => corDaRampa(base, tinta, sombra, indiceDaLinha(y));
   const fundoTopo = fundoDeLinha(topoUtil);
   const fundoBaixo = fundoDeLinha(topoUtil + alturaUtil - 1);
 
@@ -734,7 +773,8 @@ export async function faixaDeCartao({
      o CPU. Acima de FICHAS_MAX passa-se à barra, que diz a mesma verdade sem
      inventar um objectivo mais curto. */
   if (tipo === 'pontos' || Math.round(objetivo) > FICHAS_MAX) {
-    desenharPontos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo, marcos, alfaCheia, alfaVazia);
+    desenharPontos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo, marcos,
+                   alfaCheia, alfaVazia, indiceDaLinha);
   } else {
     desenharCarimbos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo,
       alfaCheia, alfaVazia, tinta[0] === 255, nomeSelo, selos, W / APPLE_STRIP.largura);
@@ -749,7 +789,7 @@ export async function faixaDeCartao({
     const v = NEUTRO + Math.round((alfaVazia + actual * (1 - alfaVazia)) * 127);
     return corDaRampa(base, tinta, sombra, v > 255 ? 255 : v);
   };
-  const idxDe = (y) => NEUTRO - Math.round(LAVAGEM * (y / (H - 1)) * 127);
+  const idxDe = (y) => indiceDaLinha(y);
 
   return {
     bytes: await pngIndexado(W, H, quadro, paleta),
@@ -846,7 +886,13 @@ function desenharCarimbos(quadro, W, H, topoUtil, alturaUtil, feitos, objetivo,
    marco seguinte. Desenha-se a distância, e não um número — escrever «237 pt»
    obrigava a embutir uma tipografia, e o cabeçalho do passe já diz o número.
    Aqui mostra-se o que o número não mostra: quanto falta. */
-function desenharPontos(quadro, W, H, topoUtil, alturaUtil, pontos, objetivo, marcos, alfaCheia, alfaVazia) {
+/* O `indiceDaLinha` vem de fora porque a faixa deixou de ser uma lavagem só
+   para baixo: o desvio de cada linha depende das DUAS pontas, que se calculam
+   a partir da cor da marca. Repetir a conta aqui dentro era deixar os discos
+   do trilho a limpar para a cor errada — que é exactamente o género de
+   divergência que já custou a tinta dos dois lados. */
+function desenharPontos(quadro, W, H, topoUtil, alturaUtil, pontos, objetivo, marcos,
+                        alfaCheia, alfaVazia, indiceDaLinha) {
   /* OS MARCOS CHEGAM COMO LINHAS DA BASE, `{ pontos, premio }` — e não como
      números. O `map(Number)` sobre um objecto dá NaN, o filtro deitava os três
      fora, a lista ficava vazia, e o `|| 1` punha o fim em 1 ponto. Resultado:
@@ -885,7 +931,7 @@ function desenharPontos(quadro, W, H, topoUtil, alturaUtil, pontos, objetivo, ma
     const r = grossura * 1.35;
     if (pontos >= m) disco(quadro, W, H, cx, y, r, alfaCheia);
     else {
-      limparDisco(quadro, W, H, cx, y, r, LAVAGEM);
+      limparDisco(quadro, W, H, cx, y, r, indiceDaLinha);
       anel(quadro, W, H, cx, y, r, Math.max(3, r * 0.26), alfaVazia);
     }
   }

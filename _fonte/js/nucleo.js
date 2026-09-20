@@ -137,6 +137,37 @@ export function misturar(a, b, p) {
 }
 
 /**
+ * As duas pontas do pano da faixa — a superfície onde os carimbos assentam.
+ *
+ * Um cartão de uma cor só é um rectângulo. Com uma faixa de duas pontas ganha
+ * planos, sem uma única fotografia — é o que separa um cartão de fidelidade
+ * de um rectângulo pintado, e é o que a Wallet do telemóvel já fazia enquanto
+ * a app ficava lisa.
+ *
+ * AS DUAS NASCEM MEDIDAS, e não escritas na folha de estilo. Um gradiente tem
+ * DUAS cores e uma auditoria de contraste lê a que está declarada: escrever
+ * um `color-mix` no CSS passava pela ponta forte enquanto a ponta fraca ficava
+ * ilegível, e ninguém ia lá medir.
+ *
+ * A ponta que FOGE da tinta só ganha contraste — vai até onde se mandar. A que
+ * se APROXIMA da tinta é a que pode partir, e por isso anda de dois em dois
+ * por cento e fica no último passo que ainda passava. Numa cor sem folga — um
+ * cinzento que só à justa passa o `marcaSegura` — não anda passo nenhum e a
+ * faixa sai lisa. É a resposta certa: mais vale uma faixa lisa do que um
+ * gradiente a fingir profundidade por cima de texto que deixou de se ler.
+ */
+export function panoSeguro(cor, tinta, minimo = 4.5) {
+  const fuga = tinta === BRANCO ? PRETO : BRANCO;
+  let perto = paraHex(paraRGB(cor));
+  for (let p = 2; p <= 26; p += 2) {
+    const c = misturar(cor, tinta, p / 100);
+    if (contraste(c, tinta) < minimo) break;
+    perto = c;
+  }
+  return { perto, longe: misturar(cor, fuga, 0.16) };
+}
+
+/**
  * A cor de um traço que tem MESMO de se ver — o aro do carimbo por fazer.
  *
  * Existe porque os dois véus que cá estavam na folha de estilo
@@ -197,7 +228,17 @@ export function pintarCartao(no, cor) {
   const { cor: segura, tinta } = marcaSegura(cor);
   no.style.setProperty('--m', segura);
   no.style.setProperty('--m-txt', tinta);
-  no.style.setProperty('--m-aro', aroSeguro([segura], tinta, 3));
+
+  const { perto, longe } = panoSeguro(segura, tinta);
+  no.style.setProperty('--m-faixa-a', perto);
+  no.style.setProperty('--m-faixa-b', longe);
+
+  /* O ARO PROVA-SE CONTRA AS TRÊS SUPERFÍCIES, e não só contra a cor do
+     cartão. Os carimbos por fazer vivem DENTRO da faixa: uma cor que passasse
+     os 3:1 contra o cartão e não contra a ponta clara do gradiente ficava
+     ilegível exactamente onde é desenhada. Era este o argumento do
+     `aroSeguro` aceitar uma lista desde que nasceu, e até agora só levava um. */
+  no.style.setProperty('--m-aro', aroSeguro([segura, perto, longe], tinta, 3));
   no.dataset.claro = tinta === PRETO ? 'sim' : 'nao';
 }
 

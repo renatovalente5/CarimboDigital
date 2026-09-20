@@ -579,6 +579,60 @@ export async function correr(palco, certo) {
      botão que não está lá. A semente não traz logótipo, por isso o estado em
      que este ecrã está agora já é o caso a provar.
      -------------------------------------------------------------------- */
+  /* =======================================================================
+     A FAIXA — e o aro medido contra ELA, não contra o cartão
+
+     Um cartão de uma cor só é um rectângulo pintado. A faixa é o que lhe dá
+     planos, e as duas pontas dela nascem MEDIDAS no `panoSeguro`: a que se
+     aproxima da tinta anda de dois em dois por cento e pára no último passo
+     que ainda dá 4,5:1 ao texto.
+
+     O QUE ESTA GUARDA PERSEGUE: os carimbos por fazer vivem DENTRO da faixa.
+     Uma cor de aro que passasse os 3:1 contra a cor do cartão e não contra a
+     ponta clara do gradiente ficava ilegível exactamente onde é desenhada — e
+     uma medição contra o cartão dizia que estava tudo bem. Foi assim que o
+     `aroSeguro` ficou meses a receber um fundo só quando aceitava uma lista
+     desde que nasceu.
+     ======================================================================= */
+  {
+    const faixa = await palco.js(`
+      const c = [...document.querySelectorAll('#principal .cartao')]
+        .find((x) => x.querySelector('.carimbos'));
+      if (!c) return null;
+      const s = getComputedStyle(c);
+      const grelha = getComputedStyle(c.querySelector('.carimbos'));
+      const r = (n) => n.getBoundingClientRect();
+      return {
+        m: s.getPropertyValue('--m').trim(),
+        a: s.getPropertyValue('--m-faixa-a').trim(),
+        b: s.getPropertyValue('--m-faixa-b').trim(),
+        aro: s.getPropertyValue('--m-aro').trim(),
+        fundo: grelha.backgroundImage,
+        sangra: Math.abs(r(c).left - r(c.querySelector('.carimbos')).left) < 0.5
+             && Math.abs(r(c).right - r(c.querySelector('.carimbos')).right) < 0.5,
+      }`);
+
+    certo(!!faixa && /linear-gradient/.test(faixa.fundo),
+      'faixa: os carimbos assentam num gradiente e não na cor lisa do cartão',
+      faixa ? String(faixa.fundo).slice(0, 60) : 'sem cartão de carimbos');
+    certo(!!faixa && faixa.sangra,
+      'faixa: sangra até ao bordo do cartão — um `<button>` traz 6px de preenchimento do browser que deixavam uma nesga da cor por fora',
+      faixa ? JSON.stringify([faixa.m, faixa.a]) : 'não medida');
+    certo(!!faixa && !!faixa.a && !!faixa.b && !!faixa.aro,
+      'faixa: as duas pontas e o aro vêm CALCULADOS do nucleo.js, e não escritos na folha de estilo',
+      faixa ? `a=${faixa.a} b=${faixa.b} aro=${faixa.aro}` : 'não medida');
+
+    if (faixa && faixa.aro) {
+      const { contraste } = await import('../../_fonte/js/nucleo.js');
+      const pares = [['cartão', faixa.m], ['ponta clara', faixa.a], ['ponta escura', faixa.b]]
+        .map(([nome, cor]) => [nome, cor, contraste(faixa.aro, cor)]);
+      const pior = Math.min(...pares.map((x) => x[2]));
+      certo(pior >= 3,
+        'faixa: o aro do carimbo por fazer passa os 3:1 contra AS TRÊS superfícies — cartão e as duas pontas do gradiente',
+        pares.map(([n, c, r]) => `${n} ${c} ${r.toFixed(2)}`).join(' · '));
+    }
+  }
+
   certo(!(await palco.ver('.btn-wallet')),
     'wallet: sem logótipo do negócio não aparece botão nenhum — a Google exigiria um');
 

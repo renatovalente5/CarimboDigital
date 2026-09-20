@@ -4037,8 +4037,9 @@ function confirmarOrigemDaAPI(env, origemReal) {
 
    Um caractere no corpo assinado resolve: muda-se aqui, e todos os endereços
    passam a ser outros. Sobe-se sempre que o desenho mudar de forma visível.
-   O `2` é o desenho a seguir ao original. */
-const DESENHO_VERSAO = 'd2';
+   O `2` foi o disco opaco e o aro tracejado; o `3` é a faixa a clarear no
+   topo em vez de só escurecer para baixo. */
+const DESENHO_VERSAO = 'd3';
 
 const FAIXAS_MEDIDAS = new Set([
   `${GOOGLE_HERO.largura}x${GOOGLE_HERO.altura}`,

@@ -93,6 +93,14 @@ body.app input, body.app textarea, body.app .selecionavel {
    ========================================================================= */
 
 .cartao {
+  /* A FOLGA DO CARTÃO, NUM SÍTIO SÓ.
+
+     A faixa sangra até ao bordo com margem negativa, e essa margem tem de ser
+     exactamente a folga do corpo. Estavam escritas as duas à mão — 20 aqui,
+     24 no cartão grande — e a faixa ficava 4 px curta de cada lado num dos
+     dois ecrãs, sem nada a dizê-lo. Duas medidas que TÊM de ser iguais não se
+     escrevem duas vezes. */
+  --cartao-folga: var(--e-5);
   --m: #17161C;
   --m-txt: #FFFFFF;
   --m-veu: rgba(255, 255, 255, .16);   /* superfícies por cima da cor       */
@@ -101,6 +109,12 @@ body.app input, body.app textarea, body.app .selecionavel {
   position: relative;
   display: block;
   width: 100%;
+  /* O CARTÃO É UM `<button>`, e o browser dá a um botão `padding: 1px 6px` por
+     sua conta. Nunca se via porque tudo lá dentro tem a folga do corpo — até
+     a faixa, que sangra até ao bordo e deixou uma nesga da cor do cartão de
+     cada lado. Seis píxeis que estavam lá desde sempre e só uma peça a tocar
+     na borda os revelou. */
+  padding: 0;
   background: var(--m);
   color: var(--m-txt);
   border-radius: var(--r-5);
@@ -136,7 +150,7 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
     color-mix(in srgb, var(--m) 88%, transparent) 100%);
 }
 
-.cartao-corpo { position: relative; z-index: 2; padding: var(--e-5); }
+.cartao-corpo { position: relative; z-index: 2; padding: var(--cartao-folga); }
 
 .cartao-topo {
   display: flex; align-items: flex-start; gap: var(--e-3);
@@ -222,6 +236,28 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
    Os carimbos
    ========================================================================= */
 
+/* A FAIXA — o que transforma um rectângulo de uma cor num cartão com planos.
+
+   Um cartão de uma cor só é um rectângulo pintado. A Wallet do telemóvel já
+   desenhava a faixa e a app ficava lisa: o mesmo cartão tinha profundidade num
+   sítio e não tinha no outro.
+
+   AS DUAS PONTAS NÃO ESTÃO AQUI, e é de propósito. Um gradiente tem duas cores
+   e uma auditoria de contraste lê a que está declarada: escrever um
+   `color-mix` nesta folha passava pela ponta forte enquanto a ponta fraca
+   ficava ilegível, e ninguém ia lá medir. Elas nascem no `panoSeguro` do
+   nucleo.js, medidas — a que se aproxima da tinta anda de dois em dois por
+   cento e pára no último passo que ainda dava 4,5:1 ao texto.
+
+   Numa cor sem folga a faixa sai LISA, e isso não é uma falha: mais vale uma
+   faixa lisa do que um gradiente a fingir profundidade por cima de texto que
+   deixou de se ler.
+
+   O SANGRAR ATÉ AO BORDO faz-se com margem negativa e o mesmo valor de
+   preenchimento de volta. A alternativa — um pseudo-elemento absoluto — tinha
+   de atravessar o `z-index: 2` do corpo do cartão para trás, e um `z-index:
+   -1` lá dentro passa a correr o risco de desaparecer por baixo do fundo do
+   próprio cartão. */
 .carimbos {
   display: grid;
   gap: var(--e-2);
@@ -230,6 +266,12 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
      outros na lista. */
   grid-template-columns: repeat(var(--colunas, 5), minmax(0, var(--peca, 52px)));
   justify-content: center;
+
+  margin-inline: calc(var(--cartao-folga) * -1);
+  margin-block: var(--e-2) var(--e-5);
+  padding: var(--e-4) var(--cartao-folga);
+  background: linear-gradient(
+    to bottom, var(--m-faixa-a, var(--m)), var(--m-faixa-b, var(--m)));
 }
 
 .carimbo {
@@ -324,6 +366,31 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
   font-variant-numeric: tabular-nums;
 }
 .pontos-valor span { font-size: 1.0625rem; font-weight: 700; opacity: .9; }
+
+/* O TRILHO DOS PONTOS leva a mesma faixa, e pela mesma razão: é a mesma peça
+   do cartão a contar a mesma coisa, e dois programas do mesmo café ficavam com
+   dois desenhos diferentes. */
+.trilho-faixa {
+  margin-inline: calc(var(--cartao-folga) * -1);
+  margin-block: var(--e-2) var(--e-5);
+  padding: var(--e-4) var(--cartao-folga);
+  background: linear-gradient(
+    to bottom, var(--m-faixa-a, var(--m)), var(--m-faixa-b, var(--m)));
+}
+
+/* O TRILHO NÃO CHEGA AO BORDO DA FAIXA, e a faixa chega ao bordo do cartão.
+
+   Os números dos marcos estão posicionados em absoluto contra o trilho e o
+   último PENDE para fora dele — é assim que um «1000» fica centrado no ponto
+   final em vez de empurrar a barra. Enquanto o cartão tinha os seis píxeis de
+   preenchimento que o browser dá a um `<button>`, esse pendor cabia lá; ao
+   tirá-los para a faixa poder sangrar, o número passou a sair 2 px para fora
+   do cartão.
+
+   Oito píxeis de cada lado dão a folga de volta com margem, e o trilho fica
+   mais curto — que é o que ele deve ser: uma barra que toca nas pontas não
+   tem onde pôr os números das pontas. */
+.trilho-faixa .trilho { margin-inline: var(--e-2); }
 
 .trilho {
   position: relative;
@@ -668,7 +735,7 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
   font-size: .9375rem;
 }
 
-.cartao-grande .cartao-corpo { padding: var(--e-6); }
+.cartao-grande { --cartao-folga: var(--e-6); }
 .cartao-descobrir .cartao-corpo { padding: var(--e-5); }
 .cartao-selo-tipo {
   display: grid; place-items: center;

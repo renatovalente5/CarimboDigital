@@ -135,7 +135,10 @@ function trilhoPontos(cartao) {
     if (m === marcos[marcos.length - 1]) no.dataset.ponta = 'ultimo';
     trilho.append(no);
   }
-  return trilho;
+  /* A faixa é uma caixa À VOLTA do trilho e não o próprio trilho: o trilho tem
+     os marcos posicionados em absoluto contra ele, e pôr-lhe preenchimento por
+     baixo movia todos os números. */
+  return el('div', { class: 'trilho-faixa' }, trilho);
 }
 
 function proximoPremio(cartao) {
