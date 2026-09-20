@@ -381,10 +381,21 @@ async function ecraCartao(principal) {
 
   /* COMO ESTE CAFÉ TE TRATA. O balcão pode escrever uma alcunha no cartão para
      saber quem és quando lá chegas — nunca te é pedido nada, é ele que a
-     escreve. Mas uma nota sobre uma pessoa que ela não pode ler é o contrário
-     do que este produto diz ser: mostra-se, com o nome de quem a escreveu, e
-     há um botão para a apagar. O artigo 15.º do RGPD não é opcional, e o 21.º
-     dá o direito de se opor. */
+     escreve. Uma nota sobre uma pessoa que ela não pode ler é o contrário do
+     que este produto diz ser, por isso mostra-se, com o nome de quem a
+     escreveu. O artigo 15.º do RGPD não é opcional.
+
+     HAVIA AQUI UM BOTÃO PARA A APAGAR, e saiu. Não por descuido: quem responde
+     pelos dados é o CAFÉ — está na privacidade e no artigo 28.º, ele é o
+     responsável pelo tratamento e nós somos o subcontratante. O cliente a
+     apagar um registo do café, sem ele saber, era a app a decidir por quem
+     decide: o dono escrevia «a Joana da manhã», aquilo desaparecia da lista
+     dele, e ninguém lhe dizia porquê.
+
+     O direito de se opor (art. 21.º) não desapareceu — mudou de porta, e as
+     duas portas dizem-se aqui: pedir ao café, ou largar o cartão, que leva o
+     nome com ele e não toca nos outros. Um direito que obrigasse a apagar a
+     conta inteira é que seria o prejuízo que o art. 7.º/4 proíbe. */
   if (cheio.alcunha) {
     principal.append(el('section', { class: 'seccao' },
       el('h2', { class: 'seccao-titulo', texto: 'Como te tratam aqui' }),
@@ -393,23 +404,11 @@ async function ecraCartao(principal) {
         el('p', { class: 'miudo', style: 'margin-top:6px', texto:
           `É assim que ${cheio.negocio.nome} te chama na lista de clientes, para `
           + 'saber quem és quando cá chegas. Não te foi pedido nada — foi o '
-          + 'balcão que escreveu.' }),
-        el('button', {
-          class: 'btn btn-fantasma btn-pequeno', style: 'margin-top:10px',
-          texto: 'Apagar este nome',
-          aoClick: async (ev) => {
-            const botao = ev.currentTarget;
-            botao.setAttribute('aria-disabled', 'true');
-            try {
-              await api.tirarAlcunha(cheio.id);
-              avisar('Apagado. O café pode escrever outro.', 'bom');
-              await irPara('carteira');
-            } catch (e) {
-              botao.removeAttribute('aria-disabled');
-              avisar(e.message || 'Não deu para apagar.', 'mau');
-            }
-          },
-        }))));
+          + 'balcão que escreveu, e é dele.' }),
+        el('p', { class: 'miudo', style: 'margin-top:6px', texto:
+          'Se não quiseres este nome, pede-lhes que o mudem ou o tirem. E se '
+          + 'preferires, podes deixar este cartão aqui em baixo: o nome vai com '
+          + 'ele, e os teus outros cartões ficam.' }))));
   }
 
   if (cheio.porResgatar) {

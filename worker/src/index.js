@@ -5390,31 +5390,48 @@ rota('PUT', /^\/v1\/balcao\/cartoes\/([\w-]+)\/alcunha$/, async (env, pedido, [c
 });
 
 /**
- * O cliente apaga a alcunha que lhe puseram.
+ * O cliente NÃO apaga a alcunha. E isto foi uma decisão, não um esquecimento.
  *
- * NÃO É UM EXTRA. A alcunha é um dado sobre uma pessoa identificável guardado
- * por nós por conta do café; ela tem direito a vê-la (art. 15.º) e a opor-se
- * (art. 21.º). A app mostra-lha no cartão e este é o botão.
+ * Havia aqui um DELETE que punha a alcunha a NULL a pedido do cliente, com o
+ * artigo 21.º escrito por cima. O raciocínio estava meio certo e a peça estava
+ * no sítio errado.
  *
- * Apaga a alcunha e MAIS NADA — não toca nos carimbos, não sai do café, não
- * mexe na conta. Ao lado disto há um defeito maior e mais antigo, que é não
- * haver forma de largar um cartão sem apagar a conta inteira; esse trata-se à
- * parte, e este não espera por ele.
+ * QUEM RESPONDE PELOS DADOS É O CAFÉ, e não nós: está escrito na privacidade
+ * e no artigo 28.º — cada estabelecimento é o responsável pelo tratamento e o
+ * Carimbo Digital é o subcontratante. Um subcontratante a apagar um registo do
+ * responsável, sem ele saber, é o subcontratante a decidir em vez de quem
+ * decide. O dono escrevia «a Joana da manhã», a alcunha desaparecia da lista
+ * dele, e ninguém lhe dizia porquê nem quando.
  *
- * O café pode escrever outra a seguir, e é assim que tem de ser: a alcunha é
- * dele. O que a pessoa tem é o direito de a ver e de a mandar apagar, não o de
- * proibir o café de a reconhecer.
+ * O QUE A PESSOA CONTINUA A TER, e é o que a lei pede:
+ *
+ *   · VÊ-LA — art. 15.º. Está no ecrã do cartão, com o nome de quem a
+ *     escreveu. Não mudou nada.
+ *   · LEVÁ-LA — art. 20.º. Sai na exportação dos dados, como tudo o resto.
+ *   · OPOR-SE — art. 21.º. Pede ao café, que é quem responde; e se não quiser
+ *     esperar por ele, LARGA O CARTÃO, que leva a alcunha com ele e não toca
+ *     nos outros cartões. Essa rota existe (`DELETE /v1/cliente/cartoes/:id`)
+ *     e é exactamente a saída que o art. 7.º/4 exige — um direito que não
+ *     obriga a destruir tudo o resto para se exercer.
+ *
+ * A ROTA FICA, E RECUSA COM UMA FRASE. Apagá-la dava 404 a uma app em cache
+ * que ainda tenha o botão — e um 404 na app do cliente lê-se como «isto está
+ * avariado». A frase é para ser mostrada.
  */
 rota('DELETE', /^\/v1\/cliente\/cartoes\/([\w-]+)\/alcunha$/, async (env, pedido, [cartaoId]) => {
+  /* Exige-se a sessão na mesma: a recusa não pode ser um oráculo que diga a
+     quem não é dono do cartão se ele existe. */
   const clienteId = await exigirCliente(env, pedido);
-  const feito = await env.DB.prepare(
-    'UPDATE cartoes SET alcunha = NULL WHERE id = ? AND cliente_id = ?'
-  ).bind(cartaoId, clienteId).run();
+  const cartao = await env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND cliente_id = ?'
+  ).bind(cartaoId, clienteId).first();
+  if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404, codigo: 'sem-cartao' });
 
-  if (!feito.meta || feito.meta.changes !== 1) {
-    throw new Falha('Cartão não encontrado', { estado: 404, codigo: 'sem-cartao' });
-  }
-  return { alcunha: null };
+  throw new Falha(
+    'Este nome é do café e é ele que o escreve. Podes pedir-lhe que o mude ou '
+    + 'o tire — ou deixar este cartão, que leva o nome com ele e não mexe nos '
+    + 'teus outros cartões.',
+    { estado: 409, codigo: 'alcunha-do-cafe' });
 });
 
 /**

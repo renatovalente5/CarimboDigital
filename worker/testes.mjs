@@ -3799,7 +3799,16 @@ grupo('A alcunha: quem é o UTUEVN?');
 
      A alcunha é escrita pelo CAFÉ e nunca se pede nada a ninguém. O que estas
      afirmações provam é o que a torna aceitável: fica no cartão daquele café e
-     não sai de lá, o cliente vê-a, e o cliente pode apagá-la. */
+     não sai de lá, o cliente VÊ-A, e o cliente tem por onde se opor.
+
+     E A PORTA MUDOU. Havia um botão na app que a apagava a pedido do cliente.
+     Quem responde pelos dados do programa é o CAFÉ — art. 28.º, e está escrito
+     na privacidade — e um subcontratante a apagar registos do responsável, sem
+     ele saber, é o subcontratante a decidir em vez de quem decide. O direito de
+     oposição (art. 21.º) exerce-se junto do café, ou largando o cartão, que
+     leva a alcunha com ele e não toca nos outros. Estas afirmações provam as
+     duas coisas: que a porta velha RECUSA com uma frase, e que a nova leva
+     mesmo a alcunha. */
   sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0 WHERE id = 'p1'`);
   const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
   await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
@@ -3831,14 +3840,22 @@ grupo('A alcunha: quem é o UTUEVN?');
   certo(JSON.stringify(dados.dados).includes('a Joana da manhã'),
     'e ela sai na exportação do artigo 20.º, como todo o resto');
 
-  /* E PODE APAGÁ-LA, sem apagar mais nada. */
+  /* A PORTA VELHA RECUSA, E COM UMA FRASE. A rota não foi apagada de
+     propósito: um 404 numa app em cache que ainda tenha o botão lê-se como
+     «isto está avariado», e o que se quer mostrar é a explicação. */
   const tirou = await pedir(`/v1/cliente/cartoes/${meu.id}/alcunha`, {
     metodo: 'DELETE', sessao: c.dados.sessao });
-  certo(tirou.estado === 200, 'o cliente pode tirá-la', String(tirou.estado));
-  const depois = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
-  certo(depois.dados[0]?.alcunha === null, 'e ela desaparece');
-  certo(depois.dados[0]?.carimbos === 1,
-    'e MAIS NADA se mexe — o carimbo continua lá', String(depois.dados[0]?.carimbos));
+  certo(tirou.estado === 409 && tirou.dados?.codigo === 'alcunha-do-cafe',
+    'o cliente JÁ NÃO apaga a alcunha — quem responde pelos dados do programa é o café',
+    `${tirou.estado} ${JSON.stringify(tirou.dados)?.slice(0, 80)}`);
+  certo(/café/i.test(String(tirou.dados?.erro)) && /cartão/i.test(String(tirou.dados?.erro)),
+    'e a recusa diz porquê e para onde ir — as duas portas que ficam',
+    String(tirou.dados?.erro).slice(0, 120));
+  const aindaLa = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(aindaLa.dados[0]?.alcunha === 'a Joana da manhã',
+    'e a alcunha continua lá — a recusa não apagou nada pelo caminho',
+    String(aindaLa.dados[0]?.alcunha));
+
 
   /* UM CAFÉ NÃO ESCREVE NO CARTÃO DE OUTRO. É o `negocio_id` na condição que o
      impede, e sem ele bastava adivinhar um identificador.
@@ -3877,6 +3894,27 @@ grupo('A alcunha: quem é o UTUEVN?');
   certo(cortada?.length === 60,
     'a alcunha é cortada aos 60 — chega para «a Joana da manhã» e não para uma ficha clínica',
     `${cortada?.length} caracteres`);
+
+  /* A PORTA NOVA, E FICA NO FIM DO GRUPO DE PROPÓSITO: ela LARGA o cartão, e
+     todas as afirmações acima precisam dele. Posta a meio, o que se lia a
+     seguir era «undefined caracteres» numa afirmação sobre o corte aos 60 —
+     um teste a acusar o código de uma coisa que o próprio teste tinha feito.
+
+     Largar o cartão leva a alcunha com ele e NÃO toca nos outros: é isso que
+     faz do art. 21.º um direito exercível sem o prejuízo que o art. 7.º/4
+     proíbe. */
+  await pedir('/v1/cliente/aderir', { metodo: 'POST', sessao: c.dados.sessao,
+    corpo: { programaId: 'p2' } }).catch(() => null);
+  const antesDeLargar = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  const largado = await pedir(`/v1/cliente/cartoes/${meu.id}`, {
+    metodo: 'DELETE', sessao: c.dados.sessao });
+  certo(largado.estado === 200, 'largar o cartão é uma saída que existe', String(largado.estado));
+  const depois = await pedir('/v1/cliente/cartoes', { sessao: c.dados.sessao });
+  certo(!depois.dados.some((x) => x.id === meu.id),
+    'e leva a alcunha com ele — é a porta que o art. 21.º precisa de ter');
+  certo(depois.dados.length === antesDeLargar.dados.length - 1,
+    'e NÃO leva os outros cartões atrás — um direito que obrigue a destruir tudo o resto não é um direito',
+    `${antesDeLargar.dados.length} → ${depois.dados.length}`);
 
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
 }

@@ -1065,12 +1065,6 @@ function criarDemo() {
       return { feito: true, demo: true };
     },
 
-    async tirarAlcunha(cartaoId) {
-      const e = estado();
-      const c = e.cartoes.find((x) => x.id === cartaoId);
-      if (c) { c.alcunha = null; gravar(e); }
-      return { alcunha: null };
-    },
 
     async largarCartao(cartaoId) {
       const e = estado();
@@ -1321,8 +1315,6 @@ export const api = MODO === 'remoto'
       tirarOperador: (operadorId) =>
         remoto.pedir(`/v1/balcao/operadores/${operadorId}`, { metodo: 'DELETE' }),
       /* Do lado do cliente: ver a alcunha é no cartão; tirá-la é aqui. */
-      tirarAlcunha: (cartaoId) =>
-        remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/alcunha`, { metodo: 'DELETE' }),
       largarCartao: (cartaoId) =>
         remoto.pedir(`/v1/cliente/cartoes/${cartaoId}`, { metodo: 'DELETE' }),
       tirarEmail: () => remoto.pedir('/v1/cliente/email', { metodo: 'DELETE' }),
