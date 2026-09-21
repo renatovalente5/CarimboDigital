@@ -2705,7 +2705,7 @@ const CHAVE_ECRA = 'ecra-app';
    carteira, aqui em cima. */
 const ECRAS = {
   carteira:  { titulo: 'Carimbo Digital', icone: 'carteira', rotulo: 'Carteira', render: ecraCarteira },
-  codigo:    { titulo: 'Código',          icone: 'qr',       rotulo: 'Código',   centro: true },
+  codigo:    { titulo: 'Código',          icone: 'qr',       rotulo: 'Código' },
   perfil:    { titulo: 'Perfil',          icone: 'pessoa',   rotulo: 'Perfil',   render: ecraPerfil },
 };
 
@@ -2862,7 +2862,7 @@ function desenharBarra() {
   for (const [nome, e] of Object.entries(ECRAS)) {
     const atual = nome === estado.ecra;
     const botao = el('button', {
-      class: e.centro ? 'barra-item barra-centro' : 'barra-item',
+      class: 'barra-item', type: 'button',
       'aria-current': atual ? 'page' : null,
       /* O NOME DO ECRÃ NO PRÓPRIO BOTÃO. Não é para o produto — é para quem o
          mede. A bateria apontava aos separadores por POSIÇÃO
@@ -2874,8 +2874,23 @@ function desenharBarra() {
       'data-ecra': nome,
       aoClick: () => irPara(nome),
     },
-      el('span', { class: e.centro ? 'barra-bolha' : '', html: icone(e.icone, { tamanho: e.centro ? 26 : 24 }) }),
-      el('span', { texto: e.rotulo }));
+      /* O ÍCONE VAI NUM `<span>` SEU e não solto no botão, porque a pastilha do
+         separador activo é um `::before` POSICIONADO — e um elemento
+         posicionado pinta por cima do conteúdo em linha que vem antes dele.
+         Sem esta caixa, a pastilha tapava o ícone que devia estar a destacar. */
+      el('span', { class: 'barra-icone', html: icone(e.icone, { tamanho: 24 }) }),
+      /* O NOME DEIXOU DE SE VER, MAS NÃO DEIXOU DE EXISTIR.
+
+         A barra passou a ser só ícones. Um botão que não tem texto nenhum lá
+         dentro não tem nome acessível: um leitor de ecrã anuncia «botão» três
+         vezes e a pessoa fica a adivinhar. O texto continua cá, escondido aos
+         olhos e não à árvore de acessibilidade — que é a diferença entre esta
+         classe e um `display: none`, que esconderia aos dois.
+
+         Vai em texto a sério e não num `aria-label` de propósito: um nome que
+         é conteúdo do botão é o mesmo nome que a bateria lê, e é o que
+         sobrevive a alguém mudar a palavra num sítio só. */
+      el('span', { class: 'so-leitor', texto: e.rotulo }));
     barra.append(botao);
   }
 }

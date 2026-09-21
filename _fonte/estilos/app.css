@@ -93,13 +93,37 @@ body.app input, body.app textarea, body.app .selecionavel {
    ========================================================================= */
 
 body.app:not(.balcao) {
-  /* OS TRÊS AFASTAMENTOS SÃO O MESMO NÚMERO, e isso não é simetria por gosto:
-     é como a barra do iOS 26 está feita — as medições de terceiros dão 21 pt
-     à esquerda, à direita E ao fundo. Vinte é o degrau da escala da casa que
-     lhe fica ao lado. Com o lado a 16 e o fundo a 12, como estava, a cápsula
-     lia-se encostada ao fundo do ecrã. */
-  --barra-lado: var(--e-5);
+  /* A CÁPSULA TEM A LARGURA DO CONTEÚDO, NÃO A DO ECRÃ.
+
+     Medi a barra do IMDb num iPhone de 390 pt: 274 pt de largura, centrada,
+     62 pt de altura, 21 pt acima do fundo do ecrã — e os 62 e os 21 são
+     exactamente as medidas publicadas da barra flutuante do iOS 26. Lá dentro,
+     três separadores de 86 pt e 8 pt de folga de cada lado: 8+86×3+8 = 274.
+
+     Estes números são os da casa agora, e não uma percentagem do ecrã: uma
+     cápsula que estica com o ecrã volta a ser uma faixa, que é o que ela
+     deixou de ser. Num ecrã de 320 sobram 11 pt de cada lado; num tablet,
+     muitos — e é assim que deve ser.
+
+     OS 94 EM VEZ DOS 86 do IMDb têm uma razão medida. Lá a pastilha é mais
+     larga do que o separador — 94 contra 86 — e transborda 4 px para cada
+     lado. Copiado tal e qual, isso punha um adereço a sair da caixa do botão,
+     e a guarda que pergunta se o que um botão tem lá dentro cabe nele
+     reprovava-o vinte vezes, com razão: `scrollWidth` não distingue uma
+     pastilha de uma palavra. Alargar o separador aos 94 faz o alvo VISÍVEL e o
+     alvo TOCÁVEL serem a mesma coisa, que é melhor do que o original. */
+  --barra-item: 94px;
+  --barra-folga-interna: var(--e-2);
   --barra-fundo: var(--e-5);
+
+  /* SEM RÓTULO, A BARRA ENCOLHE. `--barra` é a altura do separador, e ela
+     estava dimensionada para caber um ícone MAIS uma palavra por baixo. Com a
+     palavra escondida (ver o `so-leitor` no `desenharBarra`) sobravam 64 px
+     para um ícone de 24, e o que se via era um vazio à volta dele. Sessenta
+     mais os dois do contorno dão os 62 medidos. O balcão não mexe: lá a barra
+     continua colada ao fundo E com rótulos, porque quem a usa tem fila à
+     espera e não pode adivinhar ícones. */
+  --barra: 60px;
 
   /* O RECORTE DO TELEMÓVEL ABSORVE O AFASTAMENTO, NÃO SE SOMA A ELE.
 
@@ -118,15 +142,18 @@ body.app:not(.balcao) {
 }
 
 body.app:not(.balcao) .barra {
-  inset: auto var(--barra-lado) var(--barra-baixo) var(--barra-lado);
-  /* A CÁPSULA PÁRA NA COLUNA DA APP. Uma faixa colada ao fundo podia ir de
-     ponta a ponta porque só os separadores lá dentro é que estavam limitados
-     à coluna; uma cápsula É a forma, e numa janela de computador ficava um
-     oval de 1240px com três botões encolhidos ao meio. O `margin-inline` é o
-     que a centra: com `left` e `right` postos, é ele que reparte o que sobra. */
-  max-width: var(--coluna);
+  /* A LARGURA SAI DO CONTEÚDO E O RESTO É MARGEM.
+
+     `left` e `right` a zero com uma largura definida é uma caixa
+     sobre-restringida, e é aí que o `margin-inline: auto` reparte o que sobra
+     pelos dois lados — o mesmo truque que centra uma coluna, aplicado a um
+     elemento fixo. A alternativa (`left: 50%` com `translate: -50%`) centra
+     igual mas numa largura ímpar cai em meio pixel, e meio pixel num contorno
+     de um pixel é um traço cinzento em vez de um traço. */
+  inset: auto 0 var(--barra-baixo) 0;
+  width: fit-content;
   margin-inline: auto;
-  padding-bottom: 0;
+  padding: 0 var(--barra-folga-interna);
   border-top: 0;
   /* NOVENTA POR CENTO, E NÃO OITENTA E SEIS — e o número foi medido, não
      escolhido.
@@ -181,8 +208,93 @@ body.app:not(.balcao) .barra {
    O raio é o que o torna uma pastilha em vez de um rectângulo dentro de um
    oval: o traço segue o `border-radius` do elemento, e sem ele os cantos do
    anel furavam as pontas da cápsula. */
-body.app:not(.balcao) .barra-item { border-radius: var(--r-max); }
-body.app:not(.balcao) .barra-item:focus-visible { outline-offset: -4px; }
+body.app:not(.balcao) .barra-interior { width: auto; max-width: none; }
+body.app:not(.balcao) .barra-item {
+  /* Largura fixa e não `flex: 1`: é a soma delas que dá a largura da cápsula,
+     e um `flex: 1` dentro de uma caixa que se dimensiona pelo conteúdo é uma
+     conta circular — o browser resolve-a a zero. */
+  flex: 0 0 var(--barra-item);
+  position: relative;
+  gap: 0;
+}
+
+/* A PASTILHA DO SEPARADOR ACTIVO
+
+   É a peça que faz esta barra ser esta barra: em vez de o activo mudar a cor
+   de uma palavra, ganha uma pastilha cheia por trás do ícone.
+
+   OCUPA O SEPARADOR INTEIRO na horizontal, e 4 px de folga em cima e em baixo.
+   No IMDb ela é 8 px mais larga do que o separador e transborda para os lados;
+   aqui o separador é que foi alargado até ela. Assim o que se vê e o que se
+   toca é a mesma caixa — e nada sai do botão para o `overflow: hidden` da
+   cápsula cortar ou para uma guarda confundir com texto que não cabe.
+
+   A COR NÃO É A DO IMDB, e o número diz porquê: lá a pastilha mede 1,18:1
+   contra a barra e o ícone activo tem a mesma cor dos outros, ou seja o único
+   sinal de «estás aqui» é um cinzento que quase não existe — 1.4.11 pede 3:1 a
+   um objecto gráfico que carregue informação. Aqui a pastilha é a marca cheia
+   (5,1:1 no escuro, 5,3:1 no claro, medidos contra o vidro com o pior conteúdo
+   por trás) e o ícone veste a tinta que foi feita para assentar nela. */
+body.app:not(.balcao) .barra-item::before {
+  content: "";
+  position: absolute; inset: 4px 0;
+  border-radius: var(--r-max);
+  background: transparent;
+  transition: background-color var(--t-2) ease;
+}
+body.app:not(.balcao) .barra-item[aria-current="page"]::before {
+  background: var(--marca);
+}
+body.app:not(.balcao) .barra-item[aria-current="page"] { color: var(--marca-texto); }
+body.app:not(.balcao) .barra-icone {
+  /* Posicionado de propósito: sem isto o `::before`, que é absoluto, pintava
+     por cima do ícone. Dois posicionados sem `z-index` resolvem-se pela ordem
+     no documento, e o ícone vem depois. */
+  position: relative;
+  display: grid; place-items: center;
+}
+body.app:not(.balcao) .barra-item:active .barra-icone { transform: scale(.9); }
+
+/* O ANEL DE FOCO ABRAÇA A PASTILHA, E NÃO O BOTÃO.
+
+   O botão é um rectângulo de 86×60; a pastilha é um oval de 94×52. Um anel
+   desenhado à volta do botão passava por dentro da pastilha de um lado e por
+   fora do outro, e num separador activo ficavam dois roxos encavalitados sem
+   se perceber qual era qual. Desenha-se onde a pessoa vê a forma.
+
+   O `outline: none` no botão só se escreve porque o anel aparece a seguir:
+   tirar um anel sem pôr outro é deixar quem anda de teclado sem saber onde
+   está. Prova-se a ver, não a ler — e há uma afirmação na bateria para isso. */
+body.app:not(.balcao) .barra-item:focus-visible { outline: none; }
+body.app:not(.balcao) .barra-item:focus-visible::before {
+  outline: 2px solid var(--marca);
+  outline-offset: 2px;
+}
+
+/* E NO SEPARADOR ACTIVO O ANEL VIRA-SE AO CONTRÁRIO, porque a pastilha é da
+   cor do anel.
+
+   Um anel de `--marca` por cima de uma pastilha de `--marca` vale 1:1: o foco
+   desaparecia exactamente no separador onde a pessoa está, que é o único sítio
+   onde ela vai procurá-lo. Vira-se para dentro e veste a tinta da pastilha — o
+   par `--marca-texto` sobre `--marca` é o que o auditor já mede e prova todos
+   os dias, porque é o mesmo par de qualquer botão cheio da app. */
+body.app:not(.balcao) .barra-item[aria-current="page"]:focus-visible::before {
+  outline-color: var(--marca-texto);
+  outline-offset: -4px;
+}
+
+/* UMA CÁPSULA VAZIA NÃO SE DESENHA.
+
+   Os ecrãs de erro esvaziam a barra e deixam o `<nav>` no documento. Enquanto
+   ela tinha a largura do ecrã isso era uma faixa vazia — feio, e mais nada.
+   Com a largura a sair do conteúdo, «sem conteúdo» passa a ser DOIS PÍXEIS: um
+   traço com sombra a flutuar ao fundo do ecrã de «não deu para carregar», que
+   é precisamente o momento em que a app não pode parecer avariada.
+
+   A pergunta é feita ao que lá está dentro e não a uma bandeira posta à mão:
+   quem esvazia a barra não tem de se lembrar de mais nada. */
+.barra:not(:has(.barra-item)) { display: none; }
 
 /* O CONTEÚDO DESVANECE-SE ANTES DE CHEGAR À CÁPSULA.
 
@@ -211,38 +323,28 @@ body.app:not(.balcao)::after {
   pointer-events: none;
 }
 
-/* A BOLHA ENCOLHE PORQUE DEIXOU DE SAIR PARA FORA.
+/* A BOLHA ROXA DO MEIO SAIU COM OS RÓTULOS.
 
-   Ela tinha 46px e subia 14 acima da faixa — o gesto clássico de uma barra
-   colada ao fundo, em que metade dela vive por cima. Dentro de uma cápsula não
-   há «por cima»: os 46 inteiros passaram a contar para a altura e a barra
-   cresceu de 64 para 70, com os rótulos a encostar ao bordo de baixo.
+   Ela existia para dizer «o código está sempre a um toque»: um círculo cheio
+   da cor da marca no separador do meio. Numa barra em que o activo passa a ser
+   uma pastilha cheia da MESMA cor, ela deixou de poder existir — dois
+   preenchimentos roxos ao mesmo tempo e a pessoa não sabe qual é que quer
+   dizer «estás aqui». O código continua a um toque; o que se perde é o
+   sublinhado, e o meio de três é o sítio mais fácil de acertar com o polegar.
 
-   Quarenta cabe nos 64 com o rótulo por baixo, e continua a ser o maior alvo
-   da barra — que é o que faz dele a acção principal. */
-body.app:not(.balcao) .barra-bolha {
-  margin-top: 0;
-  width: 40px; height: 40px;
-}
-body.app:not(.balcao) .barra-bolha svg { width: 22px; height: 22px; }
-
-/* O RÓTULO SOBE UM PASSO DE TINTA dentro da cápsula.
-
-   Ele usa a tinta terciária — a das legendas — e ela foi escolhida para
-   assentar no papel liso. Por cima de vidro com conteúdo a passar por trás, o
-   fundo deixa de ser o papel: é o papel MAIS o que lá estiver. A tinta
-   secundária custa um passo de hierarquia e devolve meio ponto de contraste,
-   que é o que faz a diferença entre 4,05 e 5,00. */
+   O ÍCONE INACTIVO SOBE UM PASSO DE TINTA. Ele usava a terciária — a das
+   legendas — escolhida para assentar no papel liso. Por cima de vidro com
+   conteúdo a passar por trás, o fundo deixa de ser o papel: é o papel MAIS o
+   que lá estiver. */
 body.app:not(.balcao) .barra-item { color: var(--tinta-2); }
 
-/* E O SEPARADOR EM QUE SE ESTÁ VOLTA A SER DA COR DA MARCA.
-
-   A regra de cima é mais específica do que a `[aria-current="page"]` que está
-   lá em baixo — três classes contra uma classe e um atributo — e por isso
-   apagou-a sem se ver: os três rótulos ficaram do mesmo cinzento e a barra
-   deixou de dizer onde a pessoa estava. Foi a guarda do vidro que o mostrou,
-   por os três darem exactamente o mesmo contraste. */
-body.app:not(.balcao) .barra-item[aria-current="page"] { color: var(--marca); }
+/* AQUI ESTAVA A REGRA QUE PINTAVA O RÓTULO ACTIVO DA COR DA MARCA, e saiu
+   com o rótulo. Ficou a apanhar-me: ela tinha a MESMA especificidade da que
+   pinta o ícone activo com a tinta da marca, e estava depois — ou seja, o
+   ícone ficou roxo por cima de uma pastilha roxa e desapareceu por completo.
+   Ontem foi uma regra de escopo a atropelar um estado; hoje foi um empate de
+   especificidade resolvido pela ordem. Um selector que deixa de ter sentido
+   não fica «inofensivo»: fica à espera. */
 
 /* ONDE O VIDRO NÃO EXISTE, a barra é opaca.
 
@@ -1086,18 +1188,11 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 }
 
 /* O botão do meio da barra: o código está sempre a um toque. */
-.barra-centro { position: relative; }
-.barra-bolha {
-  display: grid; place-items: center;
-  width: 46px; height: 46px; margin-top: -14px;
-  border-radius: var(--r-max);
-  background: var(--marca); color: var(--marca-texto);
-  box-shadow: 0 4px 12px var(--marca-aro);
-  transition: transform var(--t-1) var(--mola);
-}
-.barra-centro:active .barra-bolha { transform: scale(.9); }
-.barra-centro { color: var(--tinta-2); }
-.barra-centro[aria-current="page"] { color: var(--marca); }
+/* A BOLHA DO SEPARADOR DO MEIO E O QUE A ACOMPANHAVA SAÍRAM DAQUI. Ela era o
+   `.barra-centro`/`.barra-bolha` — um círculo cheio da marca no separador do
+   código — e deixou de poder existir no dia em que o separador activo passou a
+   ser uma pastilha cheia da mesma cor. O balcão nunca a usou: a barra dele
+   tem o seu próprio `desenharBarra`, sem `centro`. */
 
 /* =========================================================================
    Primeira abertura

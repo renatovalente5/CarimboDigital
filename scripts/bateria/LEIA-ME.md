@@ -85,8 +85,12 @@ que apanha a promessa que morre dentro de um clique.
 3. **Um módulo, um assunto.** É a única forma de a falha dizer onde dói.
 4. **`visivel`, não `ver`**, sempre que a pergunta é «a pessoa vê isto?».
    O `#boas-vindas` continua no DOM depois de fechado.
-5. Os separadores da barra não têm `id`: são `.barra-item`, pela ordem
-   Carteira, Descobrir, Código, Prémios, Perfil.
+5. Os separadores da barra não se apontam pela POSIÇÃO: cada um tem
+   `data-ecra` com o nome do ecrã — `carteira`, `codigo`, `perfil` na app do
+   cliente. Já foram cinco, e no dia em que dois saíram oito módulos
+   rebentaram de uma vez por causa de um número. Na app do cliente eles já não
+   mostram o rótulo: o nome existe num `<span class="so-leitor">` e lê-se pelo
+   `textContent`, não pelo que se vê.
 6. **Espera pelo conteúdo, não pelo contentor.** O `#barra`, o `#principal`
    e o `#topo` estão no HTML estático: um `esperar('#barra')` devolve na
    hora, com a barra ainda vazia, e o que vier a seguir lê zero separadores.

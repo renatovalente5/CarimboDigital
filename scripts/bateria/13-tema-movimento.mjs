@@ -236,10 +236,29 @@ const A_CAPSULA = `
     flutua: Math.round(r.left) > 0 && Math.round(innerWidth - r.right) > 0,
     itens: [...barra.querySelectorAll('.barra-item')].map((n) => {
       const s = getComputedStyle(n);
+      const opaco = (c) => { const p = String(c).match(/[\\d.]+/g);
+        return p && (p.length < 4 || Number(p[3]) > 0.95); };
+      /* O FUNDO PRÓPRIO DO SEPARADOR, se ele tiver um. A pastilha do activo é
+         um pseudo-elemento cheio: quem está por baixo do ícone é ela, e não o
+         vidro. Medir o ícone activo contra o vidro dava 1,04:1 e acusava um
+         defeito que não existe — a tinta e a pastilha são o par que o auditor
+         mede todos os dias. */
+      const proprio = [s, getComputedStyle(n, '::before'), getComputedStyle(n, '::after')]
+        .map((e) => e.backgroundColor).find(opaco) || null;
+      /* Um separador só com ícone não tem texto: a WCAG pede 3:1 a um objecto
+         gráfico e 4,5 a letras, e ler o tamanho da letra de um botão sem letras era
+         exigir a fasquia do texto a um desenho. Pergunta-se se há texto à
+         vista, e não quanto mede a letra. */
+      const comTexto = [...n.childNodes].some((c) =>
+        (c.nodeType === 3 && c.textContent.trim())
+        || (c.nodeType === 1 && !c.classList.contains('so-leitor')
+            && c.tagName !== 'SVG' && (c.textContent || '').trim()));
       return {
         chave: n.dataset.ecra || '?',
         activo: n.getAttribute('aria-current') === 'page',
         cor: s.color,
+        fundoProprio: proprio,
+        comTexto,
         px: parseFloat(s.fontSize),
         peso: Number(s.fontWeight) || 400,
       };
@@ -260,10 +279,32 @@ function vidroNoPiorCaso(capsula) {
       /* Não medido é uma falha, não um silêncio: uma cor que o leitor não
          reconheça faz a lista de maus encolher e a afirmação passar por boa. */
       if (!cor) { maus.push(`«${it.chave}» tem uma cor que não sei ler: ${it.cor}`); continue; }
-      const c = razao(misturar(cor, vidro, cor.a ?? 1), vidro);
-      const m = minimoPara(it.px, it.peso);
+
+      /* QUEM ESTÁ MESMO POR BAIXO. Com pastilha, é a pastilha — e ela é opaca,
+         portanto o que passa por trás do vidro deixa de contar. Sem pastilha,
+         é o vidro composto sobre o pior conteúdo possível. */
+      const proprio = it.fundoProprio ? corParaRGB(it.fundoProprio) : null;
+      const debaixo = proprio || vidro;
+      const m = it.comTexto ? minimoPara(it.px, it.peso) : 3;
+      const c = razao(misturar(cor, debaixo, cor.a ?? 1), debaixo);
       if (c < pior) pior = c;
-      if (c < m) maus.push(`«${it.chave}» sobre ${nome} ${c.toFixed(2)}:1 (pede ${m})`);
+      if (c < m) {
+        maus.push(`«${it.chave}»${proprio ? ' na sua pastilha' : ` sobre ${nome}`}`
+          + ` ${c.toFixed(2)}:1 (pede ${m})`);
+      }
+
+      /* E A PASTILHA TAMBÉM SE MEDE. Ela é o que diz «estás aqui»: pela 1.4.11
+         é um objecto gráfico que carrega informação e precisa de 3:1 contra o
+         que a rodeia — que é o vidro. A pastilha suave (`marca-fundo`) era a
+         escolha bonita e dava 1,1:1: passava despercebida a quem precisasse
+         dela. */
+      if (proprio) {
+        const cp = razao(proprio, vidro);
+        if (cp < pior) pior = cp;
+        if (cp < 3) {
+          maus.push(`a pastilha de «${it.chave}» sobre ${nome} ${cp.toFixed(2)}:1 (pede 3)`);
+        }
+      }
     }
   }
   return { maus, pior };
@@ -762,17 +803,22 @@ export async function correr(palco, certo) {
        do que a do `aria-current` apaga-lhe a cor sem avisar, e o atributo
        continua lá a jurar que está tudo bem — foi o que aconteceu quando a
        barra passou a flutuar. Compara-se a cor que sai, não o atributo. */
+    /* O PAR, e não só a tinta. O estado deixou de ser dito por uma palavra que
+       muda de cor: é uma pastilha cheia por trás do ícone. Uma afirmação que só
+       olhasse para o `color` tanto reprovava um produto certo — pastilha a
+       fazer o trabalho todo e tinta igual — como aprovava um errado. */
     const cores = capsula ? capsula.itens : [];
-    const doActivo = cores.filter((i) => i.activo).map((i) => i.cor);
-    const dosOutros = cores.filter((i) => !i.activo).map((i) => i.cor);
+    const par = (i) => `${i.cor} sobre ${i.fundoProprio || 'nada'}`;
+    const doActivo = cores.filter((i) => i.activo).map(par);
+    const dosOutros = cores.filter((i) => !i.activo).map(par);
     certo(doActivo.length === 1 && dosOutros.length >= 1
       && !dosOutros.includes(doActivo[0]),
-      `app · tema ${etiqueta}: o separador em que a pessoa está tem cor própria`,
+      `app · tema ${etiqueta}: o separador em que a pessoa está distingue-se dos outros`,
       `activo ${doActivo.join('/')} vs os outros ${[...new Set(dosOutros)].join('/')}`);
 
     const vidro = capsula && vidroNoPiorCaso(capsula);
     certo(!!vidro && vidro.maus.length === 0,
-      `app · tema ${etiqueta}: os rótulos da cápsula lêem-se com o pior conteúdo`
+      `app · tema ${etiqueta}: o que se vê na cápsula lê-se com o pior conteúdo`
       + ` possível por trás do vidro (o pior mediu ${vidro ? vidro.pior.toFixed(2) : '?'}:1)`,
       vidro ? vidro.maus.join(' · ') : 'não cheguei a medir a cápsula');
   }

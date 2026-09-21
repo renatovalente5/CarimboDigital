@@ -90,6 +90,18 @@ const ATE = (seletor, tecto = 8000) => `
   await new Promise((r) => setTimeout(r, 250));
 `;
 
+/* A carteira passou a ser um maço: o cartão abre-se pela faixa e só então tem
+   lá dentro o botão que leva ao cartão todo. Clicar no `<article>` já não leva
+   a lado nenhum — e a captura saía do ecrã errado sem se queixar. */
+const ABRIR_NO_MACO = (nome) => `
+  {
+    const alvo = [...document.querySelectorAll('#principal .pilha > .cartao')]
+      .find((x) => (x.querySelector('.cartao-nome')?.textContent || '').includes(${JSON.stringify(nome)}));
+    const aba = alvo && alvo.querySelector('.cartao-aba');
+    if (aba && aba.getAttribute('aria-expanded') !== 'true') aba.click();
+    await new Promise((r) => setTimeout(r, 400));
+  }`;
+
 const ABRIR_APP = `
   const b = document.querySelector('#bv-seguinte');
   if (b) { for (let i = 0; i < 3; i++) { b.click(); await new Promise(r=>setTimeout(r,260)); } }
@@ -106,28 +118,15 @@ const ECRAS = [
   {
     nome: '6-codigo', espera: '#principal .identidade-numero, #principal canvas, #principal svg', url: '/app/?demo=1', largura: 402, altura: 874,
     guiao: `${ABRIR_APP}
-            document.querySelectorAll('.barra-item')[2].click();
+            document.querySelector('.barra-item[data-ecra="codigo"]').click();
             await new Promise(r=>setTimeout(r,900));`,
   },
   {
     nome: '7-cartao', espera: '#principal .cartao-grande', url: '/app/?demo=1', largura: 402, altura: 1180,
     guiao: `${ABRIR_APP}
-            const c = [...document.querySelectorAll('#principal .pilha > .cartao')]
-                        .find(x => x.textContent.includes('Café Torrado'));
-            c.click();
+            ${ABRIR_NO_MACO('Café Torrado')}
+            document.querySelector('#principal .cartao[data-aberto="sim"] .btn-cartao').click();
             ${ATE('#principal .cartao-grande')}`,
-  },
-  {
-    nome: '8-descobrir', espera: '#principal .lista .linha, #principal .cartao', url: '/app/?demo=1', largura: 402, altura: 874,
-    guiao: `${ABRIR_APP}
-            document.querySelectorAll('.barra-item')[1].click();
-            await new Promise(r=>setTimeout(r,900));`,
-  },
-  {
-    nome: '9-premios', espera: '#principal .pilha, #principal .lista, #principal .vazio', url: '/app/?demo=1', largura: 402, altura: 874,
-    guiao: `${ABRIR_APP}
-            document.querySelectorAll('.barra-item')[3].click();
-            await new Promise(r=>setTimeout(r,900));`,
   },
 
   { nome: '10-balcao-entrada', espera: '#porta-entrar', url: '/balcao/', largura: 402, altura: 874, limpar: true },
@@ -159,7 +158,7 @@ const ECRAS = [
     url: '/balcao/?demo=1', largura: 402, altura: 1000,
     guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
             await new Promise(res=>setTimeout(res,1600));
-            document.querySelectorAll('.barra-item')[1].click();
+            document.querySelector('.barra-item[data-ecra="hoje"]').click();
             ${ATE('#principal .numeros')}`,
   },
   {
@@ -167,7 +166,7 @@ const ECRAS = [
     url: '/balcao/?demo=1', largura: 402, altura: 1240,
     guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
             await new Promise(res=>setTimeout(res,1600));
-            document.querySelectorAll('.barra-item')[3].click();
+            document.querySelector('.barra-item[data-ecra="programa"]').click();
             ${ATE('#previa')}`,
   },
 
@@ -182,7 +181,7 @@ const ECRAS = [
     url: '/balcao/?demo=1', largura: 402, altura: 2200,
     guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
             await new Promise((r)=>setTimeout(r,1600));
-            document.querySelectorAll('.barra-item')[3].click();
+            document.querySelector('.barra-item[data-ecra="programa"]').click();
             /* ESPERA-SE PELA LISTA, e não por um número de milissegundos: ela
                vem de um pedido próprio, DEPOIS de o ecrã estar pintado, e o
                \`scrollIntoView\` chegava primeiro — a captura saía no topo do
@@ -208,35 +207,15 @@ const ECRAS = [
             ${ATE('#painel .btn-google, #painel #campo-email')}`,
   },
   /* O mapa do «Descobrir», que é a razão de este ecrã ter mudado. */
-  {
-    nome: '17-mapa-descobrir', espera: '#mapa-descobrir .mapa-pino',
-    url: '/app/?demo=1', largura: 402, altura: 1100, limpar: true,
-    guiao: `${ABRIR_APP}
-            document.querySelectorAll('.barra-item')[1].click();
-            ${ATE('#mapa-descobrir .mapa-pino')}
-            await new Promise((r)=>setTimeout(r,700));`,
-  },
   /* E o ecrã onde o dono marca onde fica o estabelecimento. */
-  {
-    nome: '18-onde-fica', espera: '.ponto-alvo',
-    url: '/balcao/?demo=1', largura: 402, altura: 1100, limpar: true,
-    guiao: `document.querySelector('#entrada-acoes .btn-cheio')?.click();
-            await new Promise((r)=>setTimeout(r,1600));
-            document.querySelectorAll('.barra-item')[3].click();
-            ${ATE('#linha-onde-fica .linha b')}
-            document.querySelector('#linha-onde-fica .linha').click();
-            ${ATE('.ponto-alvo')}
-            await new Promise((r)=>setTimeout(r,1000));`,
-  },
 
   /* O convite para um amigo. */
   {
     nome: '19-traz-um-amigo', espera: '#convite-endereco',
     url: '/app/?demo=1', largura: 402, altura: 1000, limpar: true,
     guiao: `${ABRIR_APP}
-            const c = [...document.querySelectorAll('#principal .pilha > .cartao')]
-              .find((x) => x.textContent.includes('Café Torrado'));
-            c.click();
+            ${ABRIR_NO_MACO('Café Torrado')}
+            document.querySelector('#principal .cartao[data-aberto="sim"] .btn-cartao').click();
             ${ATE('#traz-amigo')}
             document.querySelector('#traz-amigo').click();
             ${ATE('#convite-endereco')}
@@ -249,7 +228,7 @@ const ECRAS = [
   {
     nome: '16-guardar-a-conta', espera: '#painel', url: '/app/?demo=1', largura: 402, altura: 1100, limpar: true,
     guiao: `${ABRIR_APP}
-            document.querySelectorAll('.barra-item')[4].click();
+            document.querySelector('.barra-item[data-ecra="perfil"]').click();
             ${ATE('#principal .lista .linha')}
             document.querySelector('#principal .lista .linha').click();
             ${ATE('#painel .btn-google, #painel #campo-email')}`,
@@ -300,7 +279,7 @@ const ECRAS = [
               b.click(); await new Promise(r=>setTimeout(r,420));
             }
             await new Promise(r=>setTimeout(r,900));
-            document.querySelectorAll('#barra .barra-item')[2].click();
+            document.querySelector('.barra-item[data-ecra="codigo"]').click();
             await new Promise(r=>setTimeout(r,1400));`,
   },
 ];
@@ -411,10 +390,23 @@ for (const ecra of ECRAS) {
   const { data } = await enviar('Page.captureScreenshot',
     clip ? { format: 'png', clip, captureBeyondViewport: true } : { format: 'png' },
     sessionId);
-  writeFileSync(join(ecra.paraOSite ? DESTINO_SITE : DESTINO, `${ecra.nome}.png`),
-    Buffer.from(data, 'base64'));
-  console.log(`  ${certo ? ' ' : '✗'} ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}`
-    + (certo ? '' : `  (${porque})`));
+  const ficheiro = join(ecra.paraOSite ? DESTINO_SITE : DESTINO, `${ecra.nome}.png`);
+
+  /* UM ALVO QUE FALHOU NÃO DEIXA FICHEIRO.
+
+     Escrevia-se o PNG na mesma, com o ecrã errado lá dentro: quem fosse buscar
+     uma captura para o site levava a página errada e não tinha como saber. Um
+     ficheiro que existe é uma afirmação de que está certo — se não está, o que
+     tem de sobrar é a ausência dele, que se vê. E apaga-se o velho: um
+     ficheiro de ontem é ainda mais convincente do que um errado de hoje. */
+  if (!certo) {
+    if (existsSync(ficheiro)) rmSync(ficheiro);
+    console.log(`  ✗ ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}  (${porque})`);
+    continue;
+  }
+
+  writeFileSync(ficheiro, Buffer.from(data, 'base64'));
+  console.log(`    ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}`);
 }
 
 await enviar('Target.closeTarget', { targetId }).catch(() => {});

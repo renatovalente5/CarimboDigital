@@ -156,10 +156,46 @@ const CHAVE = `(n) => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '')
      ? '.' + n.className.trim().split(/\\s+/).join('.') : '')
   + '|' + (n.getAttribute('aria-label') || (n.textContent || '')).replace(/\\s+/g, ' ').trim().slice(0, 22)`;
 
-const DESENHO = `(n) => { const e = getComputedStyle(n);
-  return { contorno: e.outlineStyle + ' ' + e.outlineWidth + ' ' + e.outlineColor,
-           sombra: e.boxShadow, borda: e.borderColor + ' ' + e.borderWidth,
-           corDoContorno: e.outlineColor }; }`;
+/* O QUE MUDA QUANDO UM CONTROLO GANHA O FOCO — E ONDE OLHAR.
+
+   Lia-se só o elemento. Mas um anel pode ser desenhado num `::before`, e isso
+   não é um capricho: na barra de separadores a pastilha do activo é um
+   pseudo-elemento, e o anel tem de a abraçar a ela e não à caixa do botão —
+   senão passa por dentro da pastilha de um lado e por fora do outro. Com a
+   leitura só do elemento, os três separadores diziam «não mudo nada ao receber
+   o foco» e a afirmação reprovava um produto que estava certo.
+
+   Lê-se o elemento E os dois pseudo-elementos, e o anel que conta é o primeiro
+   que exista — é esse que a pessoa vê. */
+const DESENHO = `(n) => {
+  const cam = [getComputedStyle(n), getComputedStyle(n, '::before'), getComputedStyle(n, '::after')];
+  const tra = (e) => e.outlineStyle + ' ' + e.outlineWidth + ' ' + e.outlineColor;
+  const comAnel = cam.find((e) => e.outlineStyle !== 'none' && parseFloat(e.outlineWidth) > 0);
+  return {
+    contorno: cam.map(tra).join(' | '),
+    sombra: cam.map((e) => e.boxShadow).join(' | '),
+    borda: cam.map((e) => e.borderColor + ' ' + e.borderWidth).join(' | '),
+    fundo: cam.map((e) => e.backgroundColor).join(' | '),
+    corDoContorno: (comAnel || cam[0]).outlineColor,
+    /* Onde é que o traço assenta: o primeiro fundo OPACO a contar do próprio
+       anel para fora. Um pseudo-elemento cheio por baixo do anel é o fundo
+       dele — subir daí até ao corpo da página é medir contra uma coisa que
+       está tapada. */
+    fundoDoAnel: (() => {
+      const opaco = (c) => { const p = String(c).match(/[\\d.]+/g);
+        return p && (p.length < 4 || Number(p[3]) > 0.95); };
+      const desloc = parseFloat((comAnel || cam[0]).outlineOffset) || 0;
+      /* Com deslocamento negativo o traço cai POR DENTRO da caixa, portanto
+         por cima do fundo dela; com deslocamento positivo cai por fora. */
+      if (desloc < 0) {
+        for (const e of cam) if (opaco(e.backgroundColor)) return e.backgroundColor;
+      }
+      let p = n;
+      while (p) { const e = getComputedStyle(p);
+        if (p !== n && opaco(e.backgroundColor)) return e.backgroundColor; p = p.parentElement; }
+      return null;
+    })(),
+  }; }`;
 
 /**
  * Quem tem o foco agora. Com `dentroDe`, diz também se está dentro do que
@@ -504,24 +540,68 @@ export async function correr(palco, certo) {
     `carteira: os ${comFoco.length} controlos mudam de aspecto quando recebem o foco`,
     `sem mudança nenhuma: ${invisiveis.map((f) => f.chave).join(' · ')}`);
 
-  /* Mudar não chega: o anel tem de se ver contra o que tem por baixo. */
-  const fundos = await palco.js(`
-    const opaco = (c) => { const p = String(c).match(/[\\d.]+/g);
-      return p && (p.length < 4 || Number(p[3]) > 0.95); };
-    const o = {};
-    for (const n of document.querySelectorAll('[data-t11]')) {
-      let p = n.parentElement, fundo = 'rgb(255, 255, 255)';
-      while (p) { const c = getComputedStyle(p).backgroundColor;
-        if (opaco(c)) { fundo = c; break; } p = p.parentElement; }
-      o[n.dataset.t11] = fundo;
-    }
-    return o;`);
+  /* Mudar não chega: o anel tem de se ver contra o que tem por baixo.
+
+     O FUNDO VEM DO `DESENHO`, colhido no momento em que o controlo tinha o
+     foco, e não de uma segunda passagem pelos PAIS. A passagem pelos pais
+     subia até encontrar um fundo opaco e ignorava o que estivesse por baixo do
+     traço mas dentro do próprio elemento — foi assim que o anel do separador
+     activo, pousado numa pastilha cheia da cor da marca, foi medido contra o
+     papel da página e aprovado com um número bonito. */
   const fracos = comFoco
-    .map((f) => ({ ...f, contraste: razao(corParaRGB(f.corDoContorno), corParaRGB(fundos[f.i])) }))
+    .map((f) => ({ ...f, contraste: razao(corParaRGB(f.corDoContorno),
+      corParaRGB(f.fundoDoAnel || 'rgb(255, 255, 255)')) }))
     .filter((f) => f.contraste < 3);
   certo(fracos.length === 0,
     'carteira: o anel de foco tem 3:1 contra o fundo em que assenta',
-    fracos.map((f) => `${f.chave} ${f.contraste.toFixed(2)}:1`).join(' · '));
+    fracos.map((f) => `${f.chave} ${f.contraste.toFixed(2)}:1`
+      + ` [anel ${f.corDoContorno} sobre ${f.fundoDoAnel}]`).join(' · '));
+
+  /* --- botões só com ícone, NA APP DO CLIENTE ----------------------------
+
+     Esta pergunta existia só do lado do balcão, e a app do cliente é
+     justamente a que ficou com a navegação principal feita de três desenhos
+     sem uma palavra à vista. Se o nome escondido se perder num refazer, o que
+     uma pessoa que ouve a app tem ao fundo do ecrã é «botão, botão, botão» —
+     e a bateria passava a verde a dizer que estava tudo bem. */
+  const mudosNoCliente = await palco.js(`
+    const chave = ${CHAVE};
+    return [...document.querySelectorAll('button, a[href]')].filter((n) => {
+      const r = n.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      const t = (n.textContent || '').replace(/\\s+/g, '').trim();
+      return !t && !n.getAttribute('aria-label') && !n.getAttribute('aria-labelledby')
+        && !n.getAttribute('title');
+    }).map(chave);`);
+  certo(mudosNoCliente.length === 0,
+    'app: nenhum botão só com ícone fica sem rótulo lido em voz alta',
+    mudosNoCliente.join(' · '));
+
+  /* E OS TRÊS SEPARADORES DIZEM O SEU NOME, um por um e todos diferentes.
+
+     A pergunta de cima só apanha o silêncio total. Esta apanha o que vem a
+     seguir: três botões com nome, mas o mesmo nome — ou o nome do ecrã errado.
+     Sem rótulo à vista, não há forma de dar por isso a olhar. */
+  const nomesDaBarra = await palco.js(`
+    return [...document.querySelectorAll('#barra .barra-item')].map((n) => ({
+      ecra: n.dataset.ecra || null,
+      /* O nome acessível de um botão é o texto que ele tem lá dentro, e o SVG
+         não conta: o desenhador de ícones põe aria-hidden em todos. */
+      nome: (n.getAttribute('aria-label') || n.textContent || '').trim(),
+      visivel: n.getBoundingClientRect().height > 0,
+    }));`);
+  const ESPERADOS = { carteira: 'Carteira', codigo: 'Código', perfil: 'Perfil' };
+  const semNome = nomesDaBarra.filter((x) => !x.nome);
+  const trocados = nomesDaBarra.filter((x) => ESPERADOS[x.ecra] && x.nome !== ESPERADOS[x.ecra]);
+  certo(nomesDaBarra.length === 3 && semNome.length === 0,
+    'app: cada separador da barra diz o seu nome, mesmo já não o mostrando',
+    `${semNome.length} mudos de ${nomesDaBarra.length}`);
+  certo(trocados.length === 0,
+    'app: e o nome de cada um é o do ecrã a que ele leva',
+    trocados.map((x) => `${x.ecra} diz «${x.nome}»`).join(' · '));
+  certo(new Set(nomesDaBarra.map((x) => x.nome)).size === nomesDaBarra.length,
+    'app: os três separadores distinguem-se pelo nome, e não pela posição na fila',
+    nomesDaBarra.map((x) => x.nome).join(' · '));
 
   /* --- a ligação de saltar ----------------------------------------------- */
 

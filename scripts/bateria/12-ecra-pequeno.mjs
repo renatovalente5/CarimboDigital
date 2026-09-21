@@ -239,10 +239,20 @@ const BARRA = `
   const n = fundo.no;
   const classe = typeof n.className === 'string' && n.className.trim()
     ? '.' + n.className.trim().split(/\\s+/).slice(0, 2).join('.') : '';
+  const itens = [...barra.querySelectorAll('.barra-item')];
+  const e = getComputedStyle(barra);
   return {
     esquerda: Math.round(b.left),
     direita: Math.round(innerWidth - b.right),
     largura: Math.round(b.width),
+    /* A largura que o CONTEÚDO pede: os separadores mais a folga de dentro e o
+       contorno. É com isto que se sabe se a cápsula se dimensionou pelo que
+       tem, ou se esticou com o ecrã. */
+    conteudo: Math.round(
+      itens.reduce((t, n) => t + n.getBoundingClientRect().width, 0)
+      + parseFloat(e.paddingLeft) + parseFloat(e.paddingRight)
+      + parseFloat(e.borderLeftWidth) + parseFloat(e.borderRightWidth)),
+    itens: itens.length,
     coluna: parseFloat(getComputedStyle(document.body).getPropertyValue('--coluna')),
     tapado: Math.round(fundo.baixo - b.top),
     /* Numa página que cabe no ecrã a barra nunca chega ao conteúdo: dizer que
@@ -364,6 +374,18 @@ async function medirBarra(palco, certo, onde, l) {
     certo(b.esquerda > 0 && b.direita > 0,
       `${onde} @${l}: a cápsula está afastada das duas margens`,
       `${b.esquerda}px à esquerda, ${b.direita}px à direita`);
+
+    /* A LARGURA SAI DO CONTEÚDO, E ISTO É O QUE O PROVA.
+
+       «Está afastada das margens» passava tanto com uma cápsula de conteúdo
+       como com uma faixa de ecrã inteiro a que se tivessem dado 20 px de cada
+       lado — são coisas diferentes e a pergunta não as distinguia. Se um dia o
+       `width: fit-content` deixar de pegar, por causa de um `width: 100%`
+       esquecido lá dentro ou de um `left`/`right` a forçar a esticar, a barra
+       volta a ser uma faixa e mais ninguém dá por isso senão a olhar. */
+    certo(b.itens >= 2 && Math.abs(b.largura - b.conteudo) <= 1,
+      `${onde} @${l}: a cápsula tem a largura dos ${b.itens} separadores, não a do ecrã`,
+      `mede ${b.largura}px e o conteúdo pede ${b.conteudo}px`);
     certo(b.largura <= b.coluna,
       `${onde} @${l}: a cápsula não passa a coluna da app`,
       `${b.largura}px de largura, e a coluna são ${b.coluna}px`);

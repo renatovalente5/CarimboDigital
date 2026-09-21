@@ -449,7 +449,7 @@ export async function correr(palco, certo) {
     };
     return true`);
 
-  await palco.clicar('.barra-item.barra-centro');
+  await palco.clicar('.barra-item[data-ecra="codigo"]');
   await palco.esperar('#folha-codigo', 4000);
   /* Cedo: a assinatura demora 500 ms e nós fechamos aos 150. */
   await dorme(150);

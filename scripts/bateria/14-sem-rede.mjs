@@ -723,7 +723,7 @@ export async function correr(palco, certo) {
     (await palco.textoTodo()).slice(0, 200));
 
   /* O que a pessoa veio fazer: mostrar o código. Sem rede, e a sério. */
-  await palco.clicar('.barra-item.barra-centro');
+  await palco.clicar('.barra-item[data-ecra="codigo"]');
   await palco.esperar('#folha-codigo', 8000);
   const temQR = await palco.js(`
     const n = document.querySelector('#codigo-qr svg');
