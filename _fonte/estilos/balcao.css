@@ -71,9 +71,32 @@
 
 /* --- o visor da câmara ---------------------------------------------------- */
 
+/* O VISOR CEDE ALTURA PARA O BOTÃO CABER.
+
+   Ele era um quadrado — `aspect-ratio: 1` e mais nada — e o ecrã de carimbar
+   estava calculado para caber num telemóvel com o que tinha nesse dia. No dia
+   em que ganhou a faixa «Falta o logótipo», o botão de escrever o número à mão
+   passou a ficar DEBAIXO da barra de separadores: o toque batia na barra e não
+   nele. E acontece a todos os cafés novos, porque um negócio nasce sem
+   logótipo.
+
+   O `max-height` é a cedência: o visor continua quadrado enquanto houver
+   espaço, e encolhe quando não houver. A conta é a altura da janela menos o
+   que está à volta — o cabeçalho, a linha do programa, o botão, a barra e o
+   recorte do telemóvel. Uma câmara um pouco mais baixa lê na mesma; um botão
+   que não se alcança não faz nada.
+
+   `min-height` para não desaparecer de todo num ecrã muito baixo: abaixo de
+   200px deixa de se ver o que se está a apontar. */
 .visor {
   position: relative;
   width: 100%; aspect-ratio: 1;
+  /* A cedência fica, mas com folga: o visor é quadrado enquanto houver espaço
+     e encolhe num ecrã baixo, em vez de empurrar o que vem a seguir para
+     debaixo da barra. O `min-height` é para não desaparecer de todo — abaixo
+     de 200px deixa de se ver o que se está a apontar. */
+  max-height: calc(100dvh - 300px - var(--barra) - var(--seguro-baixo));
+  min-height: 200px;
   border-radius: var(--r-5); overflow: hidden;
   background: #000;
   box-shadow: var(--sombra-2);

@@ -171,11 +171,11 @@ export async function correr(palco, certo) {
   const marca = await palco.js(INSTALAR_ESPIA);
 
   /* --- abrir pelo separador «Código» ------------------------------------- */
-  const terceiro = await palco.texto('#barra .barra-item:nth-child(3)');
+  const terceiro = await palco.texto('#barra .barra-item[data-ecra="codigo"]');
   certo(terceiro === 'Código',
     'o 3.º separador da barra é o «Código»', String(terceiro));
 
-  await palco.clicar('#barra .barra-item:nth-child(3)');
+  await palco.clicar('#barra .barra-item[data-ecra="codigo"]');
   certo(await palco.visivel('#folha-codigo'),
     'o separador «Código» abre o ecrã do código');
 
@@ -188,7 +188,7 @@ export async function correr(palco, certo) {
   /* Modal a sério tapa a barra: se a barra continuasse a apanhar cliques, a
      pessoa saía do código sem querer enquanto o mostra ao balcão. */
   const porCimaDaBarra = await palco.js(`
-    const barra = document.querySelector('#barra .barra-item:nth-child(3)');
+    const barra = document.querySelector('#barra .barra-item[data-ecra="codigo"]');
     const r = barra.getBoundingClientRect();
     const em = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
     const folha = document.querySelector('#folha-codigo');
@@ -379,7 +379,7 @@ export async function correr(palco, certo) {
   await palco.sumir('#folha-codigo', 3000);
   certo(!(await palco.ver('#folha-codigo')),
     'o × fecha o ecrã do código');
-  certo(await palco.visivel('#barra .barra-item:nth-child(3)'),
+  certo(await palco.visivel('#barra .barra-item[data-ecra="codigo"]'),
     'depois de fechar volta-se à carteira, com a barra à vista');
 
   /* --- e o relógio pára mesmo -------------------------------------------- */
@@ -406,7 +406,7 @@ export async function correr(palco, certo) {
 
   /* --- reabrir e fechar pelo botão «Fechar» ------------------------------- */
   const marcaDois = await palco.js('return window.__espiaTempo.seq');
-  await palco.clicar('#barra .barra-item:nth-child(3)');
+  await palco.clicar('#barra .barra-item[data-ecra="codigo"]');
   certo(await palco.visivel('#folha-codigo'),
     'o ecrã do código volta a abrir depois de fechado');
   certo(await palco.contar('#codigo-qr svg') === 1,

@@ -41,10 +41,10 @@ export const nome = '09 · Balcão: Hoje, Clientes e O cartão';
 export const desculpar = [/favicon/];
 
 const SEPARADOR = {
-  carimbar: '#barra .barra-item:nth-child(1)',
-  hoje: '#barra .barra-item:nth-child(2)',
-  clientes: '#barra .barra-item:nth-child(3)',
-  programa: '#barra .barra-item:nth-child(4)',
+  carimbar: '#barra .barra-item[data-ecra="carimbar"]',
+  hoje: '#barra .barra-item[data-ecra="hoje"]',
+  clientes: '#barra .barra-item[data-ecra="clientes"]',
+  programa: '#barra .barra-item[data-ecra="programa"]',
 };
 const MARCADOR = {
   carimbar: '#principal .visor',

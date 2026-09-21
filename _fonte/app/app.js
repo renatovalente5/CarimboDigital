@@ -11,8 +11,11 @@ import {
 import { api, MODO, DEMO_FORCADO, CRACHA_APPLE, gerarCodigo, JANELA, guardarSegredo,
          temSegredo, esquecerSegredo, guardarDesvio } from '../js/api.js';
 import { qrParaSVG } from '../js/qr.js';
-import { carregarPortugal, criarMapa, comoChegar, distanciaKm,
-         distanciaEmPalavras } from '../js/mapa.js';
+/* O MAPA SAIU DA APP DO CLIENTE com o ecrã «Descobrir». Ele NÃO era do
+   Descobrir — vive em `js/mapa.js` e o balcão importa-o para o painel «Onde
+   fica», por isso continua publicado e continua no casco que o balcão guarda
+   para abrir sem rede. O que mudou é que a app do cliente deixou de o
+   carregar: são 100 KB de fronteiras de concelhos que ela já não desenha. */
 
 const estado = {
   cliente: null,
@@ -87,6 +90,34 @@ function painelPronto(cartao) {
         ? `${cartao.porResgatar} prémios à espera` : 'Mostra o código no balcão' })));
 
   const caixa = el('div', {}, painel);
+
+  /* LEVANTAR O PRÉMIO, a um toque e sem abrir o cartão.
+
+     O prémio já aparecia aqui — o que faltava era o gesto. O cliente mostrava
+     o MESMO código de sempre, que só sabe dizer quem ele é, e do outro lado a
+     câmara do balcão só sabia carimbar: ou levava um carimbo que não pediu, ou
+     batia no arrefecimento e ficava tudo parado.
+
+     Agora o código muda de prefixo — `R1.` em vez de `C1.` — e o balcão, ao
+     apontar a mesma câmara, abre o painel de entrega em vez do de carimbo. A
+     escolha é de quem tem tempo: o cliente, na fila, com o cartão à frente.
+
+     A tira está FORA do cartão que expande, de propósito: com fila à espera,
+     levantar um prémio não pode custar dois toques. */
+  if (cartao.porResgatar) {
+    caixa.append(el('button', {
+      class: 'btn btn-cheio btn-bloco levantar', style: 'margin-top:12px',
+      html: icone('presente', { tamanho: 18 })
+        + `<span>${cartao.porResgatar === 1 ? 'Levantar prémio'
+            : `Levantar ${cartao.porResgatar} prémios`}</span>`,
+      aoClick: (ev) => {
+        /* O cartão inteiro é tocável e leva ao ecrã dele: sem isto, tocar no
+           botão fazia as duas coisas. */
+        ev.stopPropagation();
+        abrirCodigo({ resgate: true, premio: premio || null });
+      },
+    }));
+  }
 
   /* Já começou o cartão seguinte? Diz-se, mas em voz baixa. */
   if (p.tipo !== 'pontos' && cartao.carimbos > 0) {
@@ -238,6 +269,17 @@ async function ecraCarteira(principal) {
   principal.append(el('h1', { class: 'titulo-grande', texto: 'Os meus cartões' }));
   if (semRede) principal.append(semRede);
 
+  /* A CARTEIRA VAZIA PASSA A SER O ECRÃ DE ENTRADA.
+
+     Enquanto havia «Descobrir», este ecrã podia dar-se ao luxo de ser um beco
+     com um botão para outro sítio. Agora é a primeira coisa que vê metade de
+     quem instala a app — e tem de explicar sozinho como é que os cartões
+     nascem, sem mandar ninguém a lado nenhum.
+
+     A ACÇÃO PRINCIPAL É MOSTRAR O CÓDIGO, e não «procurar um café». Das duas
+     portas que sobram, esta é a que nunca falha: o balcão lê o código e o
+     cartão nasce ao primeiro carimbo, sem a pessoa ter de aderir a nada. A do
+     cartaz depende de haver cartaz na parede. */
   if (!estado.cartoes.length) {
     principal.append(el('div', { class: 'vazio' },
       el('div', { class: 'vazio-desenho', html: icone('carteira', { tamanho: 96 }) }),
@@ -245,9 +287,12 @@ async function ecraCarteira(principal) {
       el('p', { texto: 'Mostra o teu código na próxima vez que fores ao café ou ao '
         + 'barbeiro. O cartão aparece aqui sozinho, logo ao primeiro carimbo.' }),
       el('button', {
-        class: 'btn btn-cheio', aoClick: () => irPara('descobrir'),
-        html: icone('bussola', { tamanho: 18 }) + '<span>Ver quem tem cartão</span>',
-      })));
+        class: 'btn btn-cheio', aoClick: () => abrirCodigo(),
+        html: icone('qr', { tamanho: 18 }) + '<span>Mostrar o meu código</span>',
+      }),
+      el('p', { class: 'miudo', style: 'margin-top:14px', texto:
+        'Se houver um cartaz com um código no balcão, aponta-lhe a câmara do '
+        + 'telemóvel — o cartão fica aqui logo.' })));
     return;
   }
 
@@ -275,14 +320,17 @@ async function ecraCarteira(principal) {
      efeito era um bloco castanho com uma aba tracejada agarrada em baixo.
      Aqui dentro, apanha o mesmo espaço que separa os cartões uns dos
      outros, e a carteira lê-se como uma lista só. */
-  lista.append(el('button', {
-    class: 'linha adicionar', aoClick: () => irPara('descobrir'),
-  },
-    el('span', { class: 'linha-icone', html: icone('mais', { tamanho: 20 }) }),
+  /* «JUNTAR OUTRO» DEIXOU DE SER UM BOTÃO, porque deixou de haver para onde
+     levar. Era uma linha tocável que abria o «Descobrir»; passou a ser uma
+     placa que diz como é que um cartão novo aparece. Uma linha com seta que
+     não vai a lado nenhum é pior do que placa nenhuma: quem lhe toca conclui
+     que a app está avariada. */
+  lista.append(el('div', { class: 'linha adicionar adicionar-placa' },
+    el('span', { class: 'linha-icone', html: icone('qr', { tamanho: 20 }) }),
     el('span', { class: 'linha-texto' },
       el('b', { texto: 'Juntar outro cartão' }),
-      el('span', { texto: 'Ver os sítios que já usam o Carimbo Digital' })),
-    el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
+      el('span', { texto: 'Aponta a câmara ao cartaz do sítio, ou mostra o teu '
+        + 'código ao balcão' }))));
 
   principal.append(lista);
 }
@@ -774,277 +822,7 @@ function linhaMovimento(m, programa) {
     el('span', { class: 'linha-fim', texto: haQuanto(m.em) }));
 }
 
-/* =========================================================================
-   Ecrã: descobrir
-   ========================================================================= */
 
-async function ecraDescobrir(principal) {
-  principal.append(el('h1', { class: 'titulo-grande', texto: 'Descobrir' }));
-  principal.append(el('p', { class: 'subtexto', texto:
-    'Sítios que já usam o Carimbo Digital. Junta o cartão agora ou espera pelo primeiro carimbo.' }));
-
-  const negocios = await api.descobrir();
-
-  /* A carteira e os prémios explicam-se quando estão vazios; este ecrã
-     ficava com um título e nada por baixo. E é o estado em que a app está
-     para toda a gente que a abra numa terra onde ainda não há nenhum café
-     inscrito — que, no princípio, é toda a gente. */
-  if (!negocios.length) {
-    principal.append(el('div', { class: 'vazio' },
-      el('div', { class: 'vazio-desenho', html: icone('bussola', { tamanho: 96 }) }),
-      el('h3', { texto: 'Ainda não há nada por aqui' }),
-      el('p', { texto: 'Assim que um café, um barbeiro ou um cabeleireiro aderir, '
-        + 'aparece nesta lista. Até lá, mostra o teu código no balcão: o cartão '
-        + 'nasce no primeiro carimbo.' })));
-    return;
-  }
-
-  /* --- o mapa -------------------------------------------------------------
-     A LISTA NÃO SAI. O mapa responde a «isto é aqui ao pé?» e fica em cima,
-     que é a primeira pergunta de quem abre este ecrã; a lista continua por
-     baixo, inteira, porque é ela o caminho a sério — funciona com leitor de
-     ecrã, funciona num ecrã de 320 px, e é onde estão os botões de juntar o
-     cartão. Substituir uma pela outra seria trocar uma pergunta por outra.
-
-     E O MAPA NÃO SEGURA O ECRÃ. Os desenhos dos concelhos são cem kilobytes que
-     chegam num pedido próprio; se o ecrã esperasse por eles, quem abre o
-     «Descobrir» via um ecrã em branco por causa de uma coisa que está no fim.
-     Pinta-se a lista, e o mapa aparece quando estiver pronto. */
-  const comPonto = negocios.filter((n) =>
-    typeof n.latitude === 'number' && typeof n.longitude === 'number');
-  const caixaDoMapa = el('div', { id: 'mapa-descobrir' });
-  /* O mapa devolve-se a si próprio para o «perto de mim» lhe poder dizer onde
-     está a pessoa. Chega quando chegar; o botão trata da ausência. */
-  let guardarMapa = () => {};
-  if (comPonto.length) {
-    principal.append(caixaDoMapa);
-    pintarMapaDoDescobrir(caixaDoMapa, comPonto).then((m) => guardarMapa(m));
-  }
-
-  const meus = new Set(estado.cartoes.map((c) => c.programa.id));
-  const lista = el('div', { class: 'pilha' });
-
-  /* O CARTÃO DE UM PROGRAMA, à parte, porque a lista passou a poder ser
-     repintada: quem carregar em «Perto de mim» volta a vê-la, pela mesma
-     ordem dos alfinetes do mapa. Construir os cartões dentro do ciclo que os
-     ordena era garantir que as duas coisas se afastavam. */
-  function cartaoDoPrograma(n, p) {
-    const tenho = meus.has(p.id);
-    const cartao = el('div', { class: 'cartao cartao-descobrir' },
-      el('div', { class: 'cartao-corpo' },
-        el('div', { class: 'cartao-topo' },
-          el('div', { class: 'cartao-marca' },
-            el('div', { class: 'cartao-nome', texto: n.nome }),
-            /* O ponto do meio só existe se houver as duas coisas. Um negócio
-               sem categoria — e há-os, o campo é opcional no balcão — punha
-               «null · Ovar» no ecrã de quem está a descobrir sítios. O
-               template literal transforma o `null` em texto sem se queixar,
-               e é assim que ele chega aos olhos de alguém. */
-            el('div', { class: 'cartao-tipo',
-              texto: [n.categoria, n.localidade].filter(Boolean).join(' · ') })),
-          el('div', { class: 'cartao-selo-tipo', html: icone(p.selo, { tipo: 'cheio', tamanho: 22 }) })),
-        el('div', { class: 'cartao-rodape' },
-          el('div', {},
-            el('div', { class: 'cartao-rotulo', texto: p.tipo === 'pontos'
-              ? 'Programa de pontos' : `${p.objetivo} carimbos` }),
-            el('div', { class: 'cartao-premio', texto: p.premio }),
-            /* COMO CHEGAR. O nosso mapa diz «é neste concelho, aqui»; a
-               pergunta a seguir é «como é que lá chego», e essa responde-se
-               com a app de mapas que a pessoa já tem e já sabe usar. É uma
-               ligação: não sai pedido nenhum enquanto ninguém lhe tocar, e o
-               que abre é o telemóvel dela — nós não ficamos a saber. */
-            (typeof n.latitude === 'number' && typeof n.longitude === 'number')
-              ? el('a', {
-                class: 'cartao-chegar', target: '_blank', rel: 'noopener',
-                href: comoChegar({ lat: n.latitude, lon: n.longitude, nome: n.nome }),
-                'aria-label': `Como chegar a ${n.nome}`,
-                aoClick: (ev) => ev.stopPropagation(),
-              }, el('span', { html: icone('mapa', { tamanho: 14 }) }),
-              el('span', { texto: 'Como chegar' }))
-              : null),
-          el('button', {
-            class: 'cartao-selo', type: 'button',
-            'aria-label': tenho ? `Já tens o cartão de ${n.nome}` : `Juntar o cartão de ${n.nome}`,
-            html: tenho ? icone('visto', { tamanho: 13 }) + '<span>Já tens</span>'
-                        : icone('mais', { tamanho: 13 }) + '<span>Juntar</span>',
-            aoClick: async (ev) => {
-              const botao = ev.currentTarget;
-              ev.stopPropagation();
-              if (tenho) { irPara('carteira'); return; }
-              /* Sem este try, um erro aqui — programa desactivado, rede
-                 em baixo, sessão expirada — matava a promessa em silêncio:
-                 o botão continuava a dizer «Juntar», nada acontecia, e a
-                 única pista era uma excepção na consola que ninguém abre. */
-              botao.disabled = true;
-              try {
-                await api.aderir(estado.cliente.id, p.id);
-                estado.cartoes = await api.cartoes(estado.cliente.id);
-              } catch (e) {
-                botao.disabled = false;
-                avisar(e.message || 'Não deu para juntar este cartão.', 'mau');
-                return;
-              }
-              vibrar(14);
-              avisar(`Cartão de ${n.nome} adicionado.`, 'bom');
-              irPara('carteira');
-            },
-          }))));
-    /* O alfinete do mapa leva a este cartão, e é por ID que o encontra —
-       nunca pela posição na lista. Um negócio com dois programas dá dois
-       cartões, e indexar pela posição punha o alfinete a abrir o vizinho.
-       Foi esse o defeito que noutro projecto desta casa passou semanas com
-       sessenta e seis testes a passar por cima dele. */
-    cartao.dataset.negocio = n.id;
-    pintarCartao(cartao, n.cor);
-    return cartao;
-  }
-
-  /* --- pintar a lista, por uma ordem -------------------------------------
-     Sem posição conhecida, a ordem é a que vem do servidor (por nome). Com
-     ela, é a da distância — e a distância aparece escrita em cada cartão,
-     porque uma lista reordenada sem dizer porquê parece uma lista baralhada. */
-  function pintarLista(ordem, distancias) {
-    lista.innerHTML = '';
-    for (const n of ordem) {
-      for (const p of n.programas) {
-        const cartao = cartaoDoPrograma(n, p);
-        const km = distancias && distancias.get(n.id);
-        if (typeof km === 'number') {
-          cartao.querySelector('.cartao-tipo').append(
-            el('span', { class: 'cartao-distancia',
-              texto: ` · a ${distanciaEmPalavras(km)}` }));
-        }
-        lista.append(cartao);
-      }
-    }
-  }
-
-  /* --- perto de mim ------------------------------------------------------
-     A pergunta que um mapa de concelhos não responde: numa cidade, todos os
-     alfinetes caem no mesmo polígono. Responde-se ordenando a lista.
-
-     A POSIÇÃO NÃO SAI DO TELEMÓVEL. Não vai num endereço, não é guardada, não
-     chega ao servidor: é lida, usada para uma conta de distância aqui mesmo, e
-     esquecida quando o ecrã muda. É a diferença entre «a app sabe onde estás»
-     e «a app pediu ao teu telemóvel a distância a estes seis sítios».
-
-     E o botão só existe se houver a quem aplicá-lo — com um único negócio com
-     ponto, ordenar por distância é ordenar uma coisa só. */
-  let mapaVivo = null;
-  guardarMapa = (m) => { mapaVivo = m; };
-  if (comPonto.length > 1 && navigator.geolocation) {
-    principal.append(el('div', { class: 'perto-linha' },
-      el('button', {
-        class: 'btn btn-suave btn-pequeno', id: 'perto-de-mim', type: 'button',
-        html: icone('bussola', { tamanho: 16 }) + '<span>Ver os mais perto de mim</span>',
-        aoClick: async (ev) => {
-          const botao = ev.currentTarget;
-          if (botao.getAttribute('aria-disabled') === 'true') return;
-          botao.setAttribute('aria-disabled', 'true');
-          try {
-            const posicao = await new Promise((resolve, rejeitar) => {
-              navigator.geolocation.getCurrentPosition(resolve, rejeitar,
-                { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 });
-            });
-            const eu = { lat: posicao.coords.latitude, lon: posicao.coords.longitude };
-
-            const distancias = new Map();
-            for (const n of comPonto) {
-              distancias.set(n.id, distanciaKm(eu, { lat: n.latitude, lon: n.longitude }));
-            }
-            /* QUEM NÃO TEM PONTO FICA NO FIM, e não no princípio nem no meio:
-               ordenar por uma distância que não existe punha-os a todos em
-               primeiro, que é o contrário do que se pediu. Entre eles, a ordem
-               que já tinham. */
-            const ordem = [...negocios].sort((a, b) => {
-              const da = distancias.has(a.id) ? distancias.get(a.id) : Infinity;
-              const db = distancias.has(b.id) ? distancias.get(b.id) : Infinity;
-              return da - db;
-            });
-            pintarLista(ordem, distancias);
-            if (mapaVivo) mapaVivo.ondeEstou(eu.lat, eu.lon);
-
-            const maisPerto = ordem.find((n) => distancias.has(n.id));
-            botao.remove();
-            principal.querySelector('.perto-linha')?.append(el('p', {
-              class: 'miudo', texto: maisPerto
-                ? `Do mais perto ao mais longe. O mais perto é ${maisPerto.nome}, `
-                  + `a ${distanciaEmPalavras(distancias.get(maisPerto.id))} em linha recta.`
-                : 'Do mais perto ao mais longe.' }));
-          } catch (e) {
-            botao.removeAttribute('aria-disabled');
-            avisar(e && e.code === 1
-              ? 'Não deixaste a app saber onde estás. A lista fica por nome.'
-              : 'Não deu para saber onde estás. Tenta outra vez daqui a pouco.',
-            'neutro');
-          }
-        },
-      })));
-  }
-
-  pintarLista(negocios, null);
-  principal.append(lista);
-
-  principal.append(el('div', { class: 'folha caixa-texto', style: 'margin-top:24px' },
-    el('p', { html: '<b>Tens um negócio?</b> O Carimbo Digital é gratuito para quem carimba. '
-      /* O balcão é OUTRA app, com manifesto e âmbito próprios. Quem tem esta
-         posta no ecrã principal e toca aqui era atirado para o Safari sem
-         volta — e o que queria era continuar a ter os cartões dele. */
-      + `Cria o teu cartão em <a href="${base()}/balcao/" class="ligacao"`
-      + ' target="_blank" rel="noopener">carimbodigital.pt/balcao</a>.' })));
-}
-
-/**
- * O mapa do «Descobrir», pintado depois do resto.
- *
- * NÃO ATIRA. Corre fora do caminho de quem está a ver a lista: se os dados do
- * mapa não chegarem — primeira abertura sem rede, ficheiro por publicar — o
- * que acontece é não haver mapa, e não um ecrã a dizer «não deu para
- * carregar» por cima de uma lista que está ali inteira e a funcionar.
- */
-async function pintarMapaDoDescobrir(caixa, negocios) {
-  let dados;
-  try {
-    dados = await carregarPortugal(base());
-  } catch {
-    caixa.remove();
-    return null;
-  }
-  /* O ecrã pode ter mudado enquanto isto vinha a caminho. */
-  if (!caixa.isConnected) return null;
-
-  const pontos = negocios.map((n) => ({
-    id: n.id, nome: n.nome, lat: n.latitude, lon: n.longitude,
-    fonte: n.geoFonte || null, cor: n.cor,
-  }));
-
-  const mapa = criarMapa({
-    dados,
-    pontos,
-    rotulo: pontos.length === 1
-      ? 'Mapa com um estabelecimento'
-      : `Mapa com ${pontos.length} estabelecimentos`,
-    /* Tocar num alfinete leva ao cartão daquele negócio, lá em baixo. Abrir um
-       balão por cima do mapa era construir uma segunda versão do cartão, com o
-       botão de juntar duplicado — e duas versões da mesma coisa afastam-se
-       sempre. */
-    aoEscolher: (ponto) => {
-      const cartao = $(`[data-negocio="${CSS.escape(ponto.id)}"]`);
-      if (!cartao) return;
-      const suave = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-      cartao.scrollIntoView({ block: 'center', behavior: suave ? 'smooth' : 'auto' });
-      cartao.classList.add('cartao-apontado');
-      setTimeout(() => cartao.classList.remove('cartao-apontado'), 1600);
-    },
-  });
-
-  caixa.append(mapa.elemento);
-  /* Um negócio fora do continente e dos arquipélagos não existe — mas se a
-     base tiver um ponto estragado, ele fica na lista e não no mapa, e não se
-     inventa um alfinete a meio do Atlântico. */
-  if (!mapa.pinos && pontos.length) { caixa.remove(); return null; }
-  return mapa;
-}
 
 /**
  * O convite para um amigo.
@@ -1165,88 +943,6 @@ async function painelDoAmigo(cartao) {
     texto: 'Fechar', aoClick: fecharPainel }));
 }
 
-/* =========================================================================
-   Ecrã: prémios
-   ========================================================================= */
-
-async function ecraPremios(principal) {
-  /* Sem rede não se deita fora o que já se sabe: os prémios vêm de
-     `estado.cartoes`, que ainda está em memória. Mostrá-los com um aviso é
-     melhor do que um «Não deu para carregar» por cima de um prémio que a
-     pessoa tem mesmo para levantar — e é justamente ao balcão, sem rede,
-     que ela precisa de o ver. */
-  const semRede = await recarregarCartoes();
-  principal.append(el('h1', { class: 'titulo-grande', texto: 'Prémios' }));
-  if (semRede) principal.append(semRede);
-
-  const porLevantar = [];
-  for (const c of estado.cartoes) {
-    for (const p of c.premios) porLevantar.push({ cartao: c, premio: p });
-  }
-
-  if (!porLevantar.length) {
-    principal.append(el('div', { class: 'vazio' },
-      el('div', { class: 'vazio-desenho', html: icone('presente', { tamanho: 96 }) }),
-      el('h3', { texto: 'Ainda não há prémios' }),
-      el('p', { texto: 'Assim que completares um cartão, o prémio aparece aqui — e '
-        + 'é só mostrar o código no balcão.' })));
-  } else {
-    const lista = el('div', { class: 'lista' });
-    for (const { cartao, premio } of porLevantar) {
-      const linha = el('div', { class: 'linha linha-premio' },
-        el('span', { class: 'linha-icone linha-icone-marca', html: icone('presente', { tamanho: 20 }) }),
-        el('span', { class: 'linha-texto' },
-          el('b', { texto: premio.descricao }),
-          el('span', { texto: `${cartao.negocio.nome} · ganho ${haQuanto(premio.ganhoEm)}` })),
-        el('span', { class: 'etiqueta etiqueta-bom', texto: 'pronto' }));
-      /* Punha `--m` com a cor CRUA do comerciante, e nesta linha nada lê
-         `--m`: o ícone usa `--marca`. Era uma linha morta com ar de viva — e
-         se alguém a tivesse ligado tal como estava, uma marca amarela clara
-         dava um ícone ilegível, porque a cor nunca passou pelo
-         `marcaSegura`. Agora passa, e o ícone traz mesmo a cor da loja. */
-      pintarCartao(linha, cartao.negocio.cor);
-      lista.append(linha);
-    }
-    principal.append(lista);
-    principal.append(el('button', {
-      class: 'btn btn-cheio btn-grande btn-bloco', style: 'margin-top:20px',
-      html: icone('qr', { tamanho: 20 }) + '<span>Mostrar o código para levantar</span>',
-      aoClick: () => abrirCodigo(),
-    }));
-  }
-
-  /* Histórico de prémios já levantados.
-
-     Sem rede, o histórico não vem — mas os prémios POR levantar estão todos
-     em memória, e são o que interessa neste ecrã. Deixar o erro subir daqui
-     deitava fora a lista inteira e punha «Não deu para carregar» por cima de
-     um prémio que a pessoa tem mesmo para receber, ao balcão, sem rede. */
-  const antigos = [];
-  try {
-    for (const c of estado.cartoes) {
-      const detalhe = await api.cartao(estado.cliente.id, c.id);
-      for (const m of detalhe.movimentos.filter((x) => x.tipo === 'resgate')) {
-        antigos.push({ nome: c.negocio.nome, m });
-      }
-    }
-  } catch (erro) {
-    if (!erro.rede) throw erro;
-  }
-  if (antigos.length) {
-    const lista = el('div', { class: 'lista' });
-    antigos.sort((a, b) => new Date(b.m.em) - new Date(a.m.em));
-    for (const a of antigos.slice(0, 20)) {
-      lista.append(el('div', { class: 'linha' },
-        el('span', { class: 'linha-icone', html: icone('visto', { tamanho: 20 }) }),
-        el('span', { class: 'linha-texto' },
-          el('b', { texto: a.m.nota || 'Prémio' }),
-          el('span', { texto: a.nome })),
-        el('span', { class: 'linha-fim', texto: haQuanto(a.m.em) })));
-    }
-    principal.append(el('section', { class: 'seccao' },
-      el('h2', { class: 'seccao-titulo', texto: 'Já levantados' }), lista));
-  }
-}
 
 /* =========================================================================
    Definições
@@ -2794,12 +2490,13 @@ const VOLTA_DO_ANEL = (2 * Math.PI * 19).toFixed(2);
 
 let soltarCodigo = null;
 
-async function abrirCodigo() {
+async function abrirCodigo({ resgate = false, premio = null } = {}) {
   if ($('#folha-codigo')) return;
   empurrarHistorico('codigo');
 
   const folha = el('div', { id: 'folha-codigo', class: 'codigo-folha', role: 'dialog',
-                            'aria-modal': 'true', 'aria-label': 'O meu código' },
+                            'aria-modal': 'true',
+                            'aria-label': resgate ? 'Levantar prémio' : 'O meu código' },
     /* O FECHAR E O TEMPO SÃO A MESMA PEÇA, e eram duas.
 
        Havia um «X» num círculo cinzento à esquerda e o anel do tempo à
@@ -2857,7 +2554,7 @@ async function abrirCodigo() {
        documento depois. É o mesmo padrão do `ev.currentTarget` e do arranque
        da câmara — em três sítios diferentes, a mesma armadilha. */
     const destino = $('#codigo-qr');
-    const { texto, expiraEm } = await gerarCodigo(estado.cliente.publico);
+    const { texto, expiraEm } = await gerarCodigo(estado.cliente.publico, { resgate });
     if (!destino.isConnected) return expiraEm;
     destino.innerHTML = qrParaSVG(texto, { nivel: 'Q', margem: 2 });
     const restante = Math.max(0, expiraEm - Date.now()) / 1000;
@@ -2951,12 +2648,32 @@ function fecharPainel({ historico = true } = {}) {
    mesmo telemóvel via o ecrã de uma a mandar na outra. */
 const CHAVE_ECRA = 'ecra-app';
 
+/* TRÊS SEPARADORES, E NÃO CINCO.
+
+   Saíram o «Descobrir» e os «Prémios», e as razões são diferentes.
+
+   O DESCOBRIR era uma montra: uma lista de sítios que já usam isto, com mapa.
+   Um cartão passa a ganhar-se de uma maneira só — apontando a câmara ao
+   cartaz que está no estabelecimento — e essa é a que corresponde à vida: a
+   pessoa está lá, com o café à frente. Procurar cafés numa app para depois lá
+   ir era o produto a fingir que era um directório.
+
+   OS PRÉMIOS eram uma segunda casa para uma coisa que já vivia no cartão. De
+   seis coisas que aquele ecrã mostrava, cinco estavam também na carteira ou no
+   cartão; a única que se perde é a lista dos prémios já levantados, cruzada
+   entre sítios. É pouco, e ganha-se um pedido ao servidor por cartão em cada
+   visita à app.
+
+   A BARRA NASCE DAQUI e o CSS não assume posição nenhuma (`.barra-item` é
+   `flex: 1`), por isso tirar duas entradas chega para a barra. O que NÃO chega
+   é o resto: o `irPara` cai num ramo de omissão que pinta o ecrã do cartão, e
+   por isso qualquer chamada a um ecrã que já não existe falharia em silêncio,
+   com o topo em branco. Elas foram todas atrás — ver o estado vazio da
+   carteira, aqui em cima. */
 const ECRAS = {
-  carteira:  { titulo: 'Carimbo Digital',    icone: 'carteira', rotulo: 'Carteira',  render: ecraCarteira },
-  descobrir: { titulo: 'Descobrir',  icone: 'bussola',  rotulo: 'Descobrir', render: ecraDescobrir },
-  codigo:    { titulo: 'Código',     icone: 'qr',       rotulo: 'Código',    centro: true },
-  premios:   { titulo: 'Prémios',    icone: 'presente', rotulo: 'Prémios',   render: ecraPremios },
-  perfil:    { titulo: 'Perfil',     icone: 'pessoa',   rotulo: 'Perfil',    render: ecraPerfil },
+  carteira:  { titulo: 'Carimbo Digital', icone: 'carteira', rotulo: 'Carteira', render: ecraCarteira },
+  codigo:    { titulo: 'Código',          icone: 'qr',       rotulo: 'Código',   centro: true },
+  perfil:    { titulo: 'Perfil',          icone: 'pessoa',   rotulo: 'Perfil',   render: ecraPerfil },
 };
 
 function base() {
@@ -3114,6 +2831,14 @@ function desenharBarra() {
     const botao = el('button', {
       class: e.centro ? 'barra-item barra-centro' : 'barra-item',
       'aria-current': atual ? 'page' : null,
+      /* O NOME DO ECRÃ NO PRÓPRIO BOTÃO. Não é para o produto — é para quem o
+         mede. A bateria apontava aos separadores por POSIÇÃO
+         (`.barra-item:nth-child(5)` era o Perfil), e no dia em que dois
+         separadores saíram, oito módulos rebentaram de uma vez por causa de um
+         número. Falharam alto, que foi a sorte; uma afirmação que indexe por
+         posição tanto pode rebentar como passar a medir o separador do lado, em
+         silêncio. Com o nome escrito, a posição deixa de ser assunto. */
+      'data-ecra': nome,
       aoClick: () => irPara(nome),
     },
       el('span', { class: e.centro ? 'barra-bolha' : '', html: icone(e.icone, { tamanho: e.centro ? 26 : 24 }) }),
@@ -3592,22 +3317,49 @@ async function seguirConvite() {
   history.replaceState(null, '', limpo.pathname + limpo.search + limpo.hash);
 
   try {
-    const negocios = await api.descobrir();
-    const n = negocios.find((x) => x.slug === slug);
+    /* UMA ROTA PARA UM NEGÓCIO, e não a lista toda.
+
+       Isto chamava `api.descobrir()` — que puxa até duzentos negócios com uma
+       consulta por cada um para os programas — só para encontrar UM pelo
+       apelido. Numa invocação com tecto de cinquenta subpedidos, era uma
+       bomba a contar: rebentava com «Too many subrequests» muito antes dos
+       duzentos negócios, e o que a pessoa via ao apontar a câmara ao cartaz
+       era «não deu para juntar o cartão».
+
+       E havia um defeito mais calado: o `/v1/descobrir` filtra
+       `demonstracao = 0`. O cartaz de um negócio marcado como demonstração
+       NUNCA funcionou — enquanto o balcão promete por escrito ao dono que «o
+       cartaz e o endereço próprio continuam a funcionar». Esta rota não
+       filtra, e são duas consultas. */
+    const n = await api.negocioPorSlug(slug).catch(() => null);
     if (!n || !n.programas?.length) {
-      avisar('Não encontrei esse negócio. Procura-o em Descobrir.', 'mau');
+      /* A MENSAGEM NÃO MANDA A PESSOA A LADO NENHUM QUE NÃO EXISTA. Dizia
+         «Procura-o em Descobrir», e o Descobrir saiu. O que sobra é o caminho
+         que nunca falha e que é o mais usado de todos: o balcão lê o código e
+         o cartão nasce sozinho ao primeiro carimbo. */
+      avisar('Não encontrei esse cartaz. Mostra o teu código ao balcão — o '
+        + 'cartão aparece aqui sozinho ao primeiro carimbo.', 'mau');
       return;
     }
     const ja = estado.cartoes.find((c) => c.negocio.slug === slug);
     if (ja) { avisar(`Já tens o cartão de ${n.nome}.`, 'neutro'); return; }
 
-    await api.aderir(estado.cliente.id, n.programas[0].id, amigo);
+    /* QUAL DOS PROGRAMAS. Um negócio pode ter até doze, e isto apanhava o
+       `[0]` às cegas — quem tivesse dois cartões ficava com o que a base
+       devolvesse primeiro, sem nunca saber que havia escolha. Com um só, não
+       se pergunta nada: perguntar o óbvio ao balcão é um toque desperdiçado. */
+    const programa = n.programas.length === 1
+      ? n.programas[0]
+      : await escolherPrograma(n);
+    if (!programa) return;                 /* fechou a folha sem escolher */
+
+    await api.aderir(estado.cliente.id, programa.id, amigo);
     estado.cartoes = await api.cartoes(estado.cliente.id);
     vibrar(14);
     /* QUEM VEIO POR UM AMIGO OUVE O QUE FALTA FAZER. «Cartão adicionado» e
        mais nada deixava a pessoa sem saber que há um carimbo à espera dela —
        e é esse carimbo que faz o convite valer alguma coisa para os dois. */
-    const oferta = n.programas[0].amigo;
+    const oferta = programa.amigo;
     const paraSi = amigo && oferta ? oferta.convidado : 0;
     avisar(paraSi
       ? `Cartão de ${n.nome} adicionado. Mostra o teu código lá e começas com `
@@ -3615,8 +3367,48 @@ async function seguirConvite() {
       : `Cartão de ${n.nome} adicionado.`, 'bom');
     await irPara('carteira');
   } catch (e) {
-    avisar(e.message || 'Não deu para juntar o cartão. Tenta pelo Descobrir.', 'mau');
+    avisar(e.message || 'Não deu para juntar o cartão. Mostra o teu código ao '
+      + 'balcão — o cartão aparece sozinho ao primeiro carimbo.', 'mau');
   }
+}
+
+/**
+ * Qual dos cartões deste sítio.
+ *
+ * Só aparece quando há mesmo mais do que um. O cartaz não nomeia programa
+ * nenhum — leva só o apelido do negócio — e por isso a escolha tem de ser
+ * feita aqui, por quem está a aderir, em vez de decidida em silêncio pela
+ * ordem que a base devolver.
+ *
+ * Devolve `null` se a pessoa fechar sem escolher, e nesse caso não se adere a
+ * nada: uma folha que se fecha e mesmo assim junta um cartão é uma folha que
+ * mente sobre o que o «fechar» faz.
+ */
+function escolherPrograma(negocio) {
+  return new Promise((resolver) => {
+    const painel = abrirPainel(negocio.nome);
+    let escolhido = null;
+    painel.append(el('p', { class: 'subtexto', texto:
+      'Este sítio tem mais do que um cartão. Qual é o teu?' }));
+    const lista = el('div', { class: 'lista' });
+    for (const p of negocio.programas) {
+      lista.append(el('button', { class: 'linha', type: 'button',
+        aoClick: () => { escolhido = p; fecharPainel(); } },
+        el('span', { class: 'linha-icone', html: icone(p.selo || 'carimbo', { tamanho: 20 }) }),
+        el('span', { class: 'linha-texto' },
+          el('b', { texto: p.nome }),
+          el('span', { texto: p.tipo === 'pontos'
+            ? 'Junta pontos em cada visita'
+            : `${p.objetivo} carimbos · ${p.premio}` })),
+        el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
+    }
+    painel.append(lista);
+    /* O `fecharPainel` corre para as duas saídas — o toque numa linha e o véu,
+       a tecla Escape ou o «voltar» — por isso é aqui que a promessa se cumpre,
+       e não dentro do `aoClick`. */
+    const antes = soltarPainel;
+    soltarPainel = () => { if (antes) antes(); resolver(escolhido); };
+  });
 }
 
 

@@ -47,23 +47,25 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* Os separadores não têm id — são `.barra-item`, pela ordem em que a barra
    os desenha. */
-const SEP = (n) => `.barra-item:nth-child(${n})`;
-const CODIGO = SEP(3);
+/* POR NOME, e não por posição: ver o comentário do `desenharBarra`. */
+const SEP = (nome) => `.barra-item[data-ecra="${nome}"]`;
+const CODIGO = SEP('codigo');
 
 /* Cada ecrã do cliente com uma prova que só ele tem. Não chega o título: um
    ecrã pintado por cima do outro traz o título certo e o corpo errado. */
 const ECRAS_CLIENTE = [
-  { pos: 1, chave: 'carteira',  topo: 'Carimbo Digital', h1: 'Os meus cartões' },
-  { pos: 2, chave: 'descobrir', topo: 'Descobrir',       h1: 'Descobrir' },
-  { pos: 4, chave: 'premios',   topo: 'Prémios',         h1: 'Prémios' },
-  { pos: 5, chave: 'perfil',    topo: 'Perfil',          h1: 'Perfil' },
+  { pos: 'carteira', chave: 'carteira', topo: 'Carimbo Digital', h1: 'Os meus cartões' },
+  { pos: 'perfil',   chave: 'perfil',   topo: 'Perfil',          h1: 'Perfil' },
 ];
 
+/* Por NOME também, como os do cliente. A barra do balcão não mudou de
+   tamanho — mas o que fez os do cliente rebentarem foi exactamente terem sido
+   escritos por posição, e não há razão para deixar aqui a mesma armadilha. */
 const ECRAS_BALCAO = [
-  { pos: 2, topo: 'Hoje',     titulo: 'Hoje',         prova: '#principal .numeros' },
-  { pos: 3, topo: 'Clientes', titulo: 'Clientes',     prova: '#principal .lista' },
-  { pos: 4, topo: 'O cartão', titulo: 'O meu cartão', prova: '#principal #previa' },
-  { pos: 1, topo: 'Carimbar', titulo: null,           prova: '#principal .visor' },
+  { pos: 'hoje',     topo: 'Hoje',     titulo: 'Hoje',         prova: '#principal .numeros' },
+  { pos: 'clientes', topo: 'Clientes', titulo: 'Clientes',     prova: '#principal .lista' },
+  { pos: 'programa', topo: 'O cartão', titulo: 'O meu cartão', prova: '#principal #previa' },
+  { pos: 'carimbar', topo: 'Carimbar', titulo: null,           prova: '#principal .visor' },
 ];
 
 const LINHA_APAGAR = '#principal .linha-perigo';
@@ -86,13 +88,25 @@ async function retrato(palco) {
       titulos: [...document.querySelectorAll('#principal h1.titulo-grande')]
         .map((n) => n.textContent.trim()),
       rotulos: barra.map((b) => b.textContent.replace(/\\s+/g, ' ').trim()),
+      /* A ORDEM DOS SEPARADORES, lida da barra: é o que permite comparar um
+         «aria-current» — que é uma posição — com o NOME do ecrã esperado, sem
+         voltar a escrever números à mão. (Aspas angulares e não crases: isto
+         vive dentro de um literal de crases, e já parti o ficheiro assim oito
+         vezes neste projecto.) */
+      ordem: barra.map((b) => b.dataset.ecra),
       marcados: barra
         .map((b, i) => (b.getAttribute('aria-current') === 'page' ? i + 1 : 0))
         .filter(Boolean),
+      /* UMA PROVA EXCLUSIVA POR ECRÃ. Eram quatro e passaram a duas quando o
+         «Descobrir» e os «Prémios» saíram — e duas sondas para três ecrãs
+         deixava este detector cego justamente no ecrã do meio.
+
+         O «Código» não tem ecrã próprio (abre uma folha por cima do que
+         estiver), por isso a terceira sonda é a folha. Sem ela, um «Código»
+         empilhado por cima da carteira passava sem se ver. */
       carteira:  q('#principal .linha.adicionar'),
-      descobrir: q('#principal .cartao-descobrir'),
-      premios:   q('#principal .linha-premio'),
       perfil:    q('#principal .identidade-numero'),
+      codigo:    q('#folha-codigo .codigo-anel'),
       painel: Boolean(document.querySelector('#painel')),
       folha: Boolean(document.querySelector('#folha-codigo')),
       nos: document.querySelectorAll('*').length,
@@ -104,7 +118,7 @@ async function retrato(palco) {
 }
 
 /** Só as contagens exclusivas, em texto, para o detalhe de uma falha. */
-const quaisEcras = (r) => ['carteira', 'descobrir', 'premios', 'perfil']
+const quaisEcras = (r) => ['carteira', 'perfil', 'codigo']
   .filter((k) => r[k] > 0).join('+') || 'nenhum';
 
 /* =========================================================================
@@ -247,16 +261,16 @@ export async function correr(palco, certo) {
     await passarBoasVindas(palco);
     await palco.esperar('#barra .barra-item');
 
-    await palco.clicar('#barra .barra-item:nth-child(4)');   // Prémios
+    await palco.clicar('#barra .barra-item[data-ecra="perfil"]');   // Perfil
     await palco.esperar('#topo-titulo');
     const antes = await palco.texto('#topo-titulo');
-    certo(antes === 'Prémios', 'estou nos prémios (o teste é válido)', String(antes));
+    certo(antes === 'Perfil', 'estou no perfil (o teste é válido)', String(antes));
 
     await palco.js('location.reload(); return true');
     await palco.pronta(12000);
     await palco.esperar('#barra .barra-item', 12000);
     const depois = await palco.texto('#topo-titulo');
-    certo(depois === 'Prémios',
+    certo(depois === 'Perfil',
       'recarregar deixa-me no ecrã onde eu estava, e não no primeiro',
       `fui parar a «${depois}»`);
 
@@ -298,8 +312,11 @@ export async function correr(palco, certo) {
   await armarContador(palco);
 
   const inicio = await retrato(palco);
-  certo(inicio.rotulos.join('|') === 'Carteira|Descobrir|Código|Prémios|Perfil',
-    'barra: os cinco separadores do cliente, pela ordem', inicio.rotulos.join('|'));
+  /* TRÊS, e eram cinco. O «Descobrir» e os «Prémios» saíram: um cartão passa
+     a ganhar-se de uma maneira só — apontando a câmara ao cartaz do sítio — e
+     o prémio passou a viver no cartão, que é onde a pessoa já estava a olhar. */
+  certo(inicio.rotulos.join('|') === 'Carteira|Código|Perfil',
+    'barra: os três separadores do cliente, pela ordem', inicio.rotulos.join('|'));
   certo(inicio.marcados.join(',') === '1',
     'barra: à abertura só a Carteira está marcada como o ecrã actual',
     `marcados: ${inicio.marcados.join(',') || 'nenhum'}`);
@@ -320,9 +337,15 @@ export async function correr(palco, certo) {
       certo(r[e.chave] > 0 && quaisEcras(r) === e.chave,
         `volta ${volta} · ${e.chave}: pinta o seu conteúdo e nada do ecrã anterior`,
         `no ecrã: ${quaisEcras(r)}`);
-      certo(r.marcados.join(',') === String(e.pos),
-        `volta ${volta} · ${e.chave}: o separador ${e.pos} é o único com aria-current`,
-        `marcados: ${r.marcados.join(',') || 'nenhum'}`);
+      /* O `aria-current` é uma POSIÇÃO na barra, e o `pos` do `ECRAS_CLIENTE`
+         passou a ser o NOME do ecrã — para os cliques deixarem de depender da
+         ordem. Compara-se com a posição daquele nome, lida da própria barra:
+         a pergunta continua a ser «é o separador certo que está marcado?» e
+         deixou de haver um número escrito à mão para envelhecer. */
+      const esperado = String(r.ordem.indexOf(e.pos) + 1);
+      certo(r.marcados.join(',') === esperado,
+        `volta ${volta} · ${e.chave}: o separador «${e.pos}» é o único com aria-current`,
+        `marcados: ${r.marcados.join(',') || 'nenhum'}, esperado: ${esperado}`);
       certo(!r.painel && !r.folha,
         `volta ${volta} · ${e.chave}: sem painéis pendurados por cima`,
         `painel=${r.painel} folha=${r.folha}`);
@@ -341,7 +364,7 @@ export async function correr(palco, certo) {
      histórico, cinco toques distraídos davam cinco toques em voltar para
      sair de um sítio de onde nunca se saiu. */
   const antesRepetido = await retrato(palco);
-  for (let i = 0; i < 4; i++) { await palco.clicar(SEP(5)); await dormir(100); }
+  for (let i = 0; i < 4; i++) { await palco.clicar(SEP('perfil')); await dormir(100); }
   const depoisRepetido = await retrato(palco);
   certo(depoisRepetido.comprimento === antesRepetido.comprimento,
     'navegar: tocar cinco vezes no separador onde já se está não empurra histórico',
@@ -358,9 +381,9 @@ export async function correr(palco, certo) {
      `#principal` já vazio, antes de o conteúdo novo existir. Quem chega a um
      ecrã a meio dele não percebe que chegou: falta-lhe o título, que é a
      única coisa que diz onde está. */
-  await palco.clicar(SEP(2));
-  await palco.esperar('#principal .cartao-descobrir', 8000);
-  const rolagem = await mudarDeEcraRolado(palco, SEP(5), '#principal .identidade-numero');
+  await palco.clicar(SEP('perfil'));
+  await palco.esperar('#principal .identidade-numero', 8000);
+  const rolagem = await mudarDeEcraRolado(palco, SEP('carteira'), '#principal .linha.adicionar');
   await palco.captura('10-ecra-novo-a-meio');
 
   certo(rolagem.assentou <= 2,
@@ -376,7 +399,7 @@ export async function correr(palco, certo) {
      O cartão aberto — um ecrã que não está na barra
      ======================================================================= */
 
-  await palco.clicar(SEP(1));
+  await palco.clicar(SEP('carteira'));
   await palco.esperar('#principal .pilha > .cartao', 8000);
   await palco.clicar('#principal .pilha > .cartao:nth-of-type(2)');
   await palco.esperar('#principal .cartao-grande', 8000);
@@ -398,7 +421,7 @@ export async function correr(palco, certo) {
      O painel: botão, Escape e clique fora
      ======================================================================= */
 
-  await palco.clicar(SEP(5));
+  await palco.clicar(SEP('perfil'));
   await palco.esperar(LINHA_APAGAR, 8000);
 
   /* --- pelo botão -------------------------------------------------------- */
@@ -524,19 +547,17 @@ export async function correr(palco, certo) {
     'voltar depois dos três painéis: e não abriu nem deixou nada por cima');
 
   /* --- voltar num ecrã que não é a carteira ------------------------------ */
-  await palco.clicar(SEP(2));
-  await palco.esperar('#principal .cartao-descobrir', 8000);
-  await palco.clicar(SEP(4));
-  await palco.esperar('#principal h1.titulo-grande', 8000);
+  await palco.clicar(SEP('perfil'));
+  await palco.esperar('#principal .identidade-numero', 8000);
 
   const v4 = await voltar(palco);
-  const daPremios = await retrato(palco);
-  certo(!v4.saiu && daPremios.topo === 'Carimbo Digital' && daPremios.carteira > 0,
-    'voltar nos prémios: leva à carteira',
-    `topo=${daPremios.topo}, no ecrã: ${quaisEcras(daPremios)}`);
-  certo(daPremios.marcados.join(',') === '1',
-    'voltar nos prémios: a barra passa a marcar a Carteira',
-    `marcados: ${daPremios.marcados.join(',') || 'nenhum'}`);
+  const doPerfil = await retrato(palco);
+  certo(!v4.saiu && doPerfil.topo === 'Carimbo Digital' && doPerfil.carteira > 0,
+    'voltar num separador que não é a carteira: leva à carteira',
+    `topo=${doPerfil.topo}, no ecrã: ${quaisEcras(doPerfil)}`);
+  certo(doPerfil.marcados.join(',') === '1',
+    'voltar num separador que não é a carteira: a barra passa a marcar a Carteira',
+    `marcados: ${doPerfil.marcados.join(',') || 'nenhum'}`);
 
   /* --- voltar na carteira ------------------------------------------------ */
 
@@ -550,12 +571,12 @@ export async function correr(palco, certo) {
   certo(naCarteira.carteira > 0 && quaisEcras(naCarteira) === 'carteira',
     'voltar na carteira: a carteira continua pintada, e sozinha',
     `no ecrã: ${quaisEcras(naCarteira)}`);
-  certo(naCarteira.rotulos.length === 5 && naCarteira.marcados.join(',') === '1',
+  certo(naCarteira.rotulos.length === 3 && naCarteira.marcados.join(',') === '1',
     'voltar na carteira: a barra fica inteira e com a Carteira marcada',
     `${naCarteira.rotulos.length} separadores, marcados: ${naCarteira.marcados.join(',')}`);
 
   /* E continua a navegar-se depois disto — é a prova de que nada partiu. */
-  await palco.clicar(SEP(5));
+  await palco.clicar(SEP('perfil'));
   await palco.esperar('#principal .identidade-numero', 8000);
   certo(await palco.texto('#topo-titulo') === 'Perfil',
     'voltar na carteira: a navegação continua a funcionar depois',
@@ -602,16 +623,23 @@ export async function correr(palco, certo) {
      têm de cair no mesmo fotograma para se ver o que se passa. Com o Worker
      do outro lado a janela é o pedido inteiro: dois toques normais, com a
      rede do costume, chegam lá. */
-  await palco.clicar(SEP(1));
+  await palco.clicar(SEP('carteira'));
   await palco.esperar('#principal .linha.adicionar', 8000);
+  /* PELO NOME, e não pelo índice. Eram b[1] e b[3] — o «Descobrir» e os
+     «Prémios» de uma barra de cinco. Com três separadores, b[3] é undefined e
+     o que se lia era «Cannot read properties of undefined». O que o teste quer
+     são DOIS separadores diferentes tocados no mesmo fotograma, e os nomes
+     dizem-no melhor do que dois números. */
   await palco.js(`
-    const b = [...document.querySelectorAll('.barra-item')];
-    b[1].click(); b[3].click();
+    const q = (n) => document.querySelector('.barra-item[data-ecra="' + n + '"]');
+    /* Não se usa o «codigo»: ele não é um ecrã — abre uma folha por cima do
+       que estiver — e ficava pendurada a estragar a leitura do que sobrou. */
+    q('carteira').click(); q('perfil').click();
     await new Promise((r) => setTimeout(r, 700));
     return true`);
   const misturado = await retrato(palco);
   await palco.captura('10-dois-ecras-misturados');
-  certo(quaisEcras(misturado) === 'premios',
+  certo(quaisEcras(misturado) === 'perfil',
     'dois separadores seguidos: fica o último, e só o conteúdo dele',
     `topo=${misturado.topo}, título=${misturado.titulos.join('+')}, `
     + `no ecrã: ${quaisEcras(misturado)}`);
@@ -627,9 +655,9 @@ export async function correr(palco, certo) {
      a tendência, não sobre um valor. */
   const medidas = [];
   for (let i = 0; i < 10; i++) {
-    await palco.clicar(SEP(2));
-    await palco.esperar('#principal .cartao-descobrir', 8000);
-    await palco.clicar(SEP(1));
+    await palco.clicar(SEP('perfil'));
+    await palco.esperar('#principal .identidade-numero', 8000);
+    await palco.clicar(SEP('carteira'));
     await palco.esperar('#principal .linha.adicionar', 8000);
     const r = await retrato(palco);
     medidas.push({ nos: r.nos, corpo: r.corpo });
@@ -670,13 +698,14 @@ export async function correr(palco, certo) {
         : r.titulos.length === 1 && r.titulos[0] === e.titulo,
         `balcão · volta ${volta} · ${e.topo}: um título só, e é o seu`,
         r.titulos.join(' + ') || 'sem título');
-      certo(r.marcados.join(',') === String(e.pos),
-        `balcão · volta ${volta} · ${e.topo}: o separador ${e.pos} é o único com aria-current`,
-        `marcados: ${r.marcados.join(',') || 'nenhum'}`);
+      const marcado = String(r.ordem.indexOf(e.pos) + 1);
+      certo(r.marcados.join(',') === marcado,
+        `balcão · volta ${volta} · ${e.topo}: o separador «${e.pos}» é o único com aria-current`,
+        `marcados: ${r.marcados.join(',') || 'nenhum'}, esperado: ${marcado}`);
       /* O visor é a câmara. Ficar um a trabalhar num ecrã de números é a
          lanterna do telemóvel acesa em cima do balcão, a gastar bateria. */
       const visores = await palco.contar('#principal .visor');
-      certo(visores === (e.pos === 1 ? 1 : 0),
+      certo(visores === (e.pos === 'carimbar' ? 1 : 0),
         `balcão · volta ${volta} · ${e.topo}: o visor da câmara só existe no Carimbar`,
         `visores: ${visores}`);
     }
@@ -686,9 +715,9 @@ export async function correr(palco, certo) {
   /* O balcão tem os ecrãs mais compridos das duas apps — o editor do cartão
      não cabe num telemóvel. Vale a mesma regra: chegar a um ecrã é chegar ao
      princípio dele. */
-  await palco.clicar(SEP(4));
+  await palco.clicar(SEP('programa'));
   await palco.esperar('#principal #previa', 12000);
-  const rolagemBalcao = await mudarDeEcraRolado(palco, SEP(2), '#principal .numeros');
+  const rolagemBalcao = await mudarDeEcraRolado(palco, SEP('hoje'), '#principal .numeros');
   certo(rolagemBalcao.assentou <= 2,
     'balcão: mudar de separador com o ecrã anterior rolado começa no topo',
     `vinha de ${rolagemBalcao.antes}px e assentou em ${rolagemBalcao.assentou}px `
@@ -696,7 +725,7 @@ export async function correr(palco, certo) {
 
   /* --- o painel do balcão ------------------------------------------------ */
 
-  await palco.clicar(SEP(1));
+  await palco.clicar(SEP('carimbar'));
   await palco.esperar('#botao-manual', 12000);
 
   await palco.clicar('#botao-manual');
@@ -765,6 +794,9 @@ export async function correr(palco, certo) {
     source: `
       const obs = new MutationObserver(() => {
         const b = document.querySelectorAll('.barra-item');
+        /* O SEGUNDO SEPARADOR, seja ele qual for: o que este guião persegue é
+           um toque que chegue ANTES de a app estar pronta, e não um ecrã em
+           particular. Com um índice fixo, uma barra mais curta partia-o. */
         if (b.length >= 2) { obs.disconnect(); window.__cedo = true; b[1].click(); }
       });
       obs.observe(document, { childList: true, subtree: true });`,

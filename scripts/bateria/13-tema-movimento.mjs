@@ -436,7 +436,7 @@ export async function correr(palco, certo) {
      ======================================================================= */
 
   const abrirAspecto = async () => {
-    await palco.clicar('.barra-item:nth-child(5)');
+    await palco.clicar('.barra-item[data-ecra="perfil"]');
     await palco.esperar('#linha-aspecto');
     await palco.clicar('#linha-aspecto');
     await palco.esperar('[data-tema-opcao]');
@@ -694,7 +694,7 @@ export async function correr(palco, certo) {
   /* E o segundo controlo: o contador de animações vivas tem de conseguir ver
      alguma coisa. Sem isto, «nada estava a mexer-se» podia ser só um
      instrumento avariado a dizer que sim a tudo. */
-  await palco.clicar('.barra-item:nth-child(3)');
+  await palco.clicar('.barra-item[data-ecra="codigo"]');
   await palco.esperar('#folha-codigo', 8000);
   const vivasNormais = await palco.js(ACORRER);
   certo(vivasNormais.length > 0,
@@ -752,10 +752,10 @@ export async function correr(palco, certo) {
   /* --- e nos ecrãs a sério, com painéis abertos -------------------------- */
 
   const ecras = [
-    ['carteira', async () => { await palco.clicar('.barra-item:nth-child(1)'); }],
-    ['prémios', async () => { await palco.clicar('.barra-item:nth-child(4)'); }],
+    ['carteira', async () => { await palco.clicar('.barra-item[data-ecra="carteira"]'); }],
+    ['perfil', async () => { await palco.clicar('.barra-item[data-ecra="perfil"]'); }],
     ['código', async () => {
-      await palco.clicar('.barra-item:nth-child(3)');
+      await palco.clicar('.barra-item[data-ecra="codigo"]');
       await palco.esperar('#folha-codigo', 8000);
     }],
   ];

@@ -177,9 +177,18 @@ function tempo() {
   return Date.now() + (ler('desvio', 0) || 0);
 }
 
-export async function gerarCodigo(publico) {
+export async function gerarCodigo(publico, { resgate = false } = {}) {
   const janela = Math.floor(tempo() / 1000 / JANELA);
-  const assinatura = (await assinar(`${publico}.${janela}`)).slice(0, 16);
+  /* A INTENÇÃO VAI DENTRO DA ASSINATURA, e não só no prefixo.
+
+     Um código de resgate é assinado sobre «r:<publico>.<janela>» e um de
+     carimbo sobre «<publico>.<janela>»: um não se pode apresentar como o
+     outro. Não é para travar um assalto — quem entrega o prémio é uma pessoa
+     que está a olhar — é para os dois não partilharem a MARCA DE USO. Com a
+     mesma assinatura, levantar um prémio queimava o carimbo dos quinze
+     segundos seguintes, e ninguém perceberia porquê. */
+  const assinatura = (await assinar(
+    `${resgate ? 'r:' : ''}${publico}.${janela}`)).slice(0, 16);
   return {
     /* O `D1` DIZ QUE ISTO É DE UMA DEMONSTRAÇÃO, e é a diferença entre um
        balcão que responde «código inválido» e um que responde «este código é
@@ -190,7 +199,12 @@ export async function gerarCodigo(publico) {
        de o distinguir de um código forjado ou estragado, e dizia a mesma coisa
        aos dois. Quem estava do outro lado ficava sem saber o que tinha feito de
        errado. */
-    texto: `${MODO === 'demo' ? 'D1' : 'C1'}.${publico}.${janela}.${assinatura}`,
+    /* Quatro prefixos, e cada um responde a uma pergunta diferente: `C1`/`D1`
+       dizem de que MUNDO é o código (a sério ou demonstração) e `R1`/`RD1`
+       dizem o que a pessoa VEIO FAZER. O balcão lê os dois sem escolher nada. */
+    texto: `${resgate
+      ? (MODO === 'demo' ? 'RD1' : 'R1')
+      : (MODO === 'demo' ? 'D1' : 'C1')}.${publico}.${janela}.${assinatura}`,
     janela,
     expiraEm: (janela + 1) * JANELA * 1000 - (ler('desvio', 0) || 0),
   };
@@ -460,6 +474,16 @@ function criarDemo() {
       };
     },
 
+    async negocioPorSlug(slug) {
+      const n = estado().negocios.find((x) => x.slug === slug);
+      if (!n) { const erro = new Error('Não encontrado'); erro.estado = 404; throw erro; }
+      return {
+        id: n.id, slug: n.slug, nome: n.nome, cor: n.cor, categoria: n.categoria,
+        localidade: n.localidade, morada: n.morada, telefone: n.telefone,
+        programas: n.programas,
+      };
+    },
+
     async descobrir() {
       const e = estado();
       return e.negocios.map((n) => ({
@@ -702,6 +726,34 @@ function criarDemo() {
         cliente: { publico: cliente.publico, nome: cliente.nome },
         ganhos, novo, quantidade, manual, movimentoId, amigo,
       };
+    },
+
+    /* A MESMA REGRA DO SERVIDOR, e não uma versão mais simpática: só os
+       prémios DESTE negócio, e a leitura não escreve nada. A demonstração
+       existe para ensinar a app que existe — se aqui um código de carimbo
+       passasse por um pedido de prémio, ensinava o contrário do que o produto
+       faz. */
+    async lerCodigo(codigo) {
+      const partes = String(codigo || '').split('.');
+      if (partes[0] !== 'RD1' || partes.length !== 4) {
+        const erro = new Error('Este código não é de um pedido de prémio.');
+        erro.codigo = 'formato';
+        throw erro;
+      }
+      const e = estado();
+      const cliente = e.cliente;
+      if (!cliente || cliente.publico !== partes[1]) {
+        const erro = new Error('Cartão desconhecido.');
+        erro.codigo = 'sem-cliente';
+        throw erro;
+      }
+      const negocioId = e.operadores.find((x) => x.id === e.operadorId)?.negocioId
+        || e.negocios[0].id;
+      const meus = new Set(e.cartoes.filter((c) => c.negocioId === negocioId).map((c) => c.id));
+      const premios = e.premios
+        .filter((p) => meus.has(p.cartaoId) && !p.resgatadoEm)
+        .map((p) => ({ id: p.id, descricao: p.descricao, ganhoEm: p.ganhoEm, cartao_id: p.cartaoId }));
+      return { accao: 'resgate', publico: cliente.publico, premios };
     },
 
     async resgatar({ premioId, operador = 'Balcão' }) {
@@ -1278,6 +1330,20 @@ export const api = MODO === 'remoto'
       cartoes: () => remoto.pedir('/v1/cliente/cartoes'),
       cartao: (_, cartaoId) => remoto.pedir(`/v1/cliente/cartoes/${cartaoId}`),
       descobrir: () => remoto.pedir('/v1/descobrir'),
+      /* UM negócio pelo apelido, que é o que o cartaz precisa.
+
+         A rota existia no Worker desde sempre e NUNCA NINGUÉM A CHAMOU —
+         código morto com ar de vivo. Enquanto isso, quem apontava a câmara a
+         um cartaz fazia o Worker puxar a lista INTEIRA de negócios, com uma
+         consulta por negócio para os programas, para encontrar um: mais de
+         duzentas consultas numa invocação que tem tecto de cinquenta
+         subpedidos. Isto são duas.
+
+         E há uma diferença que não é de eficiência: o `/v1/descobrir` filtra
+         `demonstracao = 0`, esta não. O cartaz de um negócio marcado como
+         demonstração não funcionava — e o balcão promete por escrito ao dono
+         que «o cartaz e o endereço próprio continuam a funcionar». */
+      negocioPorSlug: (slug) => remoto.pedir(`/v1/p/${encodeURIComponent(slug)}`),
       /* O `amigo` é o código de quem convidou, quando se chega por um link
          partilhado. Vai no mesmo pedido: uma adesão que precisasse de dois
          pedidos podia ficar a meio, com o cartão junto e o convite perdido. */
@@ -1288,6 +1354,11 @@ export const api = MODO === 'remoto'
         { metodo: 'POST', corpo: { programaId } }),
       carimbar: (dados) => remoto.pedir('/v1/balcao/carimbar', { metodo: 'POST', corpo: dados }),
       resgatar: (dados) => remoto.pedir('/v1/balcao/resgatar', { metodo: 'POST', corpo: dados }),
+      /* LER SEM CARIMBAR. É a porta do resgate: o código do cliente traz a
+         intenção no prefixo e esta rota diz o que há para entregar, sem
+         escrever nada. Quem escreve é o `resgatar`, a seguir, com o dedo do
+         operador pelo meio. */
+      lerCodigo: (codigo) => remoto.pedir('/v1/balcao/ler', { metodo: 'POST', corpo: { codigo } }),
       anular: (dados) => remoto.pedir('/v1/balcao/anular', { metodo: 'POST', corpo: dados }),
       fundar: (dados) => remoto.pedir('/v1/balcao/fundar', { metodo: 'POST', corpo: dados }),
       entrarBalcao: (email) => remoto.pedir('/v1/balcao/entrar', { metodo: 'POST', corpo: { email } }),

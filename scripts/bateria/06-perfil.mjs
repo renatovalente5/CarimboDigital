@@ -34,7 +34,7 @@ import { passarBoasVindas } from './01-arranque.mjs';
 
 export const nome = '06 · Perfil: conta, email, exportar e apagar';
 
-const PERFIL = '.barra-item:nth-child(5)';
+const PERFIL = '.barra-item[data-ecra="perfil"]';
 const LINHA_CONTA = '#principal section:first-of-type .lista .linha:first-child';
 /* Pelo nome e não pela posição. Esta constante dizia «a primeira linha da
    segunda secção», e no dia em que as «Definições» entraram entre a «Conta» e

@@ -29,8 +29,7 @@ import { passarBoasVindas } from './01-arranque.mjs';
 
 export const nome = '22 · Traz um amigo';
 
-const CARTEIRA = '.barra-item:nth-child(1)';
-const DESCOBRIR = '.barra-item:nth-child(2)';
+const CARTEIRA = '.barra-item[data-ecra="carteira"]';
 
 const dormir = (palco, ms) =>
   palco.js(`await new Promise((r) => setTimeout(r, ${ms})); return true`);
@@ -232,7 +231,7 @@ export async function correr(palco, certo) {
      que uma pessoa faz. */
   await palco.tecla('Escape');
   await palco.sumir('#resultado', 6000);
-  await palco.clicar('#barra .barra-item:nth-child(4)');
+  await palco.clicar('#barra .barra-item[data-ecra="programa"]');
   await palco.esperar('#f-amigo-convidador', 8000);
   certo(await palco.js(`
     return document.querySelector('#f-amigo-convidador').value`) === '1',

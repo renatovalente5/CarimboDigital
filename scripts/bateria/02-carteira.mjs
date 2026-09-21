@@ -857,9 +857,16 @@ export async function correr(palco, certo) {
   certo(await palco.visivel('#principal .vazio .btn'),
     'carteira vazia: tem um caminho para a frente');
 
+  /* O BOTÃO DO VAZIO MUDOU DE DESTINO, e com ele o que esta afirmação
+     persegue. Levava ao «Descobrir», que era uma montra de sítios; esse ecrã
+     saiu, porque um cartão passou a ganhar-se de uma maneira só — no
+     estabelecimento. Agora abre a folha do código, que é a porta que nunca
+     falha: o balcão lê, e o cartão nasce ao primeiro carimbo. */
   await palco.clicar('#principal .vazio .btn');
-  await palco.esperar('#principal h1.titulo-grande', 8000);
-  certo(await palco.texto('#principal h1.titulo-grande') === 'Descobrir',
-    'carteira vazia: o botão leva mesmo a Descobrir',
-    String(await palco.texto('#principal h1.titulo-grande')));
+  await palco.esperar('#folha-codigo', 8000);
+  certo(await palco.contar('#codigo-qr svg') === 1,
+    'carteira vazia: o botão abre mesmo o código — é a porta que não depende de haver cartaz',
+    `${await palco.contar('#codigo-qr svg')} desenhos`);
+  certo((await palco.textoTodo()).includes('cartaz'),
+    'carteira vazia: e o ecrã diz que também se ganha um cartão apontando a câmara a um cartaz');
 }

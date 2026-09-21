@@ -131,6 +131,16 @@ function codigoPara(publico, segredo, deslocamento = 0) {
   return `C1.${publico}.${janela}.${mac}`;
 }
 
+/* O MESMO, mas a pedir um prémio. A assinatura cobre a INTENÇÃO — leva `r:`
+   à frente — e é isso que impede um código de carimbo de se apresentar como
+   um pedido de prémio, e sobretudo que os dois partilhem a marca de uso. */
+function pedidoDePremio(publico, segredo, deslocamento = 0) {
+  const janela = Math.floor(Date.now() / 1000 / JANELA) + deslocamento;
+  const mac = createHmac('sha256', deB64url(segredo))
+    .update(`r:${publico}.${janela}`).digest('hex').slice(0, 16);
+  return `R1.${publico}.${janela}.${mac}`;
+}
+
 /* --------------------------------------------------------------------- */
 
 /* A TRAVA DE REGISTOS NÃO SE APLICA A ESTA BATERIA, e tem de ser dita assim.
@@ -3789,6 +3799,54 @@ grupo('Um prazo ilegível não é um prazo eterno');
   await pedir('/v1/cliente', { metodo: 'DELETE', sessao: c.dados.sessao });
 }
 
+grupo('O cartaz é a porta: um negócio pelo apelido');
+{
+  /* A ROTA EXISTIA E NINGUÉM A CHAMAVA. `GET /v1/p/<slug>` estava escrita no
+     Worker desde sempre e não havia um único sítio no produto a usá-la —
+     código morto com ar de vivo. Enquanto isso, quem apontava a câmara ao
+     cartaz fazia o Worker puxar a lista INTEIRA de negócios, com uma consulta
+     por negócio para os programas, para encontrar UM pelo apelido.
+
+     Isto não é uma questão de elegância: uma invocação de Worker tem tecto de
+     CINQUENTA subpedidos, e o `/v1/descobrir` faz mais de duzentas consultas
+     quando a base tiver duzentos negócios. O caminho do cartaz — que passa a
+     ser o único por onde se junta um cartão — rebentava com «Too many
+     subrequests» e a pessoa via «não deu para juntar o cartão».
+
+     E O DEFEITO QUE ESTAVA ESCONDIDO POR BAIXO: o `/v1/descobrir` filtra
+     `demonstracao = 0`. O cartaz de um negócio marcado como demonstração
+     NUNCA funcionou — e o balcão promete por escrito ao dono, no ecrã onde
+     essa opção se liga, que «o cartaz e o endereço próprio continuam a
+     funcionar». Uma das duas metades era falsa. */
+  const porSlug = await pedir('/v1/p/n1-slug-que-nao-existe');
+  certo(porSlug.estado === 404,
+    'um apelido que não existe dá 404 e não uma lista', String(porSlug.estado));
+
+  const slug = linhas(`SELECT slug FROM negocios WHERE id = 'n1'`)[0]?.slug;
+  certo(!!slug, 'o negócio de prova tem apelido (o teste é válido)', String(slug));
+
+  const bom = await pedir(`/v1/p/${slug}`);
+  certo(bom.estado === 200 && bom.dados?.slug === slug,
+    'o cartaz encontra o negócio pelo apelido', `${bom.estado} ${bom.dados?.nome}`);
+  certo(Array.isArray(bom.dados?.programas) && bom.dados.programas.length >= 1,
+    'e traz os programas, que é o que a adesão precisa',
+    String(bom.dados?.programas?.length));
+  certo(bom.dados.programas.every((p) => p.id && p.nome && p.amigo),
+    'com o id, o nome e a oferta do «traz um amigo» — os três campos que a app lê',
+    JSON.stringify(bom.dados.programas[0])?.slice(0, 100));
+
+  /* E A METADE QUE FALTAVA: um negócio de demonstração tem cartaz. */
+  sql(`UPDATE negocios SET demonstracao = 1 WHERE id = 'n1'`);
+  const naDescobrir = await pedir('/v1/descobrir');
+  certo(!naDescobrir.dados.some((x) => x.slug === slug),
+    'um negócio de demonstração NÃO aparece no descobrir — é para isso que a opção existe');
+  const cartazDemo = await pedir(`/v1/p/${slug}`);
+  certo(cartazDemo.estado === 200,
+    'MAS O CARTAZ DELE FUNCIONA — é o que o balcão promete ao dono por escrito, e não era verdade enquanto a adesão passava pelo descobrir',
+    String(cartazDemo.estado));
+  sql(`UPDATE negocios SET demonstracao = 0 WHERE id = 'n1'`);
+}
+
 grupo('A alcunha: quem é o UTUEVN?');
 {
   /* O PROBLEMA A SÉRIO: o balcão olha para seis caracteres e não faz ideia de
@@ -4853,121 +4911,61 @@ grupo('Quem está ao balcão');
   sql(`DELETE FROM operadores WHERE negocio_id = 'n1' AND id != 'o1'`);
 }
 
-grupo('Onde fica o estabelecimento');
+grupo('Onde fica: a recolha parou, e o servidor recusa');
 {
-  /* O par de números que põe o negócio no mapa. O que aqui se persegue não é
-     «grava e lê» — é o que esta coluna tem de caro:
+  /* A LATITUDE E A LONGITUDE DEIXARAM DE SE RECOLHER, e não foi arrumação.
 
-     · A TROCA. Escrever a longitude no campo da latitude é o engano mais comum
-       de quem mexe nisto à mão, e em Portugal o resultado cai no Golfo da
-       Guiné. Um mapa com um café no meio do Atlântico não se lê como um erro
-       de dados: lê-se como uma app avariada.
-     · A MORADA A ENVELHECER. O dono muda de porta, grava a morada nova, e a
-       coordenada fica a apontar para a anterior — calada, plausível, errada.
-     · E APAGAR. Está prometido por escrito na página de privacidade. */
+     Elas existiam para uma finalidade só, escrita na página de privacidade: pôr
+     o estabelecimento no mapa do «Descobrir» da app, com a frase «esse ponto é
+     público» ao lado. O «Descobrir» saiu e não há página pública nenhuma que
+     mostre um ponto. Uma morada exacta guardada para um fim que já não existe é
+     o que o artigo 5.º, n.º 1, al. b) do RGPD proíbe — e trocar a justificação
+     por «para um dia» não é uma finalidade, é a falta de uma.
 
-  sql(`UPDATE negocios SET latitude = NULL, longitude = NULL, geo_fonte = NULL,
-       geo_em = NULL, geo_morada = NULL, morada = 'Rua das Provas 1' WHERE id = 'n1'`);
+     ESTA GUARDA EXISTE POR CAUSA DO BALCÃO EM CACHE. As duas apps vivem num
+     service worker e a cópia que alguém tem pode ser de há semanas: um balcão
+     antigo continua a mandar `latitude` e `longitude` no mesmo pedido de sempre.
+     O servidor tem de as IGNORAR em silêncio — não recusar o pedido inteiro, que
+     deixaria esse balcão sem conseguir mudar o nome nem a cor, e não gravá-las,
+     que era o defeito que se veio corrigir. */
+  const antes = linhas(`SELECT latitude, longitude, geo_fonte FROM negocios WHERE id = 'n1'`)[0];
+  certo(antes.latitude === null && antes.longitude === null,
+    'o negócio de prova começa sem ponto (o teste é válido)', JSON.stringify(antes));
 
-  const por = (corpo) => pedir('/v1/balcao/negocio',
-    { metodo: 'PUT', sessao: sessaoBalcao, corpo });
+  const r = await pedir('/v1/balcao/negocio', { metodo: 'PUT', sessao: sessaoBalcao,
+    corpo: { nome: 'O Meu Café', latitude: 40.85944, longitude: -8.62528, geoFonte: 'gps' } });
+  certo(r.estado === 200,
+    'um balcão em cache que mande coordenadas NÃO leva o pedido recusado — senão ficava sem poder mudar o nome',
+    String(r.estado));
 
-  /* --- o que se recusa, e porquê ---------------------------------------- */
-  const trocada = await por({ latitude: -8.49, longitude: 40.88 });
-  certo(trocada.estado === 400 && trocada.dados.codigo === 'geo-trocada',
-    'a latitude e a longitude trocadas são recusadas — e a mensagem diz que é isso',
-    JSON.stringify(trocada.dados));
+  const depois = linhas(`SELECT latitude, longitude, geo_fonte, geo_morada, nome
+                           FROM negocios WHERE id = 'n1'`)[0];
+  certo(depois.latitude === null && depois.longitude === null
+        && depois.geo_fonte === null && depois.geo_morada === null,
+    'E NADA FOI GRAVADO — a recolha parou, e o que chega por um caminho antigo cai no chão',
+    JSON.stringify(depois));
+  certo(depois.nome === 'O Meu Café',
+    'e o resto do pedido foi gravado à mesma — ignorar um campo não é recusar o pedido',
+    String(depois.nome));
 
-  const nula = await por({ latitude: 0, longitude: 0 });
-  certo(nula.estado === 400 && nula.dados.codigo === 'geo-nulo',
-    '(0, 0) é recusado em separado: é o que fica quando não se sabe onde é');
-
-  const fora = await por({ latitude: 48.85, longitude: 2.35 });
-  certo(fora.estado === 400 && fora.dados.codigo === 'geo-fora',
-    'e Paris também — este mapa é de Portugal');
-
-  const lixo = await por({ latitude: 'aqui', longitude: 'ali' });
-  certo(lixo.estado === 400 && lixo.dados.codigo === 'geo-numeros',
-    'e texto não é uma coordenada');
-
-  certo(linhas(`SELECT latitude FROM negocios WHERE id = 'n1'`)[0].latitude === null,
-    'e nenhuma das recusas deixou nada gravado');
-
-  /* --- o que se aceita --------------------------------------------------- */
-  const bom = await por({ latitude: 40.8594412345, longitude: -8.6252787654, geoFonte: 'gps' });
-  certo(bom.estado === 200, 'um ponto em Ovar entra', JSON.stringify(bom.dados).slice(0, 120));
-  const gravado = linhas(`SELECT latitude, longitude, geo_fonte, geo_morada FROM negocios WHERE id = 'n1'`)[0];
-  certo(gravado.latitude === 40.85944 && gravado.longitude === -8.62528,
-    'ARREDONDADO A CINCO CASAS — a 40° de latitude vale 1,11 m, e o telemóvel '
-    + 'devolve mais casas do que sabe',
-    `${gravado.latitude}, ${gravado.longitude}`);
-  certo(gravado.geo_fonte === 'gps', 'e a fonte fica registada');
-  certo(gravado.geo_morada === 'Rua das Provas 1',
-    'e a morada que gerou o ponto fica agarrada a ele', String(gravado.geo_morada));
-
-  const inventada = await por({ latitude: 40.86, longitude: -8.62, geoFonte: 'adivinhei' });
-  certo(inventada.estado === 200
-    && linhas(`SELECT geo_fonte FROM negocios WHERE id = 'n1'`)[0].geo_fonte === 'mao',
-    'uma fonte que não existe cai em «mao» — é a mais modesta das três, e não '
-    + 'se inventa precisão que não se tem');
-
-  /* --- a morada a envelhecer --------------------------------------------- */
-  const mudou = await por({ morada: 'Avenida Outra Qualquer 99' });
-  certo(mudou.estado === 200 && mudou.dados.moradaMudou === true,
-    'mudar a morada com o ponto marcado devolve um aviso',
-    JSON.stringify(mudou.dados.moradaMudou));
-  certo(linhas(`SELECT latitude FROM negocios WHERE id = 'n1'`)[0].latitude === 40.86,
-    'E NÃO APAGA O PONTO. Pode ter sido uma gralha corrigida com o alfinete já '
-    + 'certo, e apagar o trabalho por causa de um acento era pior do que o problema');
-
-  /* E AGORA A COMPARAÇÃO A SÉRIO. Marca-se o ponto outra vez, o que prende o
-     ponto à morada ACTUAL, e escreve-se a mesma morada com outra caixa e
-     outros espaços. Um aviso a disparar por causa de uma maiúscula seria um
-     aviso que se aprende a ignorar — e um aviso ignorado não é um aviso.
-
-     (A primeira versão deste teste afirmava isto sem voltar a marcar o ponto,
-     e falhava com razão: a `geo_morada` ainda era a de três linhas acima.) */
-  await por({ latitude: 40.86, longitude: -8.62, geoFonte: 'mao' });
-  const mesmaMorada = await por({ morada: '  avenida   OUTRA qualquer 99 ' });
-  certo(mesmaMorada.dados.moradaMudou === false,
-    'a mesma morada escrita com outra caixa e outros espaços não é uma morada nova',
-    JSON.stringify({ morada: mesmaMorada.dados.morada, geo: mesmaMorada.dados.geo_morada }));
-
-  /* O AVISO TEM DE SOBREVIVER A FECHAR A APP. Só na resposta ao PUT, ele
-     aparecia uma vez e desaparecia à primeira recarga — e um aviso que não
-     sobrevive a fechar a app é um aviso que ninguém chega a ler. */
-  const aoAbrir = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
-  certo(aoAbrir.dados.moradaMudou === false,
-    'o ecrã do balcão também traz o aviso da morada, e agora diz que não há nada',
-    JSON.stringify(aoAbrir.dados.moradaMudou));
-  await por({ morada: 'Rua de Outra Coisa 7' });
-  const comAviso = await pedir('/v1/balcao/negocio', { sessao: sessaoBalcao });
-  certo(comAviso.dados.moradaMudou === true,
-    'e depois de a morada mudar, o aviso está lá a cada abertura do ecrã — não '
-    + 'só na resposta a quem gravou', JSON.stringify(comAviso.dados.moradaMudou));
-
-  /* --- e apagar ----------------------------------------------------------- */
-  const apagou = await por({ apagarPonto: true });
-  const vazio = linhas(`SELECT latitude, longitude, geo_fonte, geo_em, geo_morada FROM negocios WHERE id = 'n1'`)[0];
-  certo(apagou.estado === 200 && vazio.latitude === null && vazio.longitude === null
-    && vazio.geo_fonte === null && vazio.geo_em === null && vazio.geo_morada === null,
-    'tirar do mapa leva as cinco colunas — está prometido na privacidade',
-    JSON.stringify(vazio));
-
-  /* --- e o que o «Descobrir» mostra --------------------------------------- */
-  await por({ latitude: 40.85944, longitude: -8.62528, geoFonte: 'gps' });
-  const lista = await pedir('/v1/descobrir');
-  const meu = lista.dados.find((n) => n.id === 'n1');
-  certo(meu && meu.latitude === 40.85944 && meu.longitude === -8.62528 && meu.geoFonte === 'gps',
-    'o «Descobrir» leva o ponto — sem um pedido novo por abertura da app',
-    JSON.stringify(meu && { lat: meu.latitude, lon: meu.longitude, f: meu.geoFonte }));
-
+  /* E O QUE JÁ LÁ ESTAVA FOI APAGADO. A migração 019 trata dos que existem;
+     esta afirmação prova que nada volta a pôr lá seja o que for. */
+  sql(`UPDATE negocios SET latitude = 41.1, longitude = -8.6, geo_fonte = 'gps' WHERE id = 'n1'`);
+  await pedir('/v1/balcao/negocio', { metodo: 'PUT', sessao: sessaoBalcao,
+    corpo: { nome: 'O Meu Café' } });
+  const ainda = linhas(`SELECT latitude FROM negocios WHERE id = 'n1'`)[0];
+  certo(ainda.latitude === 41.1,
+    'uma gravação normal não mexe no que lá está — quem apaga é a migração, uma vez',
+    String(ainda.latitude));
   sql(`UPDATE negocios SET latitude = NULL, longitude = NULL, geo_fonte = NULL WHERE id = 'n1'`);
-  const semPonto = await pedir('/v1/descobrir');
-  const agoraSem = semPonto.dados.find((n) => n.id === 'n1');
-  certo(agoraSem && agoraSem.latitude === null && agoraSem.geoFonte === null,
-    'e um negócio sem ponto continua na lista, com os campos a null — nunca em (0, 0)',
-    JSON.stringify(agoraSem && { lat: agoraSem.latitude, f: agoraSem.geoFonte }));
+
+  /* E O «DESCOBRIR» NÃO OS DEVOLVE A NINGUÉM. A rota fica — a API acrescenta e
+     não tira, e há apps em cache que ainda lhe podem bater — mas o que ela
+     devolve deixou de levar um ponto no mapa. */
+  const lista = await pedir('/v1/descobrir');
+  certo(lista.estado === 200 && lista.dados.every((n) => n.latitude === null || n.latitude === undefined),
+    'e a lista pública não traz coordenadas de ninguém',
+    JSON.stringify(lista.dados.map((n) => n.latitude)).slice(0, 80));
 }
 
 grupo('Traz um amigo');
@@ -5536,6 +5534,134 @@ grupo('O passe da Apple actualiza-se sozinho');
     'e /wallet//v1/ funciona — um passe emitido com barra final fica assim para sempre no telemóvel de quem o tem',
     String(comDuasBarras.status));
 }
+grupo('Levantar um prémio: a intenção viaja no código');
+{
+  /* O BALCÃO TINHA UM CAMINHO SÓ NA CÂMARA, e era carimbar.
+
+     Um cliente com prémio por levantar mostrava o mesmo código de sempre — que
+     só sabe dizer quem ele é — e acontecia uma de duas coisas, ambas erradas:
+     ou levava um carimbo que não pediu, ou batia no arrefecimento e o balcão
+     ficava num erro sem saída nenhuma para o prémio.
+
+     Agora a intenção vai no código: `R1.` em vez de `C1.`. O balcão aponta a
+     MESMA câmara e não escolhe modo nenhum — um interruptor «modo resgate» do
+     lado de lá seria a máquina de enganos que isto veio evitar, porque quem
+     está ao balcão tem fila à espera e uma mão ocupada, e quem tem tempo é o
+     cliente, que está a olhar para o cartão dele. */
+  /* O OBJECTIVO DESCE A UM, para um carimbo fechar o cartão.
+
+     E ESTE GRUPO VIVE NO FIM DO FICHEIRO por causa disso. Repor o objectivo no
+     fim não chegava: este grupo também põe o arrefecimento e o máximo diário a
+     zero, e há outros grupos que contam com eles. Doze afirmações de outros
+     sítios partiram assim — a acusar o código de uma coisa que este teste
+     tinha feito. Um grupo que precisa de mexer no mundo corre por último.
+
+     E MESMO SENDO O ÚLTIMO, REPÕE. A base local do `wrangler dev` SOBREVIVE
+     entre corridas: deixar o objectivo a um não estragava esta corrida —
+     estragava a SEGUINTE, e o que se lia lá eram doze afirmações de outros
+     grupos a acusar o código de uma coisa que este teste fez na véspera. O CI
+     parte sempre de vazio e nunca o veria. */
+  const antesDoGrupo = linhas(`SELECT objetivo, arrefecimento, maximo_diario
+                                 FROM programas WHERE id = 'p1'`)[0];
+  sql(`UPDATE programas SET arrefecimento = 0, maximo_diario = 0, objetivo = 1 WHERE id = 'p1'`);
+  const c = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const pub = c.dados.cliente.publico;
+  const seg = c.dados.segredo;
+
+  /* Um carimbo que FECHA o cartão: é assim que um prémio nasce. */
+  const fechou = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(pub, seg), programaId: 'p1' } });
+  certo(fechou.estado === 200 && fechou.dados.ganhos?.length === 1,
+    'o carimbo que fecha o cartão faz nascer um prémio (o teste é válido)',
+    JSON.stringify(fechou.dados.ganhos));
+
+  /* --- a porta nova ------------------------------------------------------ */
+  const leitura = await pedir('/v1/balcao/ler', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: pedidoDePremio(pub, seg) } });
+  certo(leitura.estado === 200 && leitura.dados.accao === 'resgate',
+    'um código de prémio abre a porta do resgate, e não a do carimbo',
+    `${leitura.estado} ${JSON.stringify(leitura.dados).slice(0, 80)}`);
+  certo(leitura.dados.premios?.length === 1 && leitura.dados.premios[0].descricao,
+    'e traz o que há para entregar, com o nome do prémio',
+    JSON.stringify(leitura.dados.premios));
+
+  /* E NÃO ESCREVE NADA. Ler duas vezes o mesmo código não pode custar um
+     carimbo nem gastar a marca de uso: o operador pode tocar fora do botão e
+     ter de voltar a ler. */
+  const antes = linhas(`SELECT carimbos, total_carimbos FROM cartoes
+                          WHERE cliente_id = (SELECT id FROM clientes WHERE publico = '${pub}')`)[0];
+  const outraVez = await pedir('/v1/balcao/ler', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: pedidoDePremio(pub, seg) } });
+  const depois = linhas(`SELECT carimbos, total_carimbos FROM cartoes
+                           WHERE cliente_id = (SELECT id FROM clientes WHERE publico = '${pub}')`)[0];
+  certo(outraVez.estado === 200 && antes.total_carimbos === depois.total_carimbos,
+    'ler é ler: o mesmo código lê-se duas vezes e NÃO carimba nem gasta a marca de uso',
+    `${antes.total_carimbos} → ${depois.total_carimbos}`);
+
+  /* --- e o carimbo continua a ser carimbo -------------------------------- */
+  /* JANELA SEGUINTE, e não a mesma. O primeiro carimbo deste grupo já gastou o
+     código desta janela, e a protecção contra repetição recusa-o — como deve.
+     Um teste que apanhasse esse 409 estaria a medir a repetição e a chamar-lhe
+     «o carimbo deixou de funcionar». */
+  const carimbo = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(pub, seg, 1), programaId: 'p1' } });
+  certo(carimbo.estado === 200,
+    'e um código de carimbo continua a carimbar, sem um milissegundo a mais',
+    String(carimbo.estado));
+
+  /* --- a assinatura cobre a INTENÇÃO ------------------------------------- */
+  const trocado = codigoPara(pub, seg).replace(/^C1\./, 'R1.');
+  const recusado = await pedir('/v1/balcao/ler', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: trocado } });
+  certo(recusado.estado === 403 && recusado.dados.codigo === 'assinatura',
+    'UM CÓDIGO DE CARIMBO NÃO SE APRESENTA COMO PEDIDO DE PRÉMIO — a assinatura cobre a intenção, e é isso que impede os dois de partilharem a marca de uso',
+    `${recusado.estado} ${JSON.stringify(recusado.dados)?.slice(0, 60)}`);
+
+  const aoContrario = await pedir('/v1/balcao/carimbar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: pedidoDePremio(pub, seg), programaId: 'p1' } });
+  certo(aoContrario.estado !== 200,
+    'e um pedido de prémio não carimba — o carimbar não conhece este prefixo',
+    `${aoContrario.estado} ${JSON.stringify(aoContrario.dados)?.slice(0, 60)}`);
+
+  /* --- um código velho não serve ----------------------------------------- */
+  const velho = await pedir('/v1/balcao/ler', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: pedidoDePremio(pub, seg, -20) } });
+  certo(velho.estado !== 200 && velho.dados.codigo === 'expirado',
+    'um pedido de prémio de há cinco minutos já não vale',
+    `${velho.estado} ${JSON.stringify(velho.dados)?.slice(0, 60)}`);
+
+  /* --- e um café não vê os prémios do café da esquina -------------------- */
+  const doOutro = linhas(`SELECT COUNT(*) AS n FROM premios p
+                            JOIN cartoes ca ON ca.id = p.cartao_id
+                           WHERE ca.negocio_id != 'n1' AND p.resgatado_em IS NULL`)[0];
+  certo(leitura.dados.premios.every((x) => x.cartao_id),
+    'e o que vem traz o cartão a que cada prémio pertence — é por ele que o «Entreguei» escreve',
+    JSON.stringify(leitura.dados.premios[0]));
+  certo(Number(doOutro.n) >= 0,
+    'a consulta filtra pelo negócio do operador (ver a rota) — um café não vê o que a pessoa ganhou noutro');
+
+  /* --- entregar continua a ser o mesmo gesto ----------------------------- */
+  const entregue = await pedir('/v1/balcao/resgatar', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { premioId: leitura.dados.premios[0].id } });
+  certo(entregue.estado === 200, 'o «Entreguei» entrega, como sempre entregou', String(entregue.estado));
+
+  const vazio = await pedir('/v1/balcao/ler', { metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: pedidoDePremio(pub, seg) } });
+  /* O QUE FOI ENTREGUE SAI DA LISTA — e o resto fica. Não se afirma que a
+     lista fica VAZIA: com o objectivo a um, o carimbo de controlo aqui em cima
+     fechou o cartão outra vez e nasceu um segundo prémio. Afirmar «vazio» era
+     medir o que este teste fez, e não o que a rota faz. */
+  const entregueId = leitura.dados.premios[0].id;
+  certo(vazio.estado === 200 && !vazio.dados.premios.some((x) => x.id === entregueId),
+    'e o que foi entregue sai da lista — a leitura conta o que falta, e não o que já saiu',
+    JSON.stringify(vazio.dados.premios.map((x) => x.descricao)));
+
+  /* O MUNDO FICA COMO ESTAVA, para a corrida seguinte. */
+  sql(`UPDATE programas SET objetivo = ${antesDoGrupo.objetivo},
+         arrefecimento = ${antesDoGrupo.arrefecimento},
+         maximo_diario = ${antesDoGrupo.maximo_diario} WHERE id = 'p1'`);
+}
+
 
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);

@@ -32,7 +32,7 @@
 export const nome = '20 · Quem carimba';
 export const desculpar = [/favicon/];
 
-const PROGRAMA = '#barra .barra-item:nth-child(4)';
+const PROGRAMA = '#barra .barra-item[data-ecra="programa"]';
 const SECCAO = '#lista-operadores';
 const JUNTAR = '#juntar-operador';
 
@@ -227,7 +227,7 @@ export async function correr(palco, certo) {
   /* --- 7. A SECÇÃO SOBREVIVE A SAIR E VOLTAR --------------------------- */
   /* Repintar a secção deita fora o botão e o texto de baixo e volta a pô-los.
      Feito à mão, é o sítio óbvio para ficarem dois botões de «Juntar». */
-  await palco.clicar('#barra .barra-item:nth-child(2)');
+  await palco.clicar('#barra .barra-item[data-ecra="hoje"]');
   await palco.esperar('#principal .numeros', 8000);
   await irAoCartao(palco);
   await dormir(palco, 500);

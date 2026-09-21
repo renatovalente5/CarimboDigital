@@ -23,7 +23,7 @@ import { passarBoasVindas } from './01-arranque.mjs';
 
 export const nome = '18 · Avisar quando o cartão fica cheio';
 
-const PERFIL = '.barra-item:nth-child(5)';
+const PERFIL = '.barra-item[data-ecra="perfil"]';
 const LINHA_AVISOS = '#linha-avisos';
 
 export async function correr(palco, certo) {
@@ -83,7 +83,7 @@ export async function correr(palco, certo) {
      `undefined` continua a responder que sim. Foi assim que este teste passou
      a primeira vez sem provar nada. */
   await palco.js(`delete window.PushManager; return 'PushManager' in window`);
-  await palco.clicar('.barra-item:nth-child(1)');
+  await palco.clicar('.barra-item[data-ecra="carteira"]');
   await palco.esperar('#principal');
   await palco.clicar(PERFIL);
   await palco.esperar('#principal .linha-perigo');

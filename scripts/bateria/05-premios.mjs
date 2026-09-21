@@ -56,8 +56,12 @@ const TITULOS = { Carteira: 'Os meus cartões', Descobrir: 'Descobrir',
 
 /** Vai para um separador da barra pelo nome e espera pelo título do ecrã. */
 async function irPara(palco, rotulo) {
-  const indice = ['Carteira', 'Descobrir', 'Código', 'Prémios', 'Perfil'].indexOf(rotulo) + 1;
-  await palco.clicar(`.barra-item:nth-child(${indice})`);
+  /* POR NOME, e não por posição. Esta função calculava o índice a partir de
+     uma lista de cinco rótulos escrita à mão; no dia em que dois separadores
+     saíram, ela passou a clicar no separador errado ou em nenhum. */
+  const ecra = { Carteira: 'carteira', Código: 'codigo', Perfil: 'perfil' }[rotulo];
+  if (!ecra) throw new Error(`o separador «${rotulo}» já não existe nesta app`);
+  await palco.clicar(`.barra-item[data-ecra="${ecra}"]`);
   const limite = Date.now() + 6000;
   for (;;) {
     if ((await palco.texto('#principal h1.titulo-grande')) === TITULOS[rotulo]) return;
@@ -89,11 +93,24 @@ async function noMotor(palco, corpo) {
 
 /** As linhas de prémio por levantar, como a pessoa as lê. */
 async function premiosPorLevantar(palco) {
-  return palco.js(`return [...document.querySelectorAll('#principal .linha-premio')].map((n) => ({
-    descricao: n.querySelector('.linha-texto b').textContent.trim(),
-    detalhe: n.querySelector('.linha-texto span').textContent.replace(/\\s+/g, ' ').trim(),
-    etiqueta: (n.querySelector('.etiqueta') || {}).textContent || null,
-  }))`);
+  /* LÊ-SE DOS CARTÕES, e não de uma lista.
+
+     Havia um ecrã «Prémios» com uma linha por prémio; ele saiu, e o prémio
+     passou a viver no cartão onde foi ganho — que é onde a pessoa já estava a
+     olhar. Um cartão com três prémios dá UMA entrada aqui, com a conta: é
+     assim que o ecrã o diz, e medir de outra maneira era medir uma coisa que
+     não existe. */
+  return palco.js(`return [...document.querySelectorAll('.pilha .cartao')]
+    .filter((c) => c.querySelector('.pronto'))
+    .map((c) => ({
+      descricao: c.querySelector('.pronto b').textContent.trim(),
+      /* O «.pronto» tem DOIS spans: o do ícone, que é vazio, e o do texto. Um
+         «querySelector('span')» apanha o primeiro e mede uma cadeia vazia. */
+      detalhe: c.querySelector('.pronto-texto span').textContent.replace(/\\s+/g, ' ').trim(),
+      negocio: (c.querySelector('.cartao-nome') || {}).textContent || null,
+      quantos: /(\\d+) prémios/.test(c.querySelector('.pronto-texto span').textContent)
+        ? Number(RegExp.$1) : 1,
+    }))`);
 }
 
 /* --- o módulo ------------------------------------------------------------- */
@@ -118,41 +135,31 @@ export async function correr(palco, certo) {
     'estado de partida: o cartão do Café Torrado está a meio',
     `carimbos=${torrado && torrado.carimbos}`);
 
-  await irPara(palco, 'Prémios');
+  await irPara(palco, 'Carteira');
   await palco.captura('05-premios-um-por-levantar');
 
-  certo((await palco.texto('#topo-titulo')) === 'Prémios',
-    'o topo diz «Prémios»', String(await palco.texto('#topo-titulo')));
+  /* =======================================================================
+     O ECRÃ DOS PRÉMIOS SAIU, e o que ele mostrava vive agora onde a pessoa já
+     estava a olhar: a faixa no topo da carteira e o painel dentro do cartão.
 
-  const lista1 = await premiosPorLevantar(palco);
-  certo(lista1.length === 1,
-    'um prémio por resgatar dá uma linha no ecrã',
-    `${lista1.length} linhas: ${JSON.stringify(lista1)}`);
-  certo(lista1[0] && lista1[0].descricao === 'Taça de três bolas',
-    'a linha mostra o prémio do cartão cheio',
-    lista1[0] && lista1[0].descricao);
-  certo(lista1[0] && lista1[0].detalhe.startsWith('Gelataria Luar ·'),
-    'a linha diz de que negócio é e há quanto tempo foi ganho',
-    lista1[0] && lista1[0].detalhe);
-  certo(lista1[0] && lista1[0].etiqueta.trim() === 'pronto',
-    'a linha tem a etiqueta «pronto»', lista1[0] && lista1[0].etiqueta);
+     Das seis coisas que aquele ecrã tinha, cinco já estavam aqui; a única que
+     se perdeu é a lista dos prémios já levantados, cruzada entre sítios. Estas
+     afirmações mudaram de sítio, não de pergunta: continuam a perguntar «o
+     prémio ganho vê-se?» e «o cartão a meio não se disfarça de prémio?».
+     ======================================================================= */
 
-  /* Um cartão a meio não é um prémio: o Café Torrado (7 de 10) não pode
-     aparecer aqui, nem o texto do prémio que ainda não ganhou. */
-  const textoPremios = await palco.texto('#principal');
-  certo(!textoPremios.includes('Café Torrado'),
-    'o cartão a meio não aparece no ecrã dos prémios',
-    textoPremios.slice(0, 200));
-  certo(!textoPremios.includes('Um café por conta da casa'),
-    'o prémio que ainda não foi ganho não aparece no ecrã dos prémios');
+  certo((await palco.texto('#topo-titulo')) === 'Carimbo Digital',
+    'a carteira é onde o prémio aparece', String(await palco.texto('#topo-titulo')));
 
-  certo((await palco.contar('#principal .vazio')) === 0,
-    'com prémios à espera não se mostra o ecrã de vazio',
-    `${await palco.contar('#principal .vazio')} blocos de vazio`);
+  const faixa = await palco.texto('#principal .faixa-premio');
+  certo(/prémio à espera/i.test(String(faixa)),
+    'a faixa no topo da carteira anuncia o prémio ganho', String(faixa));
+  certo((await palco.contar('#principal .faixa-premio')) === 1,
+    'e é uma só — contam-se prémios, não cartões',
+    `${await palco.contar('#principal .faixa-premio')} faixas`);
 
-  /* --- e na carteira, o painel de «pronto» (painelPronto) --------------- */
+  /* --- e o painel de «pronto» dentro do cartão --------------------------- */
 
-  await irPara(palco, 'Carteira');
   certo((await palco.contar('.pilha .cartao .pronto')) === 1,
     'na carteira só um cartão mostra o painel de pronto a levantar',
     String(await palco.contar('.pilha .cartao .pronto')));
@@ -172,14 +179,17 @@ export async function correr(palco, certo) {
      Fase 2 — abrir o prémio: as instruções para o levantar
      ======================================================================= */
 
-  await irPara(palco, 'Prémios');
-  certo(await palco.visivel('#principal > button.btn-cheio'),
-    'há um botão para levantar o prémio');
-  certo((await palco.texto('#principal > button.btn-cheio')) === 'Mostrar o código para levantar',
-    'o botão diz o que faz',
-    String(await palco.texto('#principal > button.btn-cheio')));
+  /* O BOTÃO ESTÁ NO CARTÃO, e fora do que expande.
 
-  await palco.clicar('#principal > button.btn-cheio');
+     Com fila à espera, levantar um prémio não pode custar dois toques: a tira
+     «Levantar prémio» vive no cartão da carteira, sem ser preciso abri-lo. */
+  certo(await palco.visivel('.pilha .cartao .levantar'),
+    'há um botão para levantar o prémio, no próprio cartão');
+  certo(/Levantar prémio/.test(String(await palco.texto('.pilha .cartao .levantar'))),
+    'o botão diz o que faz',
+    String(await palco.texto('.pilha .cartao .levantar')));
+
+  await palco.clicar('.pilha .cartao .levantar');
   await palco.esperar('#folha-codigo');
   certo(await palco.visivel('#folha-codigo'),
     'carregar no botão abre mesmo a folha do código');
@@ -231,7 +241,7 @@ export async function correr(palco, certo) {
 
   await palco.recarregar();
   await palco.esperar('.pilha .cartao');
-  await irPara(palco, 'Prémios');
+  await irPara(palco, 'Carteira');
   await palco.captura('05-premios-dois-por-levantar');
 
   const lista2 = await premiosPorLevantar(palco);
@@ -242,8 +252,8 @@ export async function correr(palco, certo) {
     'o prémio acabado de ganhar aparece com o texto do programa',
     JSON.stringify(lista2.map((l) => l.descricao)));
   const novo = lista2.find((l) => l.descricao === PREMIO_INVENTADO);
-  certo(novo && novo.detalhe === 'Café Torrado · ganho agora mesmo',
-    'a linha do prémio novo diz o negócio e que foi ganho agora',
+  certo(novo && novo.negocio === 'Café Torrado',
+    'o prémio novo aparece no cartão do negócio onde foi ganho — e não numa lista à parte',
     novo && novo.detalhe);
 
   /* O painel de pronto do cartão que recomeçou. */
@@ -289,7 +299,7 @@ export async function correr(palco, certo) {
     'o motor marca o prémio como entregue',
     JSON.stringify(entregue));
 
-  await irPara(palco, 'Prémios');
+  await irPara(palco, 'Carteira');
   await palco.captura('05-premios-depois-de-entregue');
 
   /* ESTA AFIRMAÇÃO REPROVA, e é para ficar assim.
@@ -303,9 +313,12 @@ export async function correr(palco, certo) {
     'um prémio já entregue deixa de aparecer como pronto a levantar',
     `ainda lá está: ${JSON.stringify(lista3.map((l) => l.descricao))}`);
 
+  /* A SECÇÃO «JÁ LEVANTADOS» SAIU com o ecrã dos Prémios. O que sobra — e é o
+     que interessa — é o cartão deixar de anunciar um prémio que já foi
+     entregue. O histórico daquele café continua dentro do cartão dele. */
   const seccoes = await palco.textos('#principal .seccao-titulo');
-  certo(seccoes.includes('Já levantados'),
-    'o prémio entregue aparece na secção «Já levantados»',
+  certo(!seccoes.includes('Já levantados'),
+    'não há secção «Já levantados» — ela vivia no ecrã que saiu',
     JSON.stringify(seccoes));
 
   /* =======================================================================
@@ -314,27 +327,29 @@ export async function correr(palco, certo) {
 
   await palco.recarregar();
   await palco.esperar('.pilha .cartao');
-  await irPara(palco, 'Prémios');
+  await irPara(palco, 'Carteira');
 
   const lista4 = await premiosPorLevantar(palco);
   certo(lista4.length === 1 && lista4[0].descricao === 'Taça de três bolas',
     'sobra o prémio que não foi entregue',
     JSON.stringify(lista4.map((l) => l.descricao)));
 
-  const levantados = await palco.js(`
-    const t = [...document.querySelectorAll('#principal .seccao')]
-      .find((s) => s.querySelector('.seccao-titulo').textContent.trim() === 'Já levantados');
-    if (!t) return null;
-    return [...t.querySelectorAll('.linha')].map((n) => ({
-      titulo: n.querySelector('.linha-texto b').textContent.trim(),
-      onde: n.querySelector('.linha-texto span').textContent.trim(),
-      quando: n.querySelector('.linha-fim').textContent.trim(),
-    }));`);
-  certo(levantados && levantados.length === 1
-    && levantados[0].titulo === PREMIO_INVENTADO
-    && levantados[0].onde === 'Café Torrado',
-    'o histórico diz que prémio foi levantado e onde',
-    JSON.stringify(levantados));
+  /* O HISTÓRICO MUDOU DE CASA. Havia uma secção «Já levantados» no ecrã dos
+     Prémios, cruzada entre sítios; ela saiu com o ecrã, e é a única coisa que
+     esta mudança deitou fora de verdade. O que fica — e é onde a pessoa vai
+     procurar — é o histórico DENTRO do cartão daquele café. */
+  const cartaoDoTorrado = await palco.js(`
+    const n = [...document.querySelectorAll('.pilha .cartao')]
+      .findIndex((c) => /Café Torrado/.test(c.getAttribute('aria-label') || ''));
+    return n + 1`);
+  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${cartaoDoTorrado})`);
+  await palco.esperar('#principal .cartao-grande', 8000);
+  const levantados = await palco.texto('#principal');
+  certo(String(levantados).includes(PREMIO_INVENTADO),
+    'o histórico do cartão diz que prémio foi levantado',
+    String(levantados).slice(0, 160));
+  await palco.clicar('#principal .voltar');
+  await palco.esperar('.pilha .cartao', 8000);
 
   /* =======================================================================
      Fase 6 — dois prémios do mesmo cartão, e um prémio com HTML no nome
@@ -365,19 +380,63 @@ export async function correr(palco, certo) {
 
   await palco.recarregar();
   await palco.esperar('.pilha .cartao');
-  await irPara(palco, 'Prémios');
+  await irPara(palco, 'Carteira');
   await palco.captura('05-premios-tres-do-mesmo-cartao');
 
-  const lista5 = await premiosPorLevantar(palco);
-  certo(lista5.length === 3,
-    'os três prémios do mesmo cartão aparecem um a um',
-    `${lista5.length}: ${JSON.stringify(lista5.map((l) => l.descricao))}`);
-  certo(lista5.filter((l) => l.descricao === PREMIO_COM_HTML).length === 2,
+  /* TRÊS PRÉMIOS NO MESMO CARTÃO. Não há lista onde os contar um a um — o
+     cartão di-lo em palavras e o botão diz quantos são, que é o que a pessoa
+     precisa de saber ao balcão. */
+  /* O CARTÃO CERTO, e não «o primeiro que tiver painel». Há mais do que um
+     cartão pronto nesta altura do módulo, e apanhar o primeiro media o prémio
+     errado — que foi exactamente o que aconteceu. */
+  const daGelataria = await palco.js(`
+    const c = [...document.querySelectorAll('.pilha .cartao')]
+      .find((x) => /Gelataria/.test((x.querySelector('.cartao-nome') || {}).textContent || ''));
+    if (!c) return { erro: 'sem cartão da Gelataria',
+                     nomes: [...document.querySelectorAll('.cartao-nome')].map((n) => n.textContent) };
+    if (!c.querySelector('.pronto')) return { erro: 'o cartão não tem painel de pronto',
+                                              corpo: c.textContent.slice(0, 120) };
+    return { conta: c.querySelector('.pronto-texto span').textContent.trim(),
+             nome: c.querySelector('.pronto b').textContent.trim(),
+             botao: (c.querySelector('.levantar') || {}).textContent || null,
+             etiquetas: c.querySelectorAll('.pronto i').length }`);
+  const trioNoCartao = daGelataria && daGelataria.conta;
+  certo(/3 prémios/.test(String(trioNoCartao)),
+    'o cartão diz quantos prémios estão à espera', String(trioNoCartao));
+  certo(/Levantar 3 prémios/.test(String(daGelataria && daGelataria.botao)),
+    'e o botão também — quem está ao balcão precisa de saber quantos vai levantar',
+    String(daGelataria && daGelataria.botao));
+
+  /* O NOME DO PRÉMIO É ESCRITO PELO COMERCIANTE, e esta é a guarda que impede
+     um `<i>` no nome de virar itálico — ou coisa pior.
+
+     ELA MUDOU DE SELECTOR, e é isso que a mantém viva: contava
+     `#principal .linha-premio i`, e essa linha saiu com o ecrã dos Prémios.
+     Uma guarda que conta zero num selector que já não existe PASSA sempre, e
+     deixa de provar o que dizia provar. Agora conta no sítio onde o nome é
+     realmente pintado. */
+  /* O PAINEL MOSTRA O PRÉMIO MAIS ANTIGO — o primeiro da fila, que neste cartão
+     é o da semente e não os dois que este teste acabou de criar. Está certo: é
+     esse que a pessoa vai levantar primeiro. O que se prova aqui é outra
+     coisa: que o nome com HTML chega ao ecrã como TEXTO. */
+  const naGelataria = await palco.js(`
+    const n = [...document.querySelectorAll('.pilha .cartao')]
+      .findIndex((c) => /Gelataria/.test((c.querySelector('.cartao-nome') || {}).textContent || ''));
+    return n + 1`);
+  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${naGelataria})`);
+  await palco.esperar('#principal .cartao-grande', 8000);
+  const noCartao = String(await palco.texto('#principal'));
+  certo(noCartao.includes(PREMIO_COM_HTML),
     'o nome do prémio aparece tal e qual, sem o HTML ser interpretado',
-    JSON.stringify(lista5.map((l) => l.descricao)));
-  certo((await palco.contar('#principal .linha-premio i')) === 0,
+    noCartao.slice(0, 200));
+  certo((await palco.contar('#principal i')) === 0,
+    'e nenhuma etiqueta nasceu dele no ecrã do cartão — é aqui que os três se vêem',
+    String(await palco.contar('#principal i')));
+  await palco.clicar('#principal .voltar');
+  await palco.esperar('.pilha .cartao', 8000);
+  certo(daGelataria && daGelataria.etiquetas === 0,
     'nenhuma etiqueta nasceu do nome do prémio',
-    String(await palco.contar('#principal .linha-premio i')));
+    String(daGelataria && daGelataria.etiquetas));
 
   await irPara(palco, 'Carteira');
   await palco.captura('05-carteira-tres-premios-num-cartao');
@@ -414,56 +473,45 @@ export async function correr(palco, certo) {
 
   await palco.recarregar();
   await palco.esperar('.pilha .cartao');
-  await irPara(palco, 'Prémios');
+  await irPara(palco, 'Carteira');
   await palco.captura('05-premios-tudo-levantado');
 
-  certo((await premiosPorLevantar(palco)).length === 0,
-    'com tudo entregue não sobra nenhuma linha de prémio pronto',
-    JSON.stringify(await premiosPorLevantar(palco)));
-  certo(await palco.visivel('#principal .vazio'),
-    'com tudo entregue aparece o ecrã de vazio');
-  certo(!(await palco.ver('#principal > button.btn-cheio')),
-    'sem prémios por levantar não se oferece o botão de levantar');
-  certo((await palco.contar('#principal .seccao .linha')) === 4,
-    'o histórico guarda os quatro prémios levantados',
-    String(await palco.contar('#principal .seccao .linha')));
-
   /* =======================================================================
-     Fase 8 — o ecrã de quem nunca ganhou nada
+     COM TUDO ENTREGUE, a carteira volta a ser uma carteira.
 
-     Tira-se do estado tudo o que é prémio: os prémios e os movimentos que
-     falam deles. É o que a pessoa vê no dia em que instala a app.
+     O ecrã dos Prémios tinha um vazio próprio («Ainda não há prémios») e um
+     histórico dos já levantados. Saiu, e com ele o histórico cruzado entre
+     sítios — é a única coisa que esta mudança deitou fora de verdade. O que
+     fica é a pergunta que interessa: quando não há nada para levantar, a app
+     não pode continuar a dizer que há.
      ======================================================================= */
 
-  await noMotor(palco, `async ({ estado, gravar }) => {
-    const e = estado();
-    e.premios = [];
-    e.movimentos = e.movimentos.filter((m) => m.tipo !== 'resgate' && m.tipo !== 'premio');
-    for (const c of e.cartoes) c.premiosGanhos = 0;
-    gravar(e);
-    return true;
-  }`);
+  certo((await palco.contar('#principal .faixa-premio')) === 0,
+    'com tudo entregue a faixa do topo desaparece',
+    `${await palco.contar('#principal .faixa-premio')} faixas`);
+  certo((await palco.contar('.pilha .cartao .pronto')) === 0,
+    'e nenhum cartão continua a dizer que tem prémio pronto',
+    `${await palco.contar('.pilha .cartao .pronto')} painéis`);
+  certo(!(await palco.ver('.pilha .cartao .levantar')),
+    'e o botão de levantar sai com eles — um botão que não tem o que levantar é um engano à espera');
+  certo((await palco.contar('.pilha .cartao')) > 0,
+    'mas os cartões continuam todos lá, com os carimbos que têm',
+    `${await palco.contar('.pilha .cartao')} cartões`);
 
-  await palco.recarregar();
-  await palco.esperar('.pilha .cartao');
-  await irPara(palco, 'Prémios');
-  await palco.captura('05-premios-vazio');
-
-  certo((await premiosPorLevantar(palco)).length === 0,
-    'sem prémios não há linhas nenhumas',
-    JSON.stringify(await premiosPorLevantar(palco)));
-  certo(await palco.visivel('#principal .vazio'),
-    'sem prémios aparece o ecrã de vazio');
-  certo((await palco.texto('#principal .vazio h3')) === 'Ainda não há prémios',
-    'o vazio explica-se com um título',
-    String(await palco.texto('#principal .vazio h3')));
-  certo((await palco.texto('#principal .vazio p')).includes('Assim que completares um cartão'),
-    'o vazio diz como se ganha um prémio',
-    String(await palco.texto('#principal .vazio p')));
-  certo((await palco.contar('#principal .vazio-desenho svg')) === 1,
-    'o vazio tem o desenho do presente, não um buraco',
-    String(await palco.contar('#principal .vazio-desenho svg')));
-  certo((await palco.contar('#principal .seccao')) === 0,
-    'quem nunca ganhou nada não vê secção de histórico nenhuma',
-    String(await palco.contar('#principal .seccao')));
+  /* E O HISTÓRICO DE CADA CARTÃO continua a guardar o que foi levantado — é
+     dentro do cartão que ele vive, que é onde a pessoa vai procurar «quando é
+     que levantei o meu café». */
+  /* O CARTÃO ONDE A ENTREGA ACONTECEU, e não «o primeiro». Foi no Café Torrado
+     que este módulo entregou um prémio; abrir o primeiro da lista media um
+     cartão onde nunca se entregou nada. */
+  const ondeSeEntregou = await palco.js(`
+    const n = [...document.querySelectorAll('.pilha .cartao')]
+      .findIndex((c) => /Café Torrado/.test((c.querySelector('.cartao-nome') || {}).textContent || ''));
+    return n + 1`);
+  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${ondeSeEntregou})`);
+  await palco.esperar('#principal .cartao-grande', 8000);
+  const historico = await palco.texto('#principal');
+  certo(String(historico).includes(PREMIO_INVENTADO),
+    'e o histórico do cartão continua a dizer o que lá foi levantado',
+    String(historico).slice(0, 200));
 }

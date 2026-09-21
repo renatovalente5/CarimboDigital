@@ -122,14 +122,14 @@ export async function correr(palco, certo) {
   await palco.clicar('#painel .btn-google');
   await palco.sumir('#painel', 8000);
   await palco.esperar('#barra .barra-item');
-  certo(await palco.contar('#barra .barra-item') === 5,
-    'entrando por uma das portas, a app abre inteira — os cinco separadores',
+  certo(await palco.contar('#barra .barra-item') === 3,
+    'entrando por uma das portas, a app abre inteira — os três separadores',
     String(await palco.contar('#barra .barra-item')));
   certo((await palco.textoTodo()).includes('não há Google a sério'),
     'e diz outra vez que na demonstração não foi a Google a sério');
 
   /* --- 8. E O PERFIL DEIXA DE PEDIR PARA GUARDAR ----------------------- */
-  await palco.clicar('.barra-item:nth-child(5)');
+  await palco.clicar('.barra-item[data-ecra="perfil"]');
   await palco.esperar('#principal .linha-perigo');
   const conta = await palco.texto('#principal section:first-of-type .lista .linha:first-child');
   certo(conta.includes('A conta está guardada'),

@@ -359,7 +359,8 @@ const aoTopo = (palco) => palco.js(
    A app do cliente
    ========================================================================= */
 
-const BARRA_ITEM = (n) => `.barra-item:nth-child(${n})`;
+/* POR NOME, e não por posição: ver o comentário do `desenharBarra`. */
+const BARRA_ITEM = (nome) => `.barra-item[data-ecra="${nome}"]`;
 
 async function appDoCliente(palco, certo, l) {
   /* Cada largura começa do zero: senão as boas-vindas só se veem na primeira
@@ -416,10 +417,9 @@ async function appDoCliente(palco, certo, l) {
   await palco.clicar('#folha-codigo .codigo-fechar');
   await palco.sumir('#folha-codigo', 6000);
 
-  /* Descobrir, prémios e perfil. */
-  for (const [ecra, ficheiro, indice] of [['descobrir', 'descobrir', 2],
-                                          ['prémios', 'premios', 4],
-                                          ['perfil', 'perfil', 5]]) {
+  /* O perfil. Eram três — o «Descobrir» e os «Prémios» saíram da app, e com
+     eles os dois ecrãs que esta varredura media. */
+  for (const [ecra, ficheiro, indice] of [['perfil', 'perfil', 'perfil']]) {
     await palco.clicar(BARRA_ITEM(indice));
     await palco.esperar('#principal h1.titulo-grande', 8000);
     await medir(palco, certo, `app · ${ecra}`, l);
@@ -522,7 +522,8 @@ async function balcao(palco, certo, l, publico) {
   await palco.js("document.querySelector('#resultado')?.remove(); return true");
   await palco.sumir('#resultado', 4000);
 
-  for (const [ecra, indice] of [['hoje', 2], ['clientes', 3], ['o cartão', 4]]) {
+  for (const [ecra, indice] of [['hoje', 'hoje'], ['clientes', 'clientes'],
+                                ['o cartão', 'programa']]) {
     await palco.clicar(BARRA_ITEM(indice));
     await palco.esperar('#principal h1.titulo-grande', 8000);
     await medir(palco, certo, `balcão · ${ecra}`, l);

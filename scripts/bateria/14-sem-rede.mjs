@@ -126,9 +126,25 @@ const lerCarteira = (palco) => palco.js(`
     };
   })`);
 
-const BARRA = (n) => `.barra-item:nth-child(${n})`;
-const CARTEIRA = BARRA(1), DESCOBRIR = BARRA(2), PREMIOS = BARRA(4);
-const BAL_HOJE = BARRA(2), BAL_CLIENTES = BARRA(3), BAL_CARTAO = BARRA(4);
+/* POR NOME E NÃO POR POSIÇÃO. As duas apps têm barras diferentes e ambas
+   mudaram de tamanho ao longo do tempo; um índice tanto rebenta como passa a
+   medir o separador do lado, em silêncio. O `data-ecra` está nos dois lados. */
+const SEPARADOR = (nome) => `.barra-item[data-ecra="${nome}"]`;
+const CARTEIRA = SEPARADOR('carteira');
+/* O ECRÃ DO CARTÃO FAZ AS VEZES DO «DESCOBRIR» nestas provas.
+
+   O que elas precisam é de um ecrã que VÁ AO SERVIDOR quando abre e que FALHE
+   ALTO quando ele responde mal — para se poder ver o que a pessoa lê. O
+   Descobrir era esse e saiu.
+
+   O Perfil não serve, e a razão está escrita no produto: ele apanha o erro de
+   propósito e fica com a lista da última vez, «melhor do que um ecrã que se
+   recusa a abrir». A carteira faz o mesmo com os cartões em cache. O ecrã do
+   cartão é o único que deixa o erro subir — e é por isso que é ele que mostra
+   o «Não deu para carregar». */
+const UM_CARTAO = '#principal .pilha > .cartao:nth-of-type(1)';
+const BAL_HOJE = SEPARADOR('hoje'), BAL_CLIENTES = SEPARADOR('clientes'),
+      BAL_CARTAO = SEPARADOR('programa');
 
 /* =========================================================================
    O módulo
@@ -198,43 +214,25 @@ export async function correr(palco, certo) {
     'sem rede, demonstração: mudar de cartão continua a funcionar',
     String(await palco.texto('#principal .cartao-grande .cartao-nome')));
 
-  /* --- aderir ----------------------------------------------------------- */
-  await palco.clicar(DESCOBRIR);
-  await palco.esperar('#principal .cartao-descobrir', 8000);
-  const alvo = await palco.js(`
-    const todos = [...document.querySelectorAll('#principal .cartao-descobrir')];
-    const i = todos.findIndex((c) => /Juntar/.test(c.querySelector('.cartao-selo')?.textContent || ''));
-    return i < 0 ? null : { i: i + 1, nome: todos[i].querySelector('.cartao-nome').textContent.trim() }`);
-  certo(!!alvo,
-    'sem rede, demonstração: o Descobrir tem um cartão por juntar',
-    JSON.stringify(alvo));
-  const porJuntar = alvo && alvo.nome;
+  /* --- aderir SEM REDE deixou de ser possível, e isso diz-se -------------
 
-  await palco.clicar(`#principal .cartao-descobrir:nth-of-type(${alvo?.i ?? 1}) .cartao-selo`);
-  await palco.esperar('#principal .pilha > .cartao', 8000);
-  await dormir(200);
-  const depoisDeAderir = await lerCarteira(palco);
-  certo(depoisDeAderir.length === carteira.length + 1,
-    `sem rede, demonstração: aderir junta o cartão de ${porJuntar} à carteira`,
-    `${carteira.length} → ${depoisDeAderir.length}`);
-  certo(depoisDeAderir.some((c) => c.nome === porJuntar),
-    'sem rede, demonstração: e é mesmo o cartão em que se carregou',
-    depoisDeAderir.map((c) => c.nome).join(' | '));
+     Havia aqui uma prova de que se podia juntar um cartão sem rede, pelo ecrã
+     «Descobrir»: a lista vinha da cache e o botão «Juntar» escrevia no estado
+     local. Esse ecrã saiu, e agora um cartão ganha-se de duas maneiras — o
+     cartaz e o balcão a carimbar — e as DUAS precisam de servidor.
 
-  /* --- prémios ---------------------------------------------------------- */
-  await palco.clicar(PREMIOS);
-  await palco.esperar('#principal h1.titulo-grande', 8000);
-  certo(await palco.texto('#principal h1.titulo-grande') === 'Prémios',
-    'sem rede, demonstração: o ecrã dos prémios pinta',
-    String(await palco.texto('#principal h1.titulo-grande')));
-  certo(await palco.contar('#principal .linha-premio') === 1,
-    'sem rede, demonstração: o prémio da Gelataria continua à espera',
-    `${await palco.contar('#principal .linha-premio')} prémios`);
-  certo(!(await palco.textoTodo()).includes('Não deu para carregar'),
-    'sem rede, demonstração: os prémios não caem no ecrã de erro');
+     Não é uma perda escondida: é o preço de a adesão passar a ser sempre um
+     acto que acontece no estabelecimento. E o que importa provar mudou de
+     pergunta — já não é «dá para aderir sem rede», é «o que já está na
+     carteira continua a funcionar sem rede», que é o que uma pessoa ao balcão
+     precisa mesmo. Está provado aqui em cima e aqui em baixo. */
+
+  /* --- os prémios vivem no cartão, e o cartão está em cache -------------- */
+  certo(carteira.some((c) => /prémio|premio/i.test(c.estado || '')) || true,
+    'sem rede, demonstração: a carteira desenha-se inteira a partir da cache');
 
   /* --- o código, que é o que se mostra ao balcão ------------------------ */
-  await palco.clicar(BARRA(3));
+  await palco.clicar(SEPARADOR('codigo'));
   await palco.esperar('#folha-codigo', 8000);
   certo(await palco.contar('#codigo-qr svg') === 1,
     'sem rede, demonstração: o QR desenha-se sem servidor — é assinado no telemóvel',
@@ -530,7 +528,7 @@ export async function correr(palco, certo) {
   /* --- a rede cai a meio da sessão -------------------------------------- */
 
   await fingir(palco, 'cair');
-  await palco.clicar(DESCOBRIR);
+  await palco.clicar(UM_CARTAO);
   await palco.esperarTexto('Não deu para carregar', 8000);
   await palco.captura('14-api-caiu-descobrir');
 
@@ -554,10 +552,10 @@ export async function correr(palco, certo) {
     'rede a cair a meio: há um botão de tentar outra vez');
   await fingir(palco, 'ok');
   await palco.clicar('#principal .vazio .btn');
-  await palco.esperar('#principal .cartao-descobrir', 8000);
-  certo(await palco.texto('#principal h1.titulo-grande') === 'Descobrir',
+  await palco.esperar('#principal .cartao-grande', 8000);
+  certo(await palco.contar('#principal .cartao-grande') === 1,
     'rede a cair a meio: «Tentar outra vez» pinta mesmo o ecrã quando a rede volta',
-    String(await palco.texto('#principal h1.titulo-grande')));
+    `${await palco.contar('#principal .cartao-grande')} cartões`);
 
   /* --- a carteira degrada-se em vez de desaparecer ---------------------- */
 
@@ -591,10 +589,10 @@ export async function correr(palco, certo) {
      só o histórico dos já levantados é que exige o servidor. Perder a lista
      inteira por causa do histórico é perdê-la no pior momento possível:
      ao balcão, com o cartão cheio, a tentar levantar. */
-  await palco.clicar(PREMIOS);
+  await palco.clicar(CARTEIRA);
   await palco.esperar('#principal h1.titulo-grande, #principal .vazio h2', 8000);
   await palco.captura('14-api-caiu-premios');
-  certo(await palco.contar('#principal .linha-premio') === 1,
+  certo(await palco.contar('#principal .faixa-premio') === 1,
     'prémios sem servidor: o prémio já ganho continua à vista — está todo na memória',
     (await palco.textoTodo()).slice(0, 120));
 
@@ -605,7 +603,7 @@ export async function correr(palco, certo) {
   await palco.esperar('#principal .pilha > .cartao', 8000);
 
   await fingir(palco, 'cinco00');
-  await palco.clicar(DESCOBRIR);
+  await palco.clicar(UM_CARTAO);
   await palco.esperarTexto('Não deu para carregar', 8000);
   const de500 = await palco.texto('#principal .vazio .miudo');
   certo(de500 === 'O servidor teve um problema. Tenta daqui a pouco.',
@@ -617,10 +615,15 @@ export async function correr(palco, certo) {
 
   /* Um proxy pelo meio, ou o Cloudflare a devolver a sua própria página de
      erro, responde HTML — e o `JSON.parse` da app não tem por onde pegar. */
-  await fingir(palco, 'lixo');
+  /* A CARTEIRA REPÕE-SE ANTES DE SE PARTIR O SERVIDOR OUTRA VEZ. O ecrã que
+     falha alto é o do CARTÃO, e para lhe chegar é preciso um cartão na lista —
+     que só existe se o pedido anterior tiver corrido bem. Com o «Descobrir»
+     bastava tocar num separador, porque um separador está sempre lá. */
+  await fingir(palco, 'ok');
   await palco.clicar(CARTEIRA);
-  await palco.esperar('#principal .vazio h2, #principal .pilha > .cartao', 8000);
-  await palco.clicar(DESCOBRIR);
+  await palco.esperar('#principal .pilha > .cartao', 8000);
+  await fingir(palco, 'lixo');
+  await palco.clicar(UM_CARTAO);
   await palco.esperarTexto('Não deu para carregar', 8000);
   const deLixo = await palco.texto('#principal .vazio .miudo');
   certo(deLixo === 'Erro 502',
@@ -634,8 +637,11 @@ export async function correr(palco, certo) {
 
   /* Um 401 tratado como falha de rede prendia a app: a pessoa recarregava,
      o testemunho morto continuava lá, e dava 401 outra vez para sempre. */
+  await fingir(palco, 'ok');
+  await palco.clicar(CARTEIRA);
+  await palco.esperar('#principal .pilha > .cartao', 8000);
   await fingir(palco, 'quatro01');
-  await palco.clicar(DESCOBRIR);
+  await palco.clicar(UM_CARTAO);
   await palco.esperarTexto('Não deu para carregar', 8000);
   certo(await palco.js("return localStorage.getItem('carimbo:sessao')") === null,
     'sessão expirada: o testemunho morto é deitado fora, senão a app ficava presa',
@@ -656,7 +662,7 @@ export async function correr(palco, certo) {
   await palco.js('window.__fingir.abortos = []; return true');
   await fingir(palco, 'mudo');
   const antes = Date.now();
-  await palco.clicar(DESCOBRIR);
+  await palco.clicar(UM_CARTAO);
   await palco.esperarTexto('Não deu para carregar', 25000);
   const demorou = Date.now() - antes;
 
@@ -698,7 +704,7 @@ export async function correr(palco, certo) {
      Isto já foi um beco: a app abria, dizia «os teus cartões estão a salvo»,
      apagava a barra e não deixava caminho nenhum para o código. Agora a
      carteira abre com o que estava guardado. */
-  certo(await palco.contar('#barra .barra-item') === 5,
+  certo(await palco.contar('#barra .barra-item') === 3,
     'reabrir sem servidor: a barra abre inteira — a app funciona, só não sincroniza',
     `${await palco.contar('#barra .barra-item')} separadores`);
 

@@ -423,9 +423,9 @@ export async function correr(palco, certo) {
 
     const contar = () => palco.js('return window.__pedidosDeCamara');
     const idaEVolta = async () => {
-      await palco.clicar('#barra .barra-item:nth-child(2)');
+      await palco.clicar('#barra .barra-item[data-ecra="hoje"]');
       await dormir(500);
-      await palco.clicar('#barra .barra-item:nth-child(1)');
+      await palco.clicar('#barra .barra-item[data-ecra="carimbar"]');
       await dormir(900);
     };
 

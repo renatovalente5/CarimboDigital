@@ -736,13 +736,11 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 }
 
 .cartao-grande { --cartao-folga: var(--e-6); }
-.cartao-descobrir .cartao-corpo { padding: var(--e-5); }
 .cartao-selo-tipo {
   display: grid; place-items: center;
   width: 40px; height: 40px; border-radius: var(--r-2);
   background: var(--m-veu);
 }
-.cartao-descobrir .cartao-selo { border: 0; cursor: pointer; }
 
 .linha-premio { border-color: var(--marca-aro); }
 .linha-icone-marca { background: var(--marca-fundo); color: var(--marca); }
@@ -1038,25 +1036,6 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
    imagens a carregar, a piscar ou a faltar.
    ========================================================================= */
 
-/* MARGEM DOS DOIS LADOS, e a de baixo é a que faltava.
-
-   O bloco do mapa — o mapa, a linha de ajuda e a atribuição da Carta
-   Administrativa — tinha `margin-top` e mais nada. Safava-se por acidente: no
-   «Descobrir» vinha a seguir a linha do «Ver os mais perto de mim», que traz a
-   sua própria margem de cima. Só que esse botão só existe com MAIS DO QUE UM
-   negócio com ponto no mapa (ver `ecraDescobrir`) — e em produção há um. Com
-   um negócio só, a frase «Fronteiras dos concelhos…» ficava encostada ao
-   cartão do negócio, sem um pixel entre as duas.
-
-   Ou seja: o espaçamento de um bloco dependia de outro bloco, opcional, que
-   por acaso vinha a seguir. Um componente que não fecha o seu próprio espaço
-   fica à mercê de quem o rodeia.
-
-   24 px, que é o passo que esta página já usa entre blocos (o `.subtexto`
-   fecha com 20, a caixa do fim abre com 24). Como o `#principal` é `block`, a
-   margem colapsa com a do vizinho seguinte em vez de somar — por isso o caso
-   que já estava bem não se mexe mais do que 8 px. */
-.mapa-caixa { margin-top: var(--e-4); margin-bottom: var(--e-6); }
 
 /* O MAR E A TERRA TÊM CORES PRÓPRIAS, e não as do papel. Com os tokens
    genéricos, a terra era `--papel-2` e o mar `--papel-3` — e no tema escuro
@@ -1260,14 +1239,6 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
   color: var(--tinta-3);
 }
 
-/* «Perto de mim», por cima da lista do «Descobrir». */
-.perto-linha {
-  display: flex;
-  flex-direction: column;
-  gap: var(--e-2);
-  margin: var(--e-4) 0 var(--e-2);
-}
-.perto-linha .btn { align-self: flex-start; }
 .cartao-distancia { opacity: .9; }
 
 /* Onde está quem está a ver o mapa. Não é um alfinete: é um ponto de outra
@@ -1369,3 +1340,21 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 :root[data-demo="sim"] .entrada { top: var(--barra-demo, 60px); }
 /* O `.aviso` fica de fora de propósito: ele está preso ao FUNDO do ecrã, e
    dar-lhe um `top` esticava-o de alto a baixo. */
+
+/* O ANEL DE FOCO DENTRO DE UM CARTÃO É DA COR DO CARTÃO.
+
+   O anel da casa é `var(--marca)` — o roxo — e foi escolhido para assentar no
+   fundo da página. O botão «Levantar prémio» vive DENTRO do cartão, sobre a
+   cor do comerciante: medido, dava 2,82:1 no cartão da Gelataria, abaixo dos
+   3:1 que a WCAG 2.2 pede a um indicador de foco.
+
+   A tinta do cartão serve, e serve por construção: o `marcaSegura` garante-lhe
+   4,5:1 contra a cor da marca, seja ela qual for. Um anel que herda a cor do
+   sítio onde assenta nunca precisa de ser medido outra vez.
+
+   O afastamento desce a 1px: com 2, o anel saía para fora do cartão e era
+   cortado pelo `overflow: hidden` dele. */
+.cartao .levantar:focus-visible {
+  outline-color: var(--m-txt);
+  outline-offset: 1px;
+}

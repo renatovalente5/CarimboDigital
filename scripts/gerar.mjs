@@ -518,20 +518,17 @@ for (const app of ['app', 'balcao']) {
     ...(app === 'balcao' ? [`${BASE}/estilos/balcao.css?v=${VERSAO}`] : []),
     `${BASE}/js/nucleo.js?v=${VERSAO}`,
     `${BASE}/js/api.js?v=${VERSAO}`,
-    /* O MAPA VAI NO CASCO DAS DUAS APPS, e não só na do cliente.
+    /* O MAPA SAIU DAS DUAS APPS.
 
-       O balcão IMPORTA o `mapa.js` no topo do ficheiro — precisa dele para o
-       ecrã de marcar onde fica o estabelecimento. Um `import` que falha não dá
-       um ecrã degradado: dá um módulo que nunca corre, e o balcão fica numa
-       página em branco. Sem esta linha, o balcão deixava de abrir sem rede, e
-       foi assim que a bateria o apanhou.
+       Ele existia para dois ecrãs: o «Descobrir» do cliente e o «Onde fica»
+       do balcão. O primeiro saiu com os separadores; o segundo saiu com a
+       recolha da morada exacta, que deixou de ter finalidade quando deixou de
+       haver onde a mostrar.
 
-       E os desenhos dos concelhos também, que são os 100 KB que tornam
-       verdadeira a frase de que o mapa funciona sem rede. É menos do que os
-       mosaicos de um mapa de servidor gastariam num único ecrã — e esses não
-       ficariam guardados. */
-    `${BASE}/js/mapa.js?v=${VERSAO}`,
-    `${BASE}/dados/portugal.json?v=${VERSAO}`,
+       Com eles saem `js/mapa.js` e os 100 KB de fronteiras dos concelhos — do
+       casco das duas apps e do repositório. O trabalho está no git; o que não
+       podia ficar era código publicado que nenhum ecrã chama, e 100 KB no
+       telemóvel de cada pessoa para desenhar uma coisa que já não existe. */
     ...(app === 'app'
       ? [`${BASE}/js/qr.js?v=${VERSAO}`,
          /* Os crachás das carteiras. Vão no casco para estarem lá à primeira

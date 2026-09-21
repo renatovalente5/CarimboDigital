@@ -18,7 +18,10 @@ import { api, MODO, DEMO_FORCADO, definirChaveSessao } from '../js/api.js';
    api.js. Tem de ser dito antes do primeiro pedido. */
 definirChaveSessao('sessao-balcao');
 import { lerQR } from '../js/qr-leitor.js';
-import { carregarPortugal, criarMapa, emPortugal } from '../js/mapa.js';
+/* O MAPA SAIU. Era importado para o painel «Onde fica», que era o único
+   consumidor que lhe restava depois de o «Descobrir» sair da app do cliente.
+   Com ele saem `js/mapa.js` e os 100 KB de fronteiras dos concelhos, do casco
+   que o balcão guarda para abrir sem rede. */
 
 const estado = {
   negocio: null,
@@ -268,7 +271,32 @@ async function ecraCarimbar(principal) {
         ? `prémios a partir de ${(p.marcos || [{ pontos: p.objetivo }])[0].pontos} pontos`
         : `${p.objetivo} carimbos · ${p.premio}`) }))));
 
-  /* FALTA O LOGÓTIPO — e é aqui que se diz, porque é aqui que o dono está.
+  const visor = el('div', { class: 'visor' },
+    el('video', { class: 'visor-video', id: 'video', playsinline: true, muted: true }),
+    el('div', { class: 'visor-mira', 'aria-hidden': 'true' },
+      el('span'), el('span'), el('span'), el('span')),
+    el('div', { class: 'visor-estado', id: 'visor-estado', texto: 'A ligar a câmara…' }));
+  principal.append(visor);
+
+  const manual = el('div', { class: 'manual' },
+    el('button', {
+      class: 'btn btn-suave btn-bloco', id: 'botao-manual',
+      html: icone('lapis', { tamanho: 18 }) + '<span>Escrever o número do cartão</span>',
+      aoClick: abrirManual,
+    }));
+  principal.append(manual);
+
+  /* FALTA O LOGÓTIPO — no FIM do ecrã, e não no princípio.
+
+     Estava por cima da câmara, e isso empurrava o botão de escrever o número à
+     mão para DEBAIXO da barra de separadores: o toque batia na barra e não
+     nele. Medido a 390×844 com um café sem logótipo — que é como um café
+     nasce: o botão começava 9 px abaixo do topo da barra.
+
+     Um aviso que tapa a ferramenta que a pessoa foi ali usar está no sítio
+     errado, por muito verdadeiro que seja. A câmara e o número à mão são o que
+     se usa em cada cliente; o logótipo é uma pendência que espera. Fica
+     depois, onde se vê ao chegar e não estorva ao trabalhar.
 
      Sem logótipo, os clientes deste café não conseguem pôr o cartão na
      carteira do telemóvel: a app nem lhes mostra o botão. A Wallet do Google
@@ -304,20 +332,6 @@ async function ecraCarimbar(principal) {
       })));
   }
 
-  const visor = el('div', { class: 'visor' },
-    el('video', { class: 'visor-video', id: 'video', playsinline: true, muted: true }),
-    el('div', { class: 'visor-mira', 'aria-hidden': 'true' },
-      el('span'), el('span'), el('span'), el('span')),
-    el('div', { class: 'visor-estado', id: 'visor-estado', texto: 'A ligar a câmara…' }));
-  principal.append(visor);
-
-  const manual = el('div', { class: 'manual' },
-    el('button', {
-      class: 'btn btn-suave btn-bloco', id: 'botao-manual',
-      html: icone('lapis', { tamanho: 18 }) + '<span>Escrever o número do cartão</span>',
-      aoClick: abrirManual,
-    }));
-  principal.append(manual);
 
   if (p.tipo === 'pontos') {
     principal.append(el('div', { class: 'quantia' },
@@ -336,7 +350,7 @@ async function ecraCarimbar(principal) {
   }
 
   const video = $('#video');
-  const meu = leitor = new Leitor(video, (valor) => carimbar(valor));
+  const meu = leitor = new Leitor(video, (valor) => lido(valor));
 
   /* Escreve-se no `visor` que esta função criou, e não no que estiver no
      documento. A câmara pode demorar segundos a responder — e nesses
@@ -392,6 +406,56 @@ function abrirManual() {
    ========================================================================= */
 
 let aCarimbar = false;
+
+/**
+ * O que a câmara leu.
+ *
+ * O PREFIXO DECIDE, e o balcão não escolhe nada. Um interruptor «modo resgate»
+ * seria a máquina de enganos que este desenho existe para evitar: com fila à
+ * espera e uma mão ocupada, quem se engana é quem tem de escolher. O cliente é
+ * que tem tempo e tem o cartão à frente — é ele que diz, no código, se veio
+ * carimbar ou levantar.
+ *
+ *   C1. D1. M1. W1.  → carimbar (como sempre, sem um milissegundo a mais)
+ *   R1. RD1.         → entregar
+ */
+async function lido(codigo, { manual = false } = {}) {
+  const prefixo = String(codigo || '').split('.')[0];
+  if (prefixo === 'R1' || prefixo === 'RD1') return entregar(codigo);
+  return carimbar(codigo, { manual });
+}
+
+/**
+ * Um pedido de prémio: lê-se, mostra-se, e quem entrega é o dedo do operador.
+ *
+ * A leitura NÃO escreve nada — ver a rota `/v1/balcao/ler`. O que escreve é o
+ * botão «Entreguei», que já existia e já sabe fazer isto a partir da lista de
+ * clientes. Reaproveita-se o mesmo painel: dois caminhos para a mesma coisa
+ * afastam-se sempre, e este é o género de coisa que ninguém repara a ler e
+ * toda a gente repara a usar.
+ */
+async function entregar(codigo) {
+  if (aCarimbar) return;
+  aCarimbar = true;
+  try {
+    const r = await api.lerCodigo(codigo);
+    vibrar([12, 40, 18]);
+    if (!r.premios || !r.premios.length) {
+      /* PODE NÃO HAVER NADA PARA ENTREGAR, e a razão mais provável é banal: já
+         foi entregue há um minuto, noutro telemóvel do mesmo balcão. Dizer
+         «código inválido» a isto mandava procurar o defeito no sítio errado. */
+      mostrarErro(new Error('Este cartão não tem prémios por levantar aqui. '
+        + 'Se acabou de levantar, já está registado.'));
+      return;
+    }
+    painelEntrega({ publico: r.publico, premios: r.premios });
+  } catch (e) {
+    vibrar([60, 60, 60]);
+    mostrarErro(e);
+  } finally {
+    aCarimbar = false;
+  }
+}
 
 async function carimbar(codigo, { manual = false } = {}) {
   if (aCarimbar) return;
@@ -1338,8 +1402,14 @@ async function ecraPrograma(principal) {
   if (estado.negocio.demonstracao) {
     principal.append(el('div', { class: 'aviso-demo' },
       el('b', { texto: 'Este negócio está marcado como demonstração.' }),
-      el('span', { texto: 'Não aparece no «Descobrir» da app. O cartaz e o '
-        + 'endereço próprio continuam a funcionar.' })));
+      /* NOMEAVA O «DESCOBRIR», que era a lista pública dentro da app, e essa
+         saiu. O que a marca de demonstração faz hoje é o que sempre importou:
+         os cartões deste negócio não valem nada e dizem-no. O cartaz continua
+         a funcionar — e agora é verdade, porque a adesão deixou de passar pela
+         lista pública, que excluía os negócios de demonstração e fazia desta
+         frase uma meia-verdade. */
+      el('span', { texto: 'Os cartões deste negócio são de experiência e não '
+        + 'valem nada. O cartaz e o endereço próprio continuam a funcionar.' })));
   }
 
   const previa = el('div', { class: 'cartao', id: 'previa' });
@@ -1543,14 +1613,18 @@ async function ecraPrograma(principal) {
 
   principal.append(form);
 
-  /* ONDE FICA. É o que põe o estabelecimento no mapa do «Descobrir». */
-  const onde = el('section', { class: 'seccao', id: 'seccao-onde-fica' },
-    el('h2', { class: 'seccao-titulo', texto: 'Onde fica' }),
-    el('div', { class: 'lista', id: 'linha-onde-fica' },
-      el('div', { class: 'linha' },
-        el('span', { class: 'linha-texto' }, el('b', { texto: 'A ver…' })))));
-  principal.append(onde);
-  pintarOndeFica(onde);
+  /* A SECÇÃO «ONDE FICA» SAIU DAQUI, e não foi por arrumação.
+
+     Ela existia para pôr o estabelecimento no mapa do «Descobrir» da app — era
+     essa a finalidade escrita na página de privacidade, a par com a frase «esse
+     ponto é público». Com o «Descobrir» fora, o ponto deixou de ser público em
+     lado nenhum: passava a ser uma morada exacta guardada para um fim que já
+     não existia, que é precisamente o que o RGPD não deixa.
+
+     Não se troca a justificação por outra mais vaga — «guardar para um dia» não
+     é finalidade nenhuma. Tira-se a recolha, e apagam-se as que já lá estavam.
+
+*/
 
   /* Como pôr isto ao balcão. */
   principal.append(el('section', { class: 'seccao' },
@@ -1667,244 +1741,8 @@ function expulsarBalcoes() {
       aoClick: fecharPainel }));
 }
 
-/* =========================================================================
-   Onde fica o estabelecimento
 
-   É o que o põe no mapa do «Descobrir». O ponto vem do telemóvel de quem está
-   ao balcão — que é onde este balcão é usado, e é por isso que dá precisão ao
-   nível da porta — ou do mapa arrastado à mão, para quem estiver a inscrever o
-   negócio de casa.
 
-   NÃO HÁ GEOCODIFICADOR, e é uma decisão e não uma falta: perguntar a morada a
-   um serviço de terceiros dava o centro da rua, a oitenta metros, porque o
-   número de porta não está no OpenStreetMap. Daria pior do que o telemóvel que
-   está na mão de quem preenche isto, e acrescentava um domínio à política de
-   privacidade para dar pior.
-   ========================================================================= */
-
-/** Um ponto escrito como uma pessoa o lê. */
-const emGraus = (n) => Number(n).toFixed(5);
-
-async function pintarOndeFica(seccao) {
-  const caixa = seccao.querySelector('#linha-onde-fica');
-  if (!caixa) return;
-  const n = estado.negocio;
-  const tem = typeof n.latitude === 'number' && typeof n.longitude === 'number';
-  caixa.innerHTML = '';
-
-  caixa.append(el('button', { class: 'linha', aoClick: () => painelDoPonto(seccao) },
-    el('span', { class: 'linha-icone', html: icone('mapa', { tamanho: 20 }) }),
-    el('span', { class: 'linha-texto' },
-      el('b', { texto: tem ? 'Está no mapa' : 'Ainda não está no mapa' }),
-      el('span', { texto: tem
-        ? `${emGraus(n.latitude)}, ${emGraus(n.longitude)}`
-        : 'Sem isto, o teu negócio aparece na lista mas não no mapa.' })),
-    el('span', { class: 'linha-fim', html: icone('seta', { tamanho: 18 }) })));
-
-  /* A MORADA MUDOU E O PONTO NÃO. Não se apaga o ponto — pode ter sido uma
-     gralha corrigida com o alfinete já certo. Diz-se, e quem sabe decide. */
-  if (n.moradaMudou) {
-    caixa.append(el('div', { class: 'linha' },
-      el('span', { class: 'linha-icone', html: icone('alerta', { tamanho: 20 }) }),
-      el('span', { class: 'linha-texto' },
-        el('b', { texto: 'A morada mudou desde que marcaste o ponto' }),
-        el('span', { texto: 'O ponto no mapa continua onde estava. Se mudaste '
-          + 'de sítio, marca-o outra vez.' }))));
-  }
-}
-
-/**
- * Marcar o ponto.
- *
- * O ALFINETE NÃO SE ARRASTA: fica quieto no meio do ecrã e move-se o mapa por
- * baixo dele. É o gesto de qualquer app de mapas, e evita a briga entre
- * «arrastar o alfinete» e «arrastar o mapa» num ecrã onde o dedo tapa os dois.
- */
-async function painelDoPonto(seccao) {
-  const painel = abrirPainel('Onde fica o estabelecimento');
-  painel.append(el('p', { class: 'subtexto', texto:
-    'Move o mapa até o alfinete ficar em cima da porta. Ou, se estiveres lá '
-    + 'agora, deixa o telemóvel dizer onde é.' }));
-
-  const zona = el('div', { class: 'ponto-mapa' });
-  painel.append(zona);
-  const leitura = el('p', { class: 'miudo', style: 'margin-top:8px' });
-  painel.append(leitura);
-
-  /* O AVISO DE QUE O PONTO É PÚBLICO, e não é opcional. Há donos de
-     micronegócio que registam a morada de casa; um botão que diz «usar a minha
-     posição» convida a publicá-la sem pensar. Por isso o botão diz «Estou no
-     estabelecimento», e isto está escrito ao lado do mapa e não escondido. */
-  painel.append(el('div', { class: 'folha caixa-texto', style: 'margin:12px 0 16px' },
-    el('p', { class: 'miudo', html:
-      '<b>Este ponto é público.</b> Aparece no mapa da app, como o nome e a '
-      + 'localidade. Marca a porta do estabelecimento — não a tua casa.' })));
-
-  let dados;
-  try {
-    dados = await carregarPortugal(base());
-  } catch {
-    zona.replaceWith(el('p', { class: 'aviso-mau', texto:
-      'Não deu para carregar o mapa. Tenta outra vez daqui a pouco.' }));
-    return;
-  }
-  if (!painel.isConnected) return;
-
-  const n = estado.negocio;
-  const tem = typeof n.latitude === 'number' && typeof n.longitude === 'number';
-  const mapa = criarMapa({
-    dados, pontos: [], atribuicao: false, folhasSempre: true,
-    rotulo: 'Mapa para marcar onde fica o estabelecimento',
-  });
-  zona.innerHTML = '';
-  zona.append(mapa.elemento, el('div', { class: 'ponto-alvo', 'aria-hidden': 'true' }));
-
-  const mostrar = () => {
-    const c = mapa.centro();
-    leitura.textContent = `${emGraus(c.lat)}, ${emGraus(c.lon)}`;
-  };
-  /* O mapa move-se com o dedo, com a roda e com as setas; a leitura tem de
-     acompanhar os três. Um ouvinte em cada um é uma linha que se esquece de se
-     pôr — olha-se para o mapa e pronto.
-
-     E O RELÓGIO PÁRA SOZINHO quando o painel sai da página. Um painel fecha-se
-     de quatro maneiras — o botão, o Escape, o véu, o gesto de voltar — e um
-     `clearInterval` escrito em cada uma delas é um que fica esquecido numa.
-     Perguntar ao próprio elemento se ainda lá está não se esquece de nenhuma. */
-  const relogio = setInterval(() => {
-    if (!painel.isConnected) { clearInterval(relogio); return; }
-    mostrar();
-  }, 200);
-
-  if (tem) mapa.centrarEm(n.latitude, n.longitude, 10);
-  mostrar();
-
-  /* DE ONDE VEIO ESTE PONTO. O `geo_fonte` não é auditoria: é o que faz o mapa
-     desenhar diferente um ponto medido ao metro e um ponto posto à mão. Gravar
-     tudo como «mao» era deitar fora a única coisa que o telemóvel dá de melhor
-     do que o dedo. Guarda-se a última leitura do GPS e compara-se com o centro
-     na hora de gravar — se o dono arrastou o mapa depois, já não é do GPS. */
-  let ultimoGPS = null;
-  const fonteDoCentro = () => {
-    if (!ultimoGPS) return 'mao';
-    const c = mapa.centro();
-    return (emGraus(c.lat) === emGraus(ultimoGPS.lat)
-      && emGraus(c.lon) === emGraus(ultimoGPS.lon)) ? 'gps' : 'mao';
-  };
-
-  /* E NÃO SE GRAVA O QUE NINGUÉM ESCOLHEU. Num negócio ainda sem ponto, o mapa
-     abre no país inteiro; carregar em «Guardar» sem tocar em nada punha o café
-     no meio de Portugal, com ar de coisa decidida. O botão só acorda depois de
-     alguém mexer no mapa ou de o telemóvel dizer onde está. Quem já tem ponto
-     não precisa: o mapa abriu nele, e gravar sem mexer não muda nada. */
-  let mexeu = tem;
-  for (const evento of ['pointerdown', 'wheel', 'keydown']) {
-    zona.addEventListener(evento, () => {
-      mexeu = true;
-      const b = painel.querySelector('#guardar-ponto');
-      if (b) { b.removeAttribute('aria-disabled'); }
-    }, { passive: true });
-  }
-
-  /* --- o telemóvel diz onde é ------------------------------------------- */
-  painel.append(el('button', {
-    class: 'btn btn-suave btn-bloco', style: 'margin-bottom:8px',
-    html: icone('bussola', { tamanho: 18 }) + '<span>Estou no estabelecimento</span>',
-    aoClick: async (ev) => {
-      const botao = ev.currentTarget;
-      if (!navigator.geolocation) {
-        avisar('Este telemóvel não sabe dizer onde está.', 'mau'); return;
-      }
-      botao.setAttribute('aria-disabled', 'true');
-      try {
-        const posicao = await new Promise((resolve, rejeitar) => {
-          navigator.geolocation.getCurrentPosition(resolve, rejeitar,
-            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
-        });
-        const { latitude, longitude } = posicao.coords;
-        /* A POSIÇÃO NÃO SAI DAQUI ENQUANTO NINGUÉM GRAVAR. Só mexe o mapa; é
-           o botão de gravar que decide se ela chega ao servidor. */
-        if (!mapa.centrarEm(latitude, longitude, 6)) {
-          avisar('Esse ponto não fica em Portugal.', 'mau');
-        } else {
-          ultimoGPS = { lat: latitude, lon: longitude };
-          mexeu = true;
-          painel.querySelector('#guardar-ponto')?.removeAttribute('aria-disabled');
-        }
-        mostrar();
-      } catch (e) {
-        avisar(e && e.code === 1
-          ? 'Não deixaste a app saber onde está. Podes marcar o ponto à mão.'
-          : 'Não deu para saber onde estás. Marca o ponto à mão.', 'neutro');
-      } finally {
-        botao.removeAttribute('aria-disabled');
-      }
-    } }));
-
-  painel.append(el('button', {
-    class: 'btn btn-cheio btn-bloco btn-grande', id: 'guardar-ponto',
-    texto: 'Guardar este ponto',
-    'aria-disabled': mexeu ? null : 'true',
-    aoClick: async (ev) => {
-      const botao = ev.currentTarget;
-      if (botao.getAttribute('aria-disabled') === 'true') {
-        avisar('Move o mapa até o alfinete ficar em cima da porta, ou carrega '
-          + 'em «Estou no estabelecimento».', 'neutro');
-        return;
-      }
-      botao.setAttribute('aria-disabled', 'true');
-      const c = mapa.centro();
-      /* CONTRA AS FORMAS, e não contra a caixa da folha: a janela do continente
-         inclui uma faixa de Espanha e muito Atlântico, e um alfinete no mar
-         passava. */
-      if (!emPortugal(dados, c.lat, c.lon)) {
-        botao.removeAttribute('aria-disabled');
-        avisar('O alfinete não está em cima do país. Move-o para o sítio certo.', 'mau');
-        return;
-      }
-      try {
-        const r = await api.guardarNegocio(estado.negocio.id, {
-          latitude: c.lat, longitude: c.lon, geoFonte: fonteDoCentro(),
-        });
-        estado.negocio = { ...estado.negocio, ...r };
-        clearInterval(relogio);
-        fecharPainel();
-        await pintarOndeFica(seccao);
-        avisar('Ficou no mapa.', 'bom');
-      } catch (e) {
-        botao.removeAttribute('aria-disabled');
-        avisar(e.message || 'Não deu para guardar o ponto.', 'mau');
-      }
-    } }));
-
-  /* TIRAR DO MAPA. Está prometido na página de privacidade — «podes mudá-lo ou
-     apagá-lo» — e uma promessa escrita obriga o código. Só aparece a quem tem
-     ponto: um botão para apagar o que não existe é ruído. */
-  if (tem) {
-    painel.append(el('button', {
-      class: 'btn btn-perigo btn-bloco btn-pequeno', style: 'margin-top:8px',
-      texto: 'Tirar do mapa',
-      aoClick: async (ev) => {
-        const botao = ev.currentTarget;
-        botao.setAttribute('aria-disabled', 'true');
-        try {
-          const r = await api.guardarNegocio(estado.negocio.id, { apagarPonto: true });
-          estado.negocio = { ...estado.negocio, ...r,
-                             latitude: null, longitude: null, geoFonte: null };
-          clearInterval(relogio);
-          fecharPainel();
-          await pintarOndeFica(seccao);
-          avisar('Saiu do mapa. Continua na lista do «Descobrir».', 'bom');
-        } catch (e) {
-          botao.removeAttribute('aria-disabled');
-          avisar(e.message || 'Não deu para tirar do mapa.', 'mau');
-        }
-      } }));
-  }
-
-  painel.append(el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno',
-    texto: 'Cancelar', aoClick: () => { clearInterval(relogio); fecharPainel(); } }));
-}
 
 /* =========================================================================
    Quem carimba
@@ -2290,6 +2128,10 @@ function desenharBarra() {
   for (const [nome, e] of Object.entries(ECRAS)) {
     barra.append(el('button', {
       class: 'barra-item', 'aria-current': nome === estado.ecra ? 'page' : null,
+      /* O nome do ecrã no botão, como na app do cliente. Serve para a bateria
+         apontar aos separadores por NOME e não por posição — ver o comentário
+         do `desenharBarra` de lá. */
+      'data-ecra': nome,
       aoClick: () => irPara(nome),
     },
       el('span', { html: icone(e.icone, { tamanho: 24 }) }),

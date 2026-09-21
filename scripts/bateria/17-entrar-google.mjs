@@ -30,7 +30,7 @@ import { passarBoasVindas } from './01-arranque.mjs';
 
 export const nome = '17 · Entrar com a Google';
 
-const PERFIL = '.barra-item:nth-child(5)';
+const PERFIL = '.barra-item[data-ecra="perfil"]';
 const LINHA_CONTA = '#principal section:first-of-type .lista .linha:first-child';
 const BOTAO_GOOGLE = '#painel .btn-google';
 const BOTAO_APPLE = '#painel .btn-apple';

@@ -62,9 +62,9 @@ export async function correr(palco, certo) {
 
   await palco.esperar('#barra .barra-item');
   const separadores = await palco.textos('.barra-item');
-  certo(separadores.length === 5,
-    `app do cliente: a barra tem 5 separadores`, `tem ${separadores.length}: ${separadores}`);
-  certo(separadores.join('|') === 'Carteira|Descobrir|Código|Prémios|Perfil',
+  certo(separadores.length === 3,
+    `app do cliente: a barra tem 3 separadores`, `tem ${separadores.length}: ${separadores}`);
+  certo(separadores.join('|') === 'Carteira|Código|Perfil',
     'app do cliente: os separadores são os esperados', separadores.join('|'));
 
   /* Um título vazio é o sinal mais barato de que a pintura não aconteceu. */

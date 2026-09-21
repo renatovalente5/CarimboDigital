@@ -630,8 +630,8 @@ export async function correr(palco, certo) {
     'sem rede: a app volta a abrir depois de recarregar');
   certo(await palco.ver('#barra'),
     'sem rede: com a barra de separadores desenhada — o JavaScript veio da cache');
-  certo(await palco.contar('.barra-item') === 5,
-    'sem rede: e com os cinco separadores todos',
+  certo(await palco.contar('.barra-item') === 3,
+    'sem rede: e com os três separadores todos',
     `${await palco.contar('.barra-item')} separadores`);
   certo(await palco.contar('#principal .pilha > .cartao') > 0,
     'sem rede: os cartões continuam lá',
@@ -653,7 +653,7 @@ export async function correr(palco, certo) {
      outra — é uma navegação nova, para o start_url. */
   await cortarRede(palco, true);
   await palco.ir(mApp.start_url.slice(BASE.length), { esperarPor: '#barra', tecto: 12000 });
-  certo(await palco.contar('.barra-item') === 5,
+  certo(await palco.contar('.barra-item') === 3,
     'sem rede: abrir pelo atalho do ecrã inicial (start_url) também funciona',
     `${await palco.contar('.barra-item')} separadores`);
 
@@ -662,7 +662,7 @@ export async function correr(palco, certo) {
      cair para a raiz da app; sem isso, dava a página de «Sem ligação». */
   await cortarRede(palco, true);
   await palco.ir('/app/?veio-de=um-link', { esperarPor: '#barra', tecto: 12000 });
-  certo(await palco.contar('.barra-item') === 5,
+  certo(await palco.contar('.barra-item') === 3,
     'sem rede: um endereço que nunca esteve em cache cai na raiz da app, e a app abre',
     `${await palco.contar('.barra-item')} separadores`);
 

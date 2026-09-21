@@ -428,7 +428,12 @@ export async function correr(palco, certo) {
      reprovava lá, a acusar a app de uma coisa que é do browser. Põe-se o
      foco no último separador da barra e recua-se de lá, que é uma pergunta
      sobre a app e não sobre o sistema operativo. */
-  await palco.js(`document.querySelectorAll('.barra-item')[4].focus(); return true`);
+  /* O ÚLTIMO, e não o quinto. Estava `[4]` — o índice do Perfil quando a barra
+     tinha cinco separadores — e a barra passou a ter três: a chamada apanhava
+     `undefined` e o módulo rebentava. O que a afirmação quer é o ÚLTIMO
+     separador, seja ele qual for, e é isso que ela passa a pedir. */
+  await palco.js(`const b = document.querySelectorAll('.barra-item');
+    b[b.length - 1].focus(); return true`);
   const daBarra = await palco.focado();
   const atras = await percorrer(palco, 1, { tras: true });
   certo(atras[0] && daBarra && atras[0].chave !== `${daBarra.etiqueta}|${daBarra.texto}`,
@@ -441,13 +446,26 @@ export async function correr(palco, certo) {
      lê-se o mesmo elemento SEM ele. Comparar cada um com o vizinho não
      servia — cada peça tem o seu desenho de base. */
   await irAoPrincipio(palco);
+  /* PÁRA QUANDO DÁ A VOLTA, e não ao fim de treze.
+
+     Estavam treze voltas escritas à mão — o número de paragens que a carteira
+     tinha. Quando ela passou a ter doze, a décima terceira tabulação deu a
+     volta ao primeiro elemento e escreveu-lhe por cima a marca: o «sem foco»
+     do primeiro passou a não existir, e a afirmação acusou o produto de não
+     ter indicador de foco na ligação de saltar — que o tem, e sempre teve.
+
+     Um teste que conta paragens à mão acusa o código de uma coisa que o
+     próprio teste fez. Agora anda até voltar ao princípio, e o tecto de vinte
+     está lá só para não correr para sempre se alguma coisa partir. */
   const comFoco = [];
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 20; i++) {
     const f = await palco.js(`
       const a = document.activeElement;
       if (!a || a === document.body) return null;
+      if (a.dataset.t11 !== undefined) return { repetido: true };
       a.dataset.t11 = '${i}';
       return { i: '${i}', chave: (${CHAVE})(a), ...(${DESENHO})(a) };`);
+    if (f && f.repetido) break;          /* deu a volta */
     if (f) comFoco.push(f);
     await tab(palco);
   }
@@ -513,27 +531,46 @@ export async function correr(palco, certo) {
 
   /* --- o Enter acciona ---------------------------------------------------- */
 
-  await palco.js("document.querySelector('.barra-item:nth-child(2)').focus(); return true");
+  /* As aspas: o selector leva aspas duplas lá dentro, por isso a cadeia que
+     o embrulha tem de ser de crases — e o `palco.js` aceita-as. */
+  await palco.js(`document.querySelector('.barra-item[data-ecra="perfil"]').focus(); return true`);
   await palco.tecla('Enter');
-  await palco.esperar('#principal .cartao-descobrir', 8000);
-  certo(await palco.texto('#principal h1') === 'Descobrir',
+  await palco.esperar('#principal .identidade-numero', 8000);
+  certo(await palco.texto('#principal h1') === 'Perfil',
     'teclado: o Enter num separador da barra muda mesmo de ecrã',
     String(await palco.texto('#principal h1')));
 
-  /* --- descobrir: o botão que se falha ------------------------------------ */
-
-  await recolherAlvos(palco, alvosApp, 'descobrir');
-  const selos = (await palco.js(ALVOS)).filter((a) => a.tipo.includes('cartao-selo'));
-  /* Interessa o de «Juntar»: os outros dizem «Já tens» e são um atalho para a
-     carteira, não a acção que o ecrã existe para dar. */
-  const juntar = selos.find((a) => a.texto.startsWith('Juntar')) || selos[0];
+  /* --- a acção da carteira vazia, que é a que não se pode falhar ----------
+     Estava aqui a medida do botão «Juntar» do «Descobrir» — o único gesto que
+     aquele ecrã existia para dar. Esse ecrã saiu, e a acção que passou a ter
+     esse peso é o «Mostrar o meu código» da carteira vazia: é a primeira coisa
+     que uma pessoa sem cartões vê, e a porta que não depende de haver cartaz
+     na parede. */
+  /* Guarda-se o estado inteiro antes de o esvaziar: apagar a chave e recarregar
+     não volta a semear — a demonstração só semeia uma vez por separador. */
+  const guardado = await palco.js(`return localStorage.getItem('carimbo-demo:demo')`);
+  await palco.js(`localStorage.setItem('carimbo-demo:demo',
+    JSON.stringify({ ...JSON.parse(localStorage.getItem('carimbo-demo:demo')), cartoes: [] }));
+    return true`);
+  await palco.clicar('.barra-item[data-ecra="carteira"]');
+  await palco.esperar('#principal .vazio .btn', 8000);
+  await recolherAlvos(palco, alvosApp, 'carteira vazia');
+  const juntar = (await palco.js(ALVOS)).find((a) => /Mostrar o meu código/.test(a.texto || ''));
   certo(juntar && juntar.largura >= MINIMO && juntar.altura >= MINIMO,
-    `descobrir: o botão de juntar um cartão tem ${MINIMO}×${MINIMO} px — é a acção do ecrã`,
+    `carteira vazia: o botão de mostrar o código tem ${MINIMO}×${MINIMO} px — é a acção do ecrã`,
     juntar ? `«${juntar.texto}» tem ${juntar.largura}×${juntar.altura}` : 'não encontrei o botão');
+
+  /* E A CARTEIRA VOLTA AO QUE ERA. Esvaziá-la foi para medir o ecrã de
+     entrada; deixá-la assim contaminava o resto do módulo, que precisa de
+     cartões — e um módulo que deixa o mundo mexido estraga o seguinte. */
+  await palco.js(`localStorage.setItem('carimbo-demo:demo', ${JSON.stringify(guardado)});
+    return true`);
+  await palco.recarregar();
+  await palco.esperar('#principal .pilha .cartao', 10000);
 
   /* --- um cartão aberto: o botão de voltar -------------------------------- */
 
-  await palco.clicar('.barra-item:nth-child(1)');
+  await palco.clicar('.barra-item[data-ecra="carteira"]');
   await palco.esperar('#principal .pilha .cartao', 8000);
   await palco.clicar('#principal .pilha > .cartao:nth-of-type(2)');
   await palco.esperar('#principal .voltar', 8000);
@@ -547,7 +584,7 @@ export async function correr(palco, certo) {
 
   /* --- perfil ------------------------------------------------------------- */
 
-  await palco.clicar('.barra-item:nth-child(5)');
+  await palco.clicar('.barra-item[data-ecra="perfil"]');
   await palco.esperar('#principal .linha-perigo');
   await recolherAlvos(palco, alvosApp, 'perfil');
 
@@ -559,7 +596,7 @@ export async function correr(palco, certo) {
      que não é da app, onde o foco fica mesmo ao fechar um painel. */
   await palco.ir('/app/?demo=1');
   await palco.esperar('#barra .barra-item');
-  await palco.clicar('.barra-item:nth-child(5)');
+  await palco.clicar('.barra-item[data-ecra="perfil"]');
   await palco.esperar('#principal .linha-perigo');
 
   const LINHA_CONTA = '#principal section:first-of-type .lista .linha:first-child';
@@ -607,7 +644,7 @@ export async function correr(palco, certo) {
 
   /* --- a folha do código: o diálogo que tapa o ecrã todo ------------------ */
 
-  await palco.clicar('.barra-item:nth-child(3)');
+  await palco.clicar('.barra-item[data-ecra="codigo"]');
   await palco.esperar('#folha-codigo', 8000);
   await dormir(palco, 300);
   await recolherAlvos(palco, alvosApp, 'folha do código');
