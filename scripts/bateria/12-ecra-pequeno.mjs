@@ -37,7 +37,7 @@
    tem de caber num telemóvel na mesma.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { passarBoasVindas, abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '12 · Ecrãs pequenos e conteúdo que transborda';
 export const desculpar = [/favicon/];
@@ -401,6 +401,12 @@ async function appDoCliente(palco, certo, l) {
   await palco.esperar('#principal .pilha .cartao', 10000);
 
   await medir(palco, certo, 'app · carteira', l);
+  /* ABRE-SE UM CARTÃO ANTES DE MEDIR A BARRA. Com o maço todo fechado a
+     carteira ficou curta — num tablet de 768 cabe inteira no ecrã — e então a
+     barra não tem nada que tapar: a afirmação passava por boa sem provar coisa
+     nenhuma, e o controlo logo a seguir dizia-o. Um cartão aberto é o estado em
+     que a carteira é mais alta, que é onde a promessa custa mesmo. */
+  await abrirNoMaco(palco, 1);
   const fundoDaCarteira = await medirBarra(palco, certo, 'app · carteira', l);
   /* Sem isto a afirmação de cima podia passar por a carteira caber toda no
      ecrã — e então não estaria a provar nada sobre a barra. */
@@ -411,8 +417,7 @@ async function appDoCliente(palco, certo, l) {
   await palco.captura(`12-app-carteira-${l}`);
 
   /* Um cartão aberto: a grelha grande, o histórico, a morada e o telefone. */
-  await palco.clicar('#principal .pilha > .cartao:nth-of-type(2)');
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, 2);
   await medir(palco, certo, 'app · cartão aberto', l);
   await medirBarra(palco, certo, 'app · cartão aberto', l);
   await aoTopo(palco);

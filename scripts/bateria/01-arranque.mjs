@@ -22,6 +22,68 @@ export async function passarBoasVindas(palco) {
   return 8;
 }
 
+/* =========================================================================
+   O MAÇO DA CARTEIRA — dois gestos que todos os módulos precisam
+
+   Os cartões da carteira estão empilhados como na carteira do telemóvel: vê-se
+   a faixa de cada um e mais nada. Tudo o resto — a grelha, o trilho, o rodapé,
+   o botão de ir ao cartão todo — vive num painel que só existe quando aquele
+   cartão está aberto, e só um está aberto de cada vez.
+
+   Isto vive aqui, ao lado do `passarBoasVindas`, porque são onze os sítios que
+   precisam do mesmo gesto. Escrito onze vezes, bastava um deles esquecer-se de
+   esperar pela abertura para medir o painel a meio do desvanecimento.
+   ========================================================================= */
+
+/** O selector de um cartão do maço, pela ordem em que está na carteira. */
+export const CARTAO_DO_MACO = (n) => `#principal .pilha > .cartao:nth-of-type(${n})`;
+
+/**
+ * Abre um cartão do maço e espera que ele acabe de abrir.
+ *
+ * `qual` é o número de ordem (1 é o primeiro) ou o nome do café.
+ *
+ * ESPERAR NÃO É CORTESIA. O painel entra com um desvanecimento, e uma medição
+ * feita a meio lê o texto a 11% de opacidade — a varredura do contraste chegou
+ * a acusar quatro pares ilegíveis que ninguém vê. Espera-se só pelas animações
+ * que ACABAM: uma infinita nunca cumpre a promessa e deixava isto pendurado.
+ */
+export async function abrirNoMaco(palco, qual) {
+  const escolha = typeof qual === 'number'
+    ? `cartoes[${qual - 1}]`
+    : `cartoes.find((n) => n.querySelector('.cartao-nome')?.textContent.trim()
+        === ${JSON.stringify(String(qual))})`;
+  return palco.js(`
+    const cartoes = [...document.querySelectorAll('#principal .pilha > .cartao')];
+    const alvo = ${escolha};
+    if (!alvo) return false;
+    const aba = alvo.querySelector('.cartao-aba');
+    if (aba.getAttribute('aria-expanded') !== 'true') aba.click();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await Promise.all(alvo.getAnimations({ subtree: true })
+      .filter((a) => a.effect && a.effect.getTiming().iterations !== Infinity)
+      .map((a) => a.finished.catch(() => {})));
+    return true;`);
+}
+
+/**
+ * Abre o cartão no maço e entra no ecrã do cartão todo.
+ *
+ * Eram dois gestos que andavam sempre juntos, e separá-los só servia para
+ * alguém se esquecer do primeiro e ficar a olhar para um botão escondido.
+ */
+export async function abrirOCartaoTodo(palco, qual) {
+  const havia = await abrirNoMaco(palco, qual);
+  /* REBENTA À CLARA em vez de devolver `false` em silêncio. Um `false` deixava
+     o teste no ecrã errado e a falha aparecia oito segundos depois, como «não
+     apareceu o cartão grande» — a apontar para o produto quando o defeito era
+     um índice errado no próprio teste. */
+  if (!havia) throw new Error(`não há no maço o cartão «${qual}»`);
+  await palco.clicar('#principal .cartao[data-aberto="sim"] .btn-cartao');
+  await palco.esperar('#principal .cartao-grande', 8000);
+  return true;
+}
+
 export async function correr(palco, certo) {
   /* --- app do cliente --------------------------------------------------- */
   await palco.ir('/app/?demo=1');

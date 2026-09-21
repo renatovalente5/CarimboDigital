@@ -344,7 +344,12 @@ body.app:not(.balcao) .barra-item[aria-current="page"] { color: var(--marca); }
   border-radius: inherit; pointer-events: none;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
 }
-button.cartao:active, a.cartao:active { transform: scale(.985); }
+/* O CARTÃO DEIXOU DE SER UM `<button>` — passou a `<article>` com a faixa a
+   ser o botão — e esta regra deixou de casar em silêncio: o cartão continuava
+   a abrir, só que sem dizer que tinha sido tocado. O `:has` devolve o gesto ao
+   cartão inteiro, que é o que a pessoa julga estar a carregar. */
+a.cartao:active,
+.cartao:has(> .cartao-titulo > .cartao-aba:active) { transform: scale(.985); }
 
 /* A fotografia de fundo, quando o comerciante põe uma. */
 .cartao-fundo {
@@ -368,6 +373,10 @@ button.cartao:active, a.cartao:active { transform: scale(.985); }
 }
 .cartao-marca { min-width: 0; flex: 1; }
 .cartao-nome {
+  /* `display: block` porque isto passou de `<div>` a `<span>` quando a faixa
+     virou botão, e num `<span>` inline o `text-overflow` não faz nada: o nome
+     comprido saía do cartão em vez de acabar em reticências. */
+  display: block;
   font-size: 1.0625rem; font-weight: 800; letter-spacing: -.02em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -904,6 +913,105 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
    ========================================================================= */
 
 .pilha { display: flex; flex-direction: column; gap: var(--e-4); }
+
+/* =========================================================================
+   O BARALHO — os cartões da carteira, um aberto de cada vez
+
+   Na carteira do telemóvel os cartões não são uma lista com espaços: são um
+   MAÇO. Cada um tapa a ponta do anterior e vê-se a faixa de cima de todos ao
+   mesmo tempo, que é o que permite ter dez cartões num ecrã sem rolar. Quem
+   abre um vê-o inteiro; o que estava aberto fecha-se sozinho.
+   ========================================================================= */
+
+.pilha-baralho { gap: 0; }
+
+/* O ENCAIXE. Um cartão entra por cima do anterior; o que sobra à vista é a
+   faixa menos este número. Vem da escala e não é um número à solta. */
+.pilha-baralho { --baralho-encaixe: var(--e-4); }
+.pilha-baralho > .cartao + .cartao {
+  margin-top: calc(-1 * var(--baralho-encaixe));
+}
+
+/* A SOMBRA DO MAÇO APONTA PARA CIMA, e tem de ser escrita à mão.
+
+   As sombras da casa caem para baixo, como cai a luz. Num maço isso não se vê:
+   o cartão de baixo é o que pinta por último (é o que está à frente), portanto
+   tapa a sombra que o de cima lhe deitou. A sombra que se vê num maço é a do
+   cartão da frente a cair PARA TRÁS, sobre o que está por baixo dele — e é ela
+   que diz aos olhos qual dos dois está à frente. */
+.pilha-baralho > .cartao + .cartao {
+  box-shadow: 0 -3px 10px rgba(0, 0, 0, .22), 0 -1px 3px rgba(0, 0, 0, .14);
+}
+
+/* O QUE ESTÁ ABERTO SAI DO MAÇO. Deixa de entrar por cima do anterior e o
+   seguinte deixa de entrar por cima dele: fica sozinho, com ar à volta, que é
+   o que diz «este é o que estás a ver». */
+.pilha-baralho > .cartao[data-aberto="sim"],
+.pilha-baralho > .cartao[data-aberto="sim"] + .cartao {
+  margin-top: var(--e-4);
+}
+.pilha-baralho > .cartao[data-aberto="sim"] {
+  box-shadow: var(--sombra-3);
+}
+
+/* A placa do «juntar outro» não é um cartão e não entra no maço. Sem isto
+   ficava colada ao último, porque a pilha do baralho não tem `gap`. */
+.pilha-baralho > .adicionar { margin-top: var(--e-4); }
+
+/* Quando um cartão se abre, o `scrollIntoView` traz o que faltar para dentro
+   do ecrã — e estas duas margens dizem-lhe onde é que o ecrã acaba mesmo: em
+   cima há um cabeçalho pegajoso, em baixo há a cápsula da barra. Sem elas o
+   cartão encostava-se a um dos dois e ficava meio tapado. */
+.pilha-baralho > .cartao {
+  scroll-margin-top: calc(var(--seguro-cima) + 64px);
+  scroll-margin-bottom: calc(var(--barra-folga) + var(--e-4));
+}
+
+/* A FAIXA — o que se vê de um cartão fechado, e o botão que o abre. */
+.cartao-titulo { margin: 0; font: inherit; }
+.cartao-aba {
+  display: flex; align-items: flex-start; gap: var(--e-3);
+  width: 100%;
+  padding: var(--cartao-folga);
+  color: inherit; text-align: left;
+  /* O raio serve só para o anel de foco sair em cápsula e não em rectângulo
+     dentro de um cartão redondo — a faixa não pinta fundo nenhum. */
+  border-radius: inherit;
+}
+.cartao-aba .cartao-marca { flex: 1; min-width: 0; }
+.cartao-aba .cartao-id { flex: 0 0 auto; }
+.cartao-seta {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 24px; height: 24px;
+  opacity: .8;
+  /* O ícone da casa aponta para a direita. Noventa graus é «abre», menos
+     noventa é «fecha» — e a volta entre os dois é a única animação disto. */
+  rotate: 90deg;
+  transition: rotate var(--t-2) ease;
+}
+.cartao-aba[aria-expanded="true"] .cartao-seta { rotate: -90deg; }
+
+/* A TIRA DO PRÉMIO FICA SEMPRE À VISTA, fechado ou aberto. Com fila atrás,
+   levantar um prémio não pode custar dois toques. */
+.cartao-tira { padding: 0 var(--cartao-folga) var(--cartao-folga); }
+
+/* O PAINEL. Fechado é `hidden` a sério, não altura zero: uma altura zero
+   deixa lá dentro botões que o teclado alcança e o leitor de ecrã lê. */
+.cartao-painel { padding: 0 var(--cartao-folga) var(--cartao-folga); }
+.cartao-painel:not([hidden]) { animation: baralho-abrir var(--t-3) var(--suave); }
+@keyframes baralho-abrir {
+  from { opacity: 0; translate: 0 -8px; }
+}
+
+/* O botão de ir ao cartão todo vive SOBRE a cor do café, e por isso veste-se
+   dela ao contrário: o fundo é a tinta e a tinta é o fundo. O par já está
+   medido — o `marcaSegura` dá à tinta 4,5:1 contra a cor, e trocar os dois de
+   lado não muda a conta. */
+.cartao .btn-cartao {
+  margin-top: var(--e-4);
+  background: var(--m-txt); color: var(--m);
+}
 
 .seccao { margin-top: var(--e-7); }
 .seccao-titulo {
@@ -1564,7 +1672,19 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
 
    O afastamento desce a 1px: com 2, o anel saía para fora do cartão e era
    cortado pelo `overflow: hidden` dele. */
-.cartao .levantar:focus-visible {
+.cartao .btn:focus-visible {
   outline-color: var(--m-txt);
   outline-offset: 1px;
+}
+
+/* A FAIXA É O CASO À PARTE, porque está encostada ao bordo do cartão.
+
+   O `overflow: hidden` do cartão — que existe para a faixa dos carimbos poder
+   sangrar até às pontas — recorta tudo o que saia da caixa, e a faixa não tem
+   um píxel de folga em cima nem dos lados. Com o anel por fora, sobrava nada.
+   Vira-se para dentro, onde assenta na cor do cartão, contra a qual a tinta
+   tem os 4,5:1 por construção. É o mesmo raciocínio da cápsula da barra. */
+.cartao-aba:focus-visible {
+  outline-color: var(--m-txt);
+  outline-offset: -4px;
 }

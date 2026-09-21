@@ -25,7 +25,7 @@
    carimbo para cada lado) e os outros não — que é como um programa nasce.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { passarBoasVindas, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '22 · Traz um amigo';
 
@@ -49,9 +49,7 @@ async function abrirCartao(palco, nome) {
     c.setAttribute('data-prova', 'cartao');
     return true`);
   if (!achou) return false;
-  await palco.clicar('[data-prova="cartao"]');
-  await palco.esperar('#principal .cartao-grande', 8000);
-  return true;
+  return abrirOCartaoTodo(palco, nome);
 }
 
 /** O estado da demonstração, lido de volta. */

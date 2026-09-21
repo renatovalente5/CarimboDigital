@@ -30,6 +30,8 @@
    precisamente o que a app mostra sem recarregar (fase 4).
    ========================================================================= */
 
+import { abrirOCartaoTodo } from './01-arranque.mjs';
+
 export const nome = '05 · Prémios: ganhar, ver e resgatar';
 
 /* O prémio que este teste inventa para o programa do Café Torrado. Nunca
@@ -168,10 +170,13 @@ export async function correr(palco, certo) {
     String(await palco.texto('.pilha .cartao .pronto b')));
 
   /* O cartão a meio mostra a grelha de carimbos, não o painel. */
-  const rotulos = await palco.js(`return [...document.querySelectorAll('.pilha .cartao')]
+  /* O RÓTULO MUDOU DE SÍTIO: era do cartão inteiro, quando o cartão era um
+     botão; passou a ser da faixa, que é o botão que abre o maço. E ganhou o
+     nome do programa, porque a faixa também o mostra. */
+  const rotulos = await palco.js(`return [...document.querySelectorAll('.pilha .cartao-aba')]
     .map((n) => n.getAttribute('aria-label'))`);
-  const doTorrado = rotulos.find((r) => r.startsWith('Café Torrado'));
-  certo(doTorrado === 'Café Torrado. faltam 3 carimbos: Um café por conta da casa.',
+  const doTorrado = rotulos.find((r) => r && r.startsWith('Café Torrado'));
+  certo(doTorrado === 'Café Torrado, Cartão do café. faltam 3 carimbos: Um café por conta da casa.',
     'o cartão a meio anuncia-se como «faltam 3 carimbos», não como pronto',
     String(doTorrado));
 
@@ -260,7 +265,8 @@ export async function correr(palco, certo) {
   await irPara(palco, 'Carteira');
   const painel = await palco.js(`
     const n = [...document.querySelectorAll('.pilha .cartao')]
-      .find((c) => (c.getAttribute('aria-label') || '').startsWith('Café Torrado'));
+      .find((c) => (c.querySelector('.cartao-aba')?.getAttribute('aria-label') || '')
+        .startsWith('Café Torrado'));
     if (!n) return null;
     const p = n.querySelector('.pronto');
     return {
@@ -340,10 +346,10 @@ export async function correr(palco, certo) {
      procurar — é o histórico DENTRO do cartão daquele café. */
   const cartaoDoTorrado = await palco.js(`
     const n = [...document.querySelectorAll('.pilha .cartao')]
-      .findIndex((c) => /Café Torrado/.test(c.getAttribute('aria-label') || ''));
+      .findIndex((c) => /Café Torrado/.test(
+        c.querySelector('.cartao-aba')?.getAttribute('aria-label') || ''));
     return n + 1`);
-  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${cartaoDoTorrado})`);
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, cartaoDoTorrado);
   const levantados = await palco.texto('#principal');
   certo(String(levantados).includes(PREMIO_INVENTADO),
     'o histórico do cartão diz que prémio foi levantado',
@@ -423,8 +429,7 @@ export async function correr(palco, certo) {
     const n = [...document.querySelectorAll('.pilha .cartao')]
       .findIndex((c) => /Gelataria/.test((c.querySelector('.cartao-nome') || {}).textContent || ''));
     return n + 1`);
-  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${naGelataria})`);
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, naGelataria);
   const noCartao = String(await palco.texto('#principal'));
   certo(noCartao.includes(PREMIO_COM_HTML),
     'o nome do prémio aparece tal e qual, sem o HTML ser interpretado',
@@ -442,7 +447,8 @@ export async function correr(palco, certo) {
   await palco.captura('05-carteira-tres-premios-num-cartao');
   const plural = await palco.js(`
     const n = [...document.querySelectorAll('.pilha .cartao')]
-      .find((c) => (c.getAttribute('aria-label') || '').startsWith('Gelataria Luar'));
+      .find((c) => (c.querySelector('.cartao-aba')?.getAttribute('aria-label') || '')
+        .startsWith('Gelataria Luar'));
     const p = n && n.querySelector('.pronto');
     return { premio: p ? p.querySelector('b').textContent.trim() : null,
              linha: p ? p.querySelector('.pronto-texto span').textContent.trim() : null,
@@ -508,8 +514,7 @@ export async function correr(palco, certo) {
     const n = [...document.querySelectorAll('.pilha .cartao')]
       .findIndex((c) => /Café Torrado/.test((c.querySelector('.cartao-nome') || {}).textContent || ''));
     return n + 1`);
-  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${ondeSeEntregou})`);
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, ondeSeEntregou);
   const historico = await palco.texto('#principal');
   certo(String(historico).includes(PREMIO_INVENTADO),
     'e o histórico do cartão continua a dizer o que lá foi levantado',

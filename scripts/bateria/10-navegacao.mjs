@@ -38,7 +38,7 @@
    Corre em modo de demonstração, que não toca na rede.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { passarBoasVindas, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '10 · Navegação, painéis e o botão de voltar';
 export const desculpar = [/favicon/];
@@ -401,8 +401,7 @@ export async function correr(palco, certo) {
 
   await palco.clicar(SEP('carteira'));
   await palco.esperar('#principal .pilha > .cartao', 8000);
-  await palco.clicar('#principal .pilha > .cartao:nth-of-type(2)');
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, 2);
 
   const noCartao = await retrato(palco);
   certo(noCartao.marcados.length === 0,

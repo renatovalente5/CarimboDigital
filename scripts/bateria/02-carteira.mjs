@@ -13,6 +13,8 @@
    mude sem o ecrã mudar passa a ser uma falha, que é o que se quer.
    ========================================================================= */
 
+import { abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
+
 export const nome = '02 · A carteira e o cartão';
 
 /* =========================================================================
@@ -153,16 +155,44 @@ function carteiraEsperada(estado) {
 /** Despejo do que está desenhado em cada cartão da lista. */
 async function lerCarteira(palco) {
   return palco.js(`
-    return [...document.querySelectorAll('#principal .pilha > .cartao')].map((n) => {
+    const cartoes = [...document.querySelectorAll('#principal .pilha > .cartao')];
+    const lidos = [];
+    /* Abrir um cartão traz-lhe o que falta para dentro do ecrã, portanto ler o
+       maço todo deixa a página no fundo — e a afirmação seguinte, que pergunta
+       se a faixa do prémio está à vista, passava a medir um ecrã que a leitura
+       criou. Guarda-se onde se estava e devolve-se no fim. */
+    const rolagem = scrollY;
+    for (const n of cartoes) {
+      /* ABRE-SE CADA UM PARA O LER, e é a única maneira honesta.
+
+         O maço só deixa um cartão aberto de cada vez, e o que está fechado tem
+         o painel em 'display: none' — sem geometria nenhuma. Ler assim devolvia
+         zeros e NaN às medidas que dependem de layout (as colunas que o CSS
+         pinta mesmo, a largura da barra de pontos, a posição dos marcos) e o
+         teste ficava a concordar com um ecrã que ninguém vê.
+
+         E de caminho isto passa o maço todo, um a um, em cada corrida. */
+      const aba = n.querySelector('.cartao-aba');
+      if (aba && aba.getAttribute('aria-expanded') !== 'true') aba.click();
+      /* E ESPERA-SE QUE ACABE DE ABRIR. O painel entra com um desvanecimento,
+         e uma medição feita a meio lê o texto a 11% de opacidade: a varredura
+         do contraste acusou quatro pares ilegíveis que ninguém chega a ver.
+         Espera-se só pelas animações que ACABAM — uma infinita nunca cumpre a
+         promessa e deixava isto pendurado para sempre. */
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await Promise.all(n.getAnimations({ subtree: true })
+        .filter((a) => a.effect && a.effect.getTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => {})));
+
       const grelha = n.querySelector('.carimbos');
       const pronto = n.querySelector('.pronto');
       const e = getComputedStyle(n);
-      return {
+      lidos.push({
         nome: n.querySelector('.cartao-nome')?.textContent.trim() ?? null,
         tipo: n.querySelector('.cartao-tipo')?.textContent.trim() ?? null,
         rotulo: n.querySelector('.cartao-rotulo')?.textContent.trim() ?? null,
         premio: n.querySelector('.cartao-premio')?.textContent.trim() ?? null,
-        aria: n.getAttribute('aria-label'),
+        aria: aba ? aba.getAttribute('aria-label') : null,
         casas: grelha ? grelha.querySelectorAll('.carimbo').length : null,
         cheias: grelha ? grelha.querySelectorAll('.carimbo[data-estado="cheio"]').length : null,
         ariaGrelha: grelha ? grelha.getAttribute('aria-label') : null,
@@ -183,8 +213,10 @@ async function lerCarteira(palco) {
         m: n.style.getPropertyValue('--m').trim(),
         mTxt: n.style.getPropertyValue('--m-txt').trim(),
         claro: n.dataset.claro ?? null,
-      };
-    });`);
+      });
+    }
+    scrollTo({ top: rolagem, behavior: 'instant' });
+    return lidos;`);
 }
 
 /**
@@ -341,7 +373,7 @@ export async function correr(palco, certo) {
         `${esperado.negocio.nome}: com prémio à espera não mostra rodapé de contagem`,
         String(visto.rotulo));
       const premio = estado.premios.find((x) => x.cartaoId === esperado.id && !x.resgatadoEm);
-      certo(visto.aria === `${esperado.negocio.nome}. Pronto a levantar: ${premio.descricao}.`,
+      certo(visto.aria === `${esperado.negocio.nome}, ${esperado.programa.nome}. Pronto a levantar: ${premio.descricao}.`,
         `${esperado.negocio.nome}: o rótulo lido em voz alta diz «Pronto a levantar»`,
         String(visto.aria));
     } else {
@@ -390,6 +422,7 @@ export async function correr(palco, certo) {
 
   /* A barra cheia é a única parte do trilho que se lê à distância: tem de
      valer a fracção verdadeira, não uma aproximação. */
+  await abrirNoMaco(palco, camelia.negocio.nome);
   const trilho = await palco.js(`
     const t = document.querySelector('#principal .pilha .trilho');
     if (!t) return null;
@@ -454,6 +487,9 @@ export async function correr(palco, certo) {
   const desmaiados = [];
   for (let i = 0; i < vistos.length; i++) {
     const seletor = `#principal .pilha > .cartao:nth-of-type(${i + 1})`;
+    /* Cada cartão mede-se ABERTO: o rodapé, a grelha e o número do cartão só
+       existem no painel, e um painel fechado não tem texto para medir. */
+    await abrirNoMaco(palco, i + 1);
     const medidos = avaliarTextos(await medirTextos(palco, seletor));
     for (const t of medidos) {
       if (t.contraste >= t.minimo) continue;
@@ -480,10 +516,8 @@ export async function correr(palco, certo) {
   /* --- abrir um cartão --------------------------------------------------- */
 
   const indice = vistos.findIndex((c) => c.nome === 'Café Torrado');
-  const seletorTorrado = `#principal .pilha > .cartao:nth-of-type(${indice + 1})`;
   const passosAntes = await palco.js('return history.length');
-  await palco.clicar(seletorTorrado);
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, indice + 1);
   const passosDepois = await palco.js('return history.length');
   await palco.captura('02-cartao-aberto');
 
@@ -664,7 +698,7 @@ export async function correr(palco, certo) {
       return true;`);
     await palco.clicar('#principal .voltar');
     await palco.esperar('#principal .pilha .cartao', 8000);
-    await palco.clicar(seletorTorrado);
+    await abrirOCartaoTodo(palco, indice + 1);
     /* Espera-se SEM deixar rebentar. Um `esperar` que atira mata o módulo, e
        com ele as duas dezenas de afirmações que vêm a seguir — o botão
        desaparecia e o que se lia era «o módulo rebentou», com o resto do ecrã
@@ -774,17 +808,21 @@ export async function correr(palco, certo) {
     'voltar: com os cartões todos outra vez',
     `${await palco.contar('#principal .pilha > .cartao')} de ${esperados.length}`);
 
-  /* --- o ritmo da lista -------------------------------------------------- */
+  /* --- o maço: como os cartões se encaixam uns nos outros ---------------- */
 
-  /* O «Juntar outro cartão» estava fora da pilha, como irmão dela. O `gap` é
-     da pilha, por isso ele ficava colado ao último cartão, sem um milímetro
-     de folga — e numa carteira com um cartão só o efeito era um bloco de cor
-     com uma aba tracejada agarrada em baixo.
+  /* Os cartões da carteira estão EMPILHADOS, não alinhados: cada um entra por
+     cima do anterior e vê-se só a faixa de cima de cada um. É o que faz caber
+     dez cartões num ecrã, e é o que a carteira do telemóvel faz.
 
-     Mede-se a folga entre cada item e o seguinte, e exige-se que sejam todas
-     iguais: uma lista com um espaçamento diferente no fim lê-se como duas
-     listas. */
-  const folgas = await palco.js(`
+     Mede-se em dois estados, porque a forma muda com eles: fechados, todos com
+     o mesmo encaixe negativo — um encaixe que fosse diferente entre dois pares
+     lia-se como duas pilhas; e com um aberto, ele sai do maço, com ar de cada
+     lado, senão não se percebe qual é que está aberto.
+
+     O «Juntar outro cartão» não é um cartão e não entra no maço: fica com
+     folga POSITIVA. Esteve fora da pilha e colado ao último cartão, e essa é a
+     razão de esta afirmação existir desde o princípio. */
+  const FOLGAS = `
     const itens = [...document.querySelectorAll('#principal .pilha > *')];
     const r = [];
     for (let i = 1; i < itens.length; i++) {
@@ -794,11 +832,95 @@ export async function correr(palco, certo) {
                        - itens[i - 1].getBoundingClientRect().bottom),
       });
     }
-    return r;`);
-  const distintas = new Set(folgas.map((f) => f.px));
-  certo(folgas.length >= 2 && distintas.size === 1 && folgas[0].px > 0,
-    'carteira: todos os itens da lista têm a mesma folga, incluindo o «juntar outro»',
+    return r;`;
+
+  /* Fecha-se o que estivesse aberto — as afirmações de cima abriram cartões, e
+     medir a seguir a elas era medir o estado que a leitura criou. */
+  await palco.js(`
+    const a = document.querySelector('#principal .cartao[data-aberto="sim"] .cartao-aba');
+    if (a) a.click();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return true;`);
+
+  const encaixe = await palco.js(`
+    const p = document.querySelector('#principal .pilha-baralho');
+    return p ? parseFloat(getComputedStyle(p).getPropertyValue('--baralho-encaixe')) : null;`);
+  certo(encaixe > 0,
+    'maço: o encaixe dos cartões é um número que sai da folha de estilo',
+    String(encaixe));
+
+  const folgas = await palco.js(FOLGAS);
+  const entreCartoes = folgas.filter((f) => f.entre === 'cartao→cartao');
+  const ateAoJuntar = folgas.find((f) => f.entre.endsWith('→linha'));
+  certo(entreCartoes.length >= 2
+    && entreCartoes.every((f) => f.px === -encaixe),
+    `maço: fechados, todos os cartões encaixam os mesmos ${encaixe}px no anterior`,
     folgas.map((f) => `${f.entre} ${f.px}px`).join(' · '));
+  certo(!!ateAoJuntar && ateAoJuntar.px > 0,
+    'maço: e o «juntar outro» não entra no maço — fica com folga a sério',
+    ateAoJuntar ? `${ateAoJuntar.entre} ${ateAoJuntar.px}px` : 'não encontrei a placa');
+
+  await abrirNoMaco(palco, 2);
+  const comUmAberto = await palco.js(FOLGAS);
+  certo(comUmAberto[0] && comUmAberto[0].px > 0 && comUmAberto[1] && comUmAberto[1].px > 0,
+    'maço: o cartão aberto sai do maço, com ar de um lado e do outro',
+    comUmAberto.map((f) => `${f.entre} ${f.px}px`).join(' · '));
+
+  /* --- e nunca mais do que um aberto ------------------------------------ */
+
+  /* A regra do produto tem uma palavra só: UM. Toca-se em três seguidos e
+     conta-se — se dois ficarem abertos, o maço deixou de ser um maço e passou
+     a ser uma lista comprida sem ninguém a decidir.
+
+     Conta-se pelas TRÊS coisas ao mesmo tempo: a marca no cartão, o
+     `aria-expanded` da faixa e o painel escondido. Contar só uma delas deixava
+     passar o caso em que o ecrã diz uma coisa e o leitor de ecrã diz outra. */
+  const umSo = await palco.js(`
+    const abas = [...document.querySelectorAll('#principal .cartao-aba')];
+    const olhar = () => [...document.querySelectorAll('#principal .pilha > .cartao')]
+      .map((n) => ({
+        marca: n.dataset.aberto === 'sim',
+        aria: n.querySelector('.cartao-aba').getAttribute('aria-expanded') === 'true',
+        painel: !n.querySelector('.cartao-painel').hidden,
+      }));
+    const passos = [];
+    for (const i of [0, 2, 1, 1]) {
+      abas[Math.min(i, abas.length - 1)].click();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const v = olhar();
+      passos.push({
+        abertos: v.filter((x) => x.marca).length,
+        coerente: v.every((x) => x.marca === x.aria && x.marca === x.painel),
+      });
+    }
+    return passos;`);
+  certo(umSo.length === 4 && umSo.every((x) => x.abertos <= 1),
+    'maço: por mais cartões em que se toque, nunca fica mais do que um aberto',
+    umSo.map((x, i) => `toque ${i + 1}: ${x.abertos}`).join(' · '));
+  certo(umSo.every((x) => x.coerente),
+    'maço: e o que se vê, o que o leitor de ecrã ouve e o painel dizem sempre o mesmo',
+    umSo.map((x, i) => `toque ${i + 1}: ${x.coerente ? 'ok' : 'discordam'}`).join(' · '));
+  certo(umSo[3] && umSo[3].abertos === 0,
+    'maço: e tocar outra vez no que está aberto fecha-o',
+    umSo[3] ? `ficaram ${umSo[3].abertos} abertos` : 'não medi');
+
+  /* --- o que está fechado não se conduz às escuras ----------------------- */
+
+  /* Um painel com altura zero continua a ter lá dentro botões que o teclado
+     alcança e o leitor de ecrã lê: a pessoa tabula para dentro de um cartão
+     fechado e fica a carregar em coisas que não vê. Por isso ele é `hidden` de
+     verdade — e isto prova-o pelo que o browser diz, não pelo CSS. */
+  const escondidos = await palco.js(`
+    const dentroDeFechado = [...document.querySelectorAll(
+      '#principal .cartao[data-aberto="nao"] .cartao-painel button, ' +
+      '#principal .cartao[data-aberto="nao"] .cartao-painel a')];
+    return {
+      quantos: dentroDeFechado.length,
+      alcancaveis: dentroDeFechado.filter((n) => n.getClientRects().length).length,
+    };`);
+  certo(escondidos.quantos > 0 && escondidos.alcancaveis === 0,
+    'maço: os botões de um cartão fechado não são alcançáveis por teclado',
+    `${escondidos.alcancaveis} de ${escondidos.quantos} ainda alcançáveis`);
 
   certo((await palco.contar('#principal .pilha > .adicionar')) === 1,
     'carteira: e o «juntar outro» está dentro da pilha, não pendurado a seguir a ela',

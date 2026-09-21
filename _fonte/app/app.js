@@ -28,6 +28,11 @@ const estado = {
   identidades: [],
   ecra: 'carteira',
   cartaoAberto: null,
+  /* QUAL DOS CARTÕES DO BARALHO ESTÁ ABERTO — um, ou nenhum. Vive no estado e
+     não no DOM porque a carteira repinta-se por tudo e por nada (um carimbo
+     novo, um prémio levantado, uma volta ao separador), e um cartão que se
+     fecha sozinho a cada repintura é a app a desfazer o que a pessoa fez. */
+  cartaoExpandido: null,
   /* Sobe a cada pintura. Serve para uma pintura lenta saber que já não é a
      que está no ecrã e desistir em silêncio, em vez de assentar por cima da
      seguinte. */
@@ -194,41 +199,137 @@ function proximoPremio(cartao) {
   };
 }
 
-/** O cartão como aparece na lista. */
-function cartaoCompacto(cartao) {
+/* =========================================================================
+   O BARALHO DA CARTEIRA
+
+   Os cartões ficam empilhados como na carteira do telemóvel: cada um tapa o
+   fundo do anterior e vê-se só a faixa de cima. Toca-se num e ele abre; toca-
+   se noutro e o primeiro fecha. NUNCA HÁ DOIS ABERTOS, e essa é a regra que
+   dita a forma do código — o estado é `qual está aberto`, um valor só, e não
+   uma bandeira por cartão que se pode esquecer de limpar.
+
+   PORQUÊ UM `<article>` E NÃO UM `<button>`. O cartão inteiro era um botão que
+   levava ao ecrã do cartão, e lá dentro havia OUTRO botão, o de levantar o
+   prémio. Um botão dentro de um botão não é HTML válido: o que um leitor de
+   ecrã anuncia depende do leitor, e o clique no de dentro sobe ao de fora. Com
+   a faixa a ser o botão e o resto a ser um painel a seguir, os dois passam a
+   ser irmãos — e o `aria-expanded` passa a poder dizer a verdade.
+
+   O QUE FICA SEMPRE À VISTA. A faixa, e — quando há prémio — a tira de o
+   levantar. Com fila atrás, levantar um prémio não pode custar dois toques: é
+   por isso que ela vive FORA do painel que abre e fecha.
+   ========================================================================= */
+
+/** O cartão como aparece no baralho da carteira. */
+function cartaoDoBaralho(cartao) {
   const p = cartao.programa;
   const prox = proximoPremio(cartao);
   const pronto = cartao.porResgatar > 0;
+  const aberto = estado.cartaoExpandido === cartao.id;
+  const idPainel = `cartao-painel-${cartao.id}`;
 
-  const no = el('button', {
-    class: 'cartao', type: 'button',
-    'aria-label': `${cartao.negocio.nome}. ${prox.rotulo}: ${prox.texto}.`,
-    aoClick: () => abrirCartao(cartao.id),
+  /* O `aria-label` da faixa diz o que a faixa NÃO mostra — em que ponto vai o
+     cartão — para quem a ouve decidir se vale a pena abrir. Sem isto, o
+     anúncio era só o nome do café e a pessoa tinha de abrir todos. */
+  const faixa = el('button', {
+    class: 'cartao-aba', type: 'button',
+    'aria-expanded': aberto ? 'true' : 'false',
+    'aria-controls': idPainel,
+    'aria-label': `${cartao.negocio.nome}, ${p.nome}. ${prox.rotulo}: ${prox.texto}.`,
+    aoClick: () => alternarCartao(cartao.id),
   },
-    el('div', { class: 'cartao-corpo' },
-      el('div', { class: 'cartao-topo' },
-        el('div', { class: 'cartao-marca' },
-          el('div', { class: 'cartao-nome', texto: cartao.negocio.nome }),
-          el('div', { class: 'cartao-tipo', texto: p.nome })),
-        el('div', { class: 'cartao-id' },
-          el('span', { texto: 'cartão' }),
-          el('b', { texto: estado.cliente.publico }))),
-      pronto
-        ? painelPronto(cartao)
-        : p.tipo === 'pontos'
-          ? el('div', {},
-              el('div', { class: 'pontos-valor' },
-                el('b', { texto: String(cartao.pontos) }),
-                el('span', { texto: 'pt' })),
-              trilhoPontos(cartao))
-          : grelhaCarimbos(cartao),
-      pronto ? null : el('div', { class: 'cartao-rodape' },
-        el('div', {},
-          el('div', { class: 'cartao-rotulo', texto: prox.rotulo }),
-          el('div', { class: 'cartao-premio', texto: prox.texto })))));
+    el('span', { class: 'cartao-marca' },
+      el('span', { class: 'cartao-nome', texto: cartao.negocio.nome }),
+      el('span', { class: 'cartao-tipo', texto: p.nome })),
+    el('span', { class: 'cartao-seta', html: icone('seta', { tamanho: 20 }) }));
+
+  /* O painel é `hidden` de verdade, e não uma altura a zero. Uma altura a zero
+     deixa lá dentro botões que o teclado continua a alcançar e o leitor de ecrã
+     continua a ler: a pessoa tabula para dentro de um cartão fechado e fica a
+     conduzir qualquer coisa que não vê. */
+  /* COM PRÉMIO À ESPERA NÃO HÁ GRELHA, e não é descuido: o ciclo já recomeçou,
+     por isso a grelha mostrava as casas do ciclo NOVO — quase todas vazias — a
+     dois centímetros da tira que diz que se ganhou. Lê-se como se os carimbos
+     tivessem desaparecido. O que a pessoa tem de ver é o prémio, e ele está na
+     tira, sempre à vista. */
+  const painel = el('div', {
+    class: 'cartao-painel', id: idPainel, hidden: !aberto,
+  },
+    pronto ? null
+      : p.tipo === 'pontos'
+        ? el('div', {},
+            el('div', { class: 'pontos-valor' },
+              el('b', { texto: String(cartao.pontos) }),
+              el('span', { texto: 'pt' })),
+            trilhoPontos(cartao))
+        : grelhaCarimbos(cartao),
+    /* O NÚMERO DO CARTÃO DESCEU DA FAIXA PARA AQUI. Na faixa ele era o mesmo em
+       todos os cartões — é o código da PESSOA, não do cartão — e um número
+       repetido cinco vezes num maço não informa ninguém; o que fazia era comer
+       noventa píxeis ao nome do café, que num ecrã de 320 acabava cortado. */
+    el('div', { class: 'cartao-rodape' },
+      pronto ? null : el('div', {},
+        el('div', { class: 'cartao-rotulo', texto: prox.rotulo }),
+        el('div', { class: 'cartao-premio', texto: prox.texto })),
+      el('div', { class: 'cartao-id' },
+        el('span', { texto: 'cartão' }),
+        el('b', { texto: estado.cliente.publico }))),
+    el('button', {
+      class: 'btn btn-cartao btn-bloco', type: 'button',
+      texto: 'Ver o cartão todo',
+      aoClick: () => abrirCartao(cartao.id),
+    }));
+
+  const no = el('article', { class: 'cartao', 'data-aberto': aberto ? 'sim' : 'nao' },
+    el('h3', { class: 'cartao-titulo' }, faixa),
+    pronto ? el('div', { class: 'cartao-tira' }, painelPronto(cartao)) : null,
+    painel);
 
   pintarCartao(no, cartao.negocio.cor);
   return no;
+}
+
+/**
+ * Abre um cartão do baralho, e fecha o que estivesse aberto.
+ *
+ * MEXE-SE NO DOM E NÃO SE REPINTA O ECRÃ. Repintar era mais simples de
+ * escrever, mas apaga e recria os nós: o foco cai no `body`, a rolagem salta
+ * para o cimo, e a transição de abertura nunca chega a acontecer porque o
+ * elemento que devia animar nasce já aberto. Aqui o botão em que a pessoa
+ * tocou continua a ser o mesmo elemento, e continua com o foco.
+ */
+function alternarCartao(id) {
+  estado.cartaoExpandido = estado.cartaoExpandido === id ? null : id;
+
+  let aberto = null;
+  for (const no of document.querySelectorAll('#principal .cartao[data-aberto]')) {
+    const faixa = no.querySelector('.cartao-aba');
+    const painel = no.querySelector('.cartao-painel');
+    if (!faixa || !painel) continue;
+    /* O ciclo passa por TODOS e não só pelos dois que mudam. É de propósito:
+       assim não há estado por onde fugir — o que está aberto é sempre o que o
+       `estado.cartaoExpandido` diz, e um cartão que tivesse ficado aberto por
+       engano fecha-se na primeira vez que se toque em qualquer um. */
+    const este = painel.id === `cartao-painel-${estado.cartaoExpandido}`;
+    no.dataset.aberto = este ? 'sim' : 'nao';
+    faixa.setAttribute('aria-expanded', este ? 'true' : 'false');
+    painel.hidden = !este;
+    if (este) aberto = no;
+  }
+
+  /* TRAZER O QUE SE ABRIU PARA O ECRÃ. Um cartão no fim do maço abre-se quase
+     todo por baixo do bordo, e quem lhe tocou fica a olhar para a faixa sem
+     perceber que aconteceu alguma coisa. O `nearest` não mexe em nada quando o
+     cartão já cabe — é isso que o torna seguro de chamar sempre. O afastamento
+     à barra e ao cabeçalho vem do `scroll-margin` no CSS, e não de contas
+     aqui. */
+  if (aberto) {
+    aberto.scrollIntoView({
+      block: 'nearest',
+      behavior: matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'instant' : 'smooth',
+    });
+  }
 }
 
 /* =========================================================================
@@ -311,8 +412,15 @@ async function ecraCarteira(principal) {
     }));
   }
 
-  const lista = el('div', { class: 'pilha' });
-  for (const c of estado.cartoes) lista.append(cartaoCompacto(c));
+  /* O CARTÃO ABERTO PODE JÁ NÃO EXISTIR: largou-se o cartão noutro ecrã, ou o
+     café desapareceu da conta. Sem esta linha ficava um identificador a
+     apontar a nada, e o baralho abria-se todo fechado sem razão aparente. */
+  if (!estado.cartoes.some((c) => c.id === estado.cartaoExpandido)) {
+    estado.cartaoExpandido = null;
+  }
+
+  const lista = el('div', { class: 'pilha pilha-baralho' });
+  for (const c of estado.cartoes) lista.append(cartaoDoBaralho(c));
 
   /* O «juntar outro» vai DENTRO da pilha, e não a seguir a ela. Estava como
      irmão: a pilha é que tem o `gap`, por isso ele ficava colado ao último

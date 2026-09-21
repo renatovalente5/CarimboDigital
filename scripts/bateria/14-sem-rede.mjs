@@ -36,7 +36,7 @@
    medir.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { passarBoasVindas, abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '14 · Sem rede e com a API avariada';
 
@@ -142,7 +142,15 @@ const CARTEIRA = SEPARADOR('carteira');
    recusa a abrir». A carteira faz o mesmo com os cartões em cache. O ecrã do
    cartão é o único que deixa o erro subir — e é por isso que é ele que mostra
    o «Não deu para carregar». */
-const UM_CARTAO = '#principal .pilha > .cartao:nth-of-type(1)';
+/* ENTRAR NO CARTÃO QUANDO ELE NÃO VAI CARREGAR.
+
+   O `abrirOCartaoTodo` espera pelo `.cartao-grande`, e aqui ele nunca aparece —
+   é esse o ponto da prova. Abre-se o maço e carrega-se no botão, e quem espera
+   é a afirmação, pelo texto do erro. */
+async function entrarNoCartao(palco) {
+  await abrirNoMaco(palco, 1);
+  await palco.clicar('#principal .cartao[data-aberto="sim"] .btn-cartao');
+}
 const BAL_HOJE = SEPARADOR('hoje'), BAL_CLIENTES = SEPARADOR('clientes'),
       BAL_CARTAO = SEPARADOR('programa');
 
@@ -196,8 +204,7 @@ export async function correr(palco, certo) {
 
   /* --- abrir um cartão e trocar para outro ------------------------------ */
   const iTorrado = carteira.findIndex((c) => c.nome === 'Café Torrado');
-  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${iTorrado + 1})`);
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, iTorrado + 1);
   certo(await palco.texto('#principal .cartao-grande .cartao-nome') === 'Café Torrado',
     'sem rede, demonstração: abre o cartão que se escolheu',
     String(await palco.texto('#principal .cartao-grande .cartao-nome')));
@@ -208,8 +215,7 @@ export async function correr(palco, certo) {
   await palco.clicar('#principal .voltar');
   await palco.esperar('#principal .pilha .cartao', 8000);
   const iOutro = carteira.findIndex((c) => c.nome === 'Salão Camélia');
-  await palco.clicar(`#principal .pilha > .cartao:nth-of-type(${iOutro + 1})`);
-  await palco.esperar('#principal .cartao-grande', 8000);
+  await abrirOCartaoTodo(palco, iOutro + 1);
   certo(await palco.texto('#principal .cartao-grande .cartao-nome') === 'Salão Camélia',
     'sem rede, demonstração: mudar de cartão continua a funcionar',
     String(await palco.texto('#principal .cartao-grande .cartao-nome')));
@@ -528,7 +534,7 @@ export async function correr(palco, certo) {
   /* --- a rede cai a meio da sessão -------------------------------------- */
 
   await fingir(palco, 'cair');
-  await palco.clicar(UM_CARTAO);
+  await entrarNoCartao(palco);
   await palco.esperarTexto('Não deu para carregar', 8000);
   await palco.captura('14-api-caiu-descobrir');
 
@@ -603,7 +609,7 @@ export async function correr(palco, certo) {
   await palco.esperar('#principal .pilha > .cartao', 8000);
 
   await fingir(palco, 'cinco00');
-  await palco.clicar(UM_CARTAO);
+  await entrarNoCartao(palco);
   await palco.esperarTexto('Não deu para carregar', 8000);
   const de500 = await palco.texto('#principal .vazio .miudo');
   certo(de500 === 'O servidor teve um problema. Tenta daqui a pouco.',
@@ -623,7 +629,7 @@ export async function correr(palco, certo) {
   await palco.clicar(CARTEIRA);
   await palco.esperar('#principal .pilha > .cartao', 8000);
   await fingir(palco, 'lixo');
-  await palco.clicar(UM_CARTAO);
+  await entrarNoCartao(palco);
   await palco.esperarTexto('Não deu para carregar', 8000);
   const deLixo = await palco.texto('#principal .vazio .miudo');
   certo(deLixo === 'Erro 502',
@@ -641,7 +647,7 @@ export async function correr(palco, certo) {
   await palco.clicar(CARTEIRA);
   await palco.esperar('#principal .pilha > .cartao', 8000);
   await fingir(palco, 'quatro01');
-  await palco.clicar(UM_CARTAO);
+  await entrarNoCartao(palco);
   await palco.esperarTexto('Não deu para carregar', 8000);
   certo(await palco.js("return localStorage.getItem('carimbo:sessao')") === null,
     'sessão expirada: o testemunho morto é deitado fora, senão a app ficava presa',
@@ -662,7 +668,7 @@ export async function correr(palco, certo) {
   await palco.js('window.__fingir.abortos = []; return true');
   await fingir(palco, 'mudo');
   const antes = Date.now();
-  await palco.clicar(UM_CARTAO);
+  await entrarNoCartao(palco);
   await palco.esperarTexto('Não deu para carregar', 25000);
   const demorou = Date.now() - antes;
 

@@ -40,7 +40,7 @@
      acontecer. Espera-se que a página assente antes de olhar.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { passarBoasVindas, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '11 · Teclado, foco e alvos de toque';
 export const desculpar = [/favicon/];
@@ -590,7 +590,7 @@ export async function correr(palco, certo) {
 
   await palco.clicar('.barra-item[data-ecra="carteira"]');
   await palco.esperar('#principal .pilha .cartao', 8000);
-  await palco.clicar('#principal .pilha > .cartao:nth-of-type(2)');
+  await abrirOCartaoTodo(palco, 2);
   await palco.esperar('#principal .voltar', 8000);
   await recolherAlvos(palco, alvosApp, 'cartão aberto');
   await palco.js("document.querySelector('#principal .voltar').focus(); return true");
