@@ -12,7 +12,7 @@ body.app {
      página ficava encostado a ela, sem um milímetro, e ao fim de uma
      carteira comprida parecia que o conteúdo tinha sido cortado em vez de
      ter acabado. */
-  padding-bottom: calc(var(--barra) + var(--seguro-baixo) + var(--e-6));
+  padding-bottom: calc(var(--barra-folga) + var(--e-6));
   user-select: none;
   -webkit-user-select: none;
 }
@@ -68,6 +68,216 @@ body.app input, body.app textarea, body.app .selecionavel {
   backdrop-filter: saturate(1.8) blur(20px);
   -webkit-backdrop-filter: saturate(1.8) blur(20px);
   border-top: 1px solid var(--linha);
+}
+
+/* =========================================================================
+   A BARRA FLUTUANTE — só na app do cliente
+
+   Uma cápsula afastada das margens, com o conteúdo a passar por baixo dela.
+   É o gesto do iOS, e a razão de ser não é decorativa: uma faixa colada ao
+   fundo divide o ecrã em dois e rouba a altura toda; uma cápsula devolve-a e
+   deixa o conteúdo respirar até ao bordo.
+
+   NÃO SE APLICA AO BALCÃO, e é deliberado. `body.app.balcao` fica de fora: o
+   balcão é uma ferramenta de trabalho, usada a uma mão e com fila à espera, e
+   uma barra que flutua é uma barra que ocupa espaço no meio do ecrã por razões
+   de estilo. A camada de vidro custa pintura, e o ecrã de carimbar já tem uma
+   câmara a desenhar sessenta vezes por segundo por cima.
+
+   O AFASTAMENTO E O RECORTE DO TELEMÓVEL ENTRAM NA `--barra-folga`, e é isso
+   que mantém a promessa de que nada fica debaixo dela: os quatro sítios que a
+   descontam — a folga do corpo, o aviso flutuante e os dois do balcão —
+   escrevem uma variável e não uma soma de três parcelas. Enquanto o recorte
+   andou por fora, quem o esquecesse num deles não dava por isso em ecrã
+   nenhum destes, só num iPhone.
+   ========================================================================= */
+
+body.app:not(.balcao) {
+  /* OS TRÊS AFASTAMENTOS SÃO O MESMO NÚMERO, e isso não é simetria por gosto:
+     é como a barra do iOS 26 está feita — as medições de terceiros dão 21 pt
+     à esquerda, à direita E ao fundo. Vinte é o degrau da escala da casa que
+     lhe fica ao lado. Com o lado a 16 e o fundo a 12, como estava, a cápsula
+     lia-se encostada ao fundo do ecrã. */
+  --barra-lado: var(--e-5);
+  --barra-fundo: var(--e-5);
+
+  /* O RECORTE DO TELEMÓVEL ABSORVE O AFASTAMENTO, NÃO SE SOMA A ELE.
+
+     No iOS o indicador de início tem a sua faixa ao fundo e a cápsula assenta
+     em cima dela — é a MESMA faixa, não duas. Somar dava 34 + 20 = 54 px de
+     nada por baixo da barra num iPhone com recorte, quase uma barra inteira
+     de vazio. `max` diz o que se quer mesmo: afasta-te vinte, e se o telemóvel
+     pedir mais, obedece-lhe. */
+  --barra-baixo: max(var(--barra-fundo), var(--seguro-baixo));
+
+  /* Os 2px são o contorno da cápsula, um de cada lado. `--barra` é a altura do
+     separador, e a cápsula é mais alta do que ele — sem esta parcela a folga
+     ficava dois píxeis curta e a promessa de que nada lhe fica por baixo era
+     falsa por dois píxeis. */
+  --barra-folga: calc(var(--barra) + 2px + var(--barra-baixo));
+}
+
+body.app:not(.balcao) .barra {
+  inset: auto var(--barra-lado) var(--barra-baixo) var(--barra-lado);
+  /* A CÁPSULA PÁRA NA COLUNA DA APP. Uma faixa colada ao fundo podia ir de
+     ponta a ponta porque só os separadores lá dentro é que estavam limitados
+     à coluna; uma cápsula É a forma, e numa janela de computador ficava um
+     oval de 1240px com três botões encolhidos ao meio. O `margin-inline` é o
+     que a centra: com `left` e `right` postos, é ele que reparte o que sobra. */
+  max-width: var(--coluna);
+  margin-inline: auto;
+  padding-bottom: 0;
+  border-top: 0;
+  /* NOVENTA POR CENTO, E NÃO OITENTA E SEIS — e o número foi medido, não
+     escolhido.
+
+     Uma faixa colada ao fundo tem por trás dela a margem da página; uma cápsula
+     flutuante tem por trás O CONTEÚDO A ROLAR, e num cartão passam discos
+     brancos de carimbo. Com 14% a atravessar, o rótulo «Código» caía a 3,71:1
+     no tema claro e o separador activo a 4,37:1 no escuro — abaixo dos 4,5 que
+     texto de 11px exige.
+
+     Subir até os rótulos passarem com o cinzento de hoje pedia 95%, que é vidro
+     quase opaco e deitava fora o efeito. Escureceu-se um passo o rótulo em vez
+     disso (ver mais abaixo) e o vidro ficou em 90. O pior caso, com uma
+     superfície branca ou preta por trás, mede 4,99:1 no escuro e 5,24:1 no
+     claro — e quem o mede é a bateria, não este comentário (13-tema). */
+  background: color-mix(in srgb, var(--papel) 90%, transparent);
+  /* O CONTORNO INTEIRO, e não só o de cima — e o FORTE, não o normal.
+
+     Uma faixa colada ao fundo só tem um lado à vista; uma cápsula tem quatro.
+     E `--linha` são dez por cento de alfa, escolhidos para assentar no papel:
+     com um cartão da cor do café a passar por trás, um traço a 10% desaparece
+     e a cápsula perde a forma. O de 20% aguenta as duas situações. */
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--r-max);
+  /* A sombra é o que a faz FLUTUAR. Sem ela a cápsula lê-se como um buraco
+     recortado no ecrã, e não como uma peça pousada por cima. E vem do token,
+     não escrita à mão: um preto fixo é quase invisível sobre papel escuro, e
+     o `--sombra-3` já tem a versão de cada tema. */
+  box-shadow: var(--sombra-3);
+  /* O RECORTE CONTINUA AQUI, MAS O ANEL DE FOCO DEIXOU DE MORRER NELE.
+
+     `overflow: hidden` guarda os cantos: sem ele, um browser em que o vidro
+     não respeite o raio deixa o conteúdo atravessar as pontas da cápsula. Só
+     que ele recorta TUDO o que sai da caixa — e o anel de foco da casa vive
+     fora dela, a dois píxeis. Os separadores ficam a um píxel do bordo, de
+     modo que o anel inteiro caía fora do recorte: sobrava uma lasca vertical
+     entre dois separadores e mais nada. Provado ao contrário, com um anel
+     vermelho de quatro píxeis a dez de distância — desapareceu por completo.
+
+     A saída não é abrir o recorte, é VIRAR O ANEL PARA DENTRO (ver abaixo). */
+  overflow: hidden;
+}
+
+/* O ANEL DE FOCO VIRA-SE PARA DENTRO DA CÁPSULA.
+
+   Um deslocamento negativo põe o traço a assentar no próprio vidro, que é um
+   fundo conhecido e medido — 5,3:1 nos dois temas, com o pior conteúdo
+   possível a passar por trás. Com o deslocamento de fora, o anel assentava no
+   que estivesse a rolar naquele instante, que é o mesmo que não ter contraste
+   nenhum garantido.
+
+   O raio é o que o torna uma pastilha em vez de um rectângulo dentro de um
+   oval: o traço segue o `border-radius` do elemento, e sem ele os cantos do
+   anel furavam as pontas da cápsula. */
+body.app:not(.balcao) .barra-item { border-radius: var(--r-max); }
+body.app:not(.balcao) .barra-item:focus-visible { outline-offset: -4px; }
+
+/* O CONTEÚDO DESVANECE-SE ANTES DE CHEGAR À CÁPSULA.
+
+   É a segunda metade do gesto, e sem ela a primeira fica a meio. Uma barra que
+   flutua tem conteúdo a passar-lhe por trás, e o que passa é texto — o fim de
+   um cartão, o nome do café a seguir — que atravessa o vidro e disputa os
+   rótulos ao mesmo tempo que eles. A Apple resolve-o com um desvanecimento
+   automático em qualquer lista por baixo de uma barra («scroll edge effect»);
+   aqui é uma camada fixa entre o conteúdo e a cápsula.
+
+   NÃO ESCONDE NADA QUE ESTEJA PARADO: o corpo já reserva `--barra-folga` mais
+   um respiro, portanto em repouso a faixa está vazia. Só o que está a passar
+   por ela é que se apaga, que é exactamente o que se quer.
+
+   E de caminho paga-se o vidro: com o fundo a aproximar-se do papel, o pior
+   caso de contraste dos rótulos sobe em vez de descer. */
+body.app:not(.balcao)::after {
+  content: "";
+  position: fixed; inset: auto 0 0 0; z-index: 30;
+  height: calc(var(--barra-folga) + var(--e-6));
+  background: linear-gradient(
+    to top,
+    var(--papel) 0%,
+    color-mix(in srgb, var(--papel) 72%, transparent) 46%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+/* A BOLHA ENCOLHE PORQUE DEIXOU DE SAIR PARA FORA.
+
+   Ela tinha 46px e subia 14 acima da faixa — o gesto clássico de uma barra
+   colada ao fundo, em que metade dela vive por cima. Dentro de uma cápsula não
+   há «por cima»: os 46 inteiros passaram a contar para a altura e a barra
+   cresceu de 64 para 70, com os rótulos a encostar ao bordo de baixo.
+
+   Quarenta cabe nos 64 com o rótulo por baixo, e continua a ser o maior alvo
+   da barra — que é o que faz dele a acção principal. */
+body.app:not(.balcao) .barra-bolha {
+  margin-top: 0;
+  width: 40px; height: 40px;
+}
+body.app:not(.balcao) .barra-bolha svg { width: 22px; height: 22px; }
+
+/* O RÓTULO SOBE UM PASSO DE TINTA dentro da cápsula.
+
+   Ele usa a tinta terciária — a das legendas — e ela foi escolhida para
+   assentar no papel liso. Por cima de vidro com conteúdo a passar por trás, o
+   fundo deixa de ser o papel: é o papel MAIS o que lá estiver. A tinta
+   secundária custa um passo de hierarquia e devolve meio ponto de contraste,
+   que é o que faz a diferença entre 4,05 e 5,00. */
+body.app:not(.balcao) .barra-item { color: var(--tinta-2); }
+
+/* E O SEPARADOR EM QUE SE ESTÁ VOLTA A SER DA COR DA MARCA.
+
+   A regra de cima é mais específica do que a `[aria-current="page"]` que está
+   lá em baixo — três classes contra uma classe e um atributo — e por isso
+   apagou-a sem se ver: os três rótulos ficaram do mesmo cinzento e a barra
+   deixou de dizer onde a pessoa estava. Foi a guarda do vidro que o mostrou,
+   por os três darem exactamente o mesmo contraste. */
+body.app:not(.balcao) .barra-item[aria-current="page"] { color: var(--marca); }
+
+/* ONDE O VIDRO NÃO EXISTE, a barra é opaca.
+
+   Sem `backdrop-filter`, o `86%` do fundo deixa passar o que está por trás e
+   os rótulos assentam por cima do conteúdo a rolar — o contraste passa a
+   depender do que lá estiver, que é a definição de não haver contraste. A
+   consulta pergunta pelo que é preciso e não pelo browser: onde houver, usa-se;
+   onde não houver, a cor é cheia. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .barra { background: var(--papel); }
+}
+
+/* E QUEM PEDIU MENOS TRANSPARÊNCIA NÃO A LEVA — POR DOIS CAMINHOS, porque um
+   só não chega ao telemóvel que interessa.
+
+   `prefers-reduced-transparency` é a pergunta certa e é a que o iOS chama
+   «Reduzir transparência». Só que o Safari NÃO A EXPÕE, nem no Mac nem no
+   iPhone — e é o iPhone o aparelho cujo aspecto isto copia. Quem for às
+   Acessibilidades do iOS desligar o vidro e depois abrir esta app continuava a
+   levar vidro: a promessa de acessibilidade falhava exactamente onde foi
+   pedida. `prefers-contrast: more` é a rede que resta: o Safari conhece-a e o
+   iOS liga-a com «Aumentar contraste», que é a definição ao lado e a que a
+   mesma pessoa costuma ligar a seguir.
+
+   REPARE-SE NO SENTIDO: o vidro é o que está por omissão e estas consultas
+   TAPAM-NO. Ao contrário — pôr o vidro dentro de `(prefers-reduced-transparency:
+   no-preference)`, que é o que se lê por aí — o iPhone nunca veria vidro
+   nenhum, porque uma consulta que o browser não conhece vale falso. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .barra {
+    background: var(--papel);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  body.app:not(.balcao) .barra { border-color: var(--tinta-3); }
 }
 .barra-interior {
   display: flex; width: 100%; max-width: var(--coluna);
@@ -581,7 +791,7 @@ button.linha:active, a.linha:active { transform: scale(.985); }
 .aviso {
   position: fixed; z-index: 200;
   left: 50%; translate: -50% 0;
-  bottom: calc(var(--barra) + var(--seguro-baixo) + var(--e-4));
+  bottom: calc(var(--barra-folga) + var(--e-4));
   display: flex; align-items: center; gap: var(--e-3);
   max-width: calc(100vw - var(--e-8));
   padding: var(--e-3) var(--e-5);

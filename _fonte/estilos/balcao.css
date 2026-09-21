@@ -95,7 +95,7 @@
      e encolhe num ecrã baixo, em vez de empurrar o que vem a seguir para
      debaixo da barra. O `min-height` é para não desaparecer de todo — abaixo
      de 200px deixa de se ver o que se está a apontar. */
-  max-height: calc(100dvh - 300px - var(--barra) - var(--seguro-baixo));
+  max-height: calc(100dvh - 300px - var(--barra-folga));
   min-height: 200px;
   border-radius: var(--r-5); overflow: hidden;
   background: #000;
@@ -242,7 +242,7 @@
    navegação: o toque batia na barra e não nela. E com os botões a poderem
    agora quebrar em duas linhas, o painel cresceu e o problema piorou. */
 .resultado-acoes {
-  padding-bottom: calc(var(--barra) + var(--seguro-baixo) + var(--e-3));
+  padding-bottom: calc(var(--barra-folga) + var(--e-3));
 }
 
 /* --- números -------------------------------------------------------------- */

@@ -240,6 +240,10 @@ const BARRA = `
   const classe = typeof n.className === 'string' && n.className.trim()
     ? '.' + n.className.trim().split(/\\s+/).slice(0, 2).join('.') : '';
   return {
+    esquerda: Math.round(b.left),
+    direita: Math.round(innerWidth - b.right),
+    largura: Math.round(b.width),
+    coluna: parseFloat(getComputedStyle(document.body).getPropertyValue('--coluna')),
     tapado: Math.round(fundo.baixo - b.top),
     /* Numa página que cabe no ecrã a barra nunca chega ao conteúdo: dizer que
        não o tapa não prova nada. Isto diz se a medição teve alguma coisa em
@@ -347,6 +351,23 @@ async function medirBarra(palco, certo, onde, l) {
     `${onde} @${l}: a barra de baixo não tapa nem encosta ao fim do conteúdo`,
     `«${b.texto}» (${b.quem}) acaba a ${-b.tapado}px do cimo da barra`
     + `, e o mínimo é ${FOLGA_MINIMA}`);
+
+  /* A CÁPSULA É UMA FORMA, E UMA FORMA TEM DE PARAR ALGURES.
+     Na app do cliente a barra flutua, e numa janela de computador nada a
+     impedia de esticar de ponta a ponta: um oval de 1240px com três botões
+     encolhidos ao meio, que é tudo menos o gesto que se copiou. Ela vive na
+     mesma coluna que o resto da app, e afastada das duas margens — as duas
+     coisas medem-se aqui, nas quatro larguras. No balcão a barra continua
+     colada ao fundo e de ponta a ponta, que é o que uma ferramenta de
+     trabalho quer, por isso a pergunta não se lhe faz. */
+  if (onde.startsWith('app')) {
+    certo(b.esquerda > 0 && b.direita > 0,
+      `${onde} @${l}: a cápsula está afastada das duas margens`,
+      `${b.esquerda}px à esquerda, ${b.direita}px à direita`);
+    certo(b.largura <= b.coluna,
+      `${onde} @${l}: a cápsula não passa a coluna da app`,
+      `${b.largura}px de largura, e a coluna são ${b.coluna}px`);
+  }
   return b;
 }
 

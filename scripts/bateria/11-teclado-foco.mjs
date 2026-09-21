@@ -65,10 +65,28 @@ const forade = (lista) => lista.filter((a) =>
    dela estivesse errada, um teste que a usasse concordava com o erro.
    ========================================================================= */
 
+
+/* NEM TUDO O QUE SAI DO BROWSER É `rgb(...)`.
+
+   Um `color-mix()` volta do Chrome escrito `color(srgb 0.98 0.98 0.97 / 0.9)`:
+   os mesmos números, mas de 0 a 1 em vez de 0 a 255. Lidos à bruta, um vidro
+   quase branco passa a valer (0,98 · 0,98 · 0,97) — preto — e a medição jura
+   com todos os decimais que o rótulo tem 2,51:1 quando tem 5,2. Aconteceu: a
+   guarda da cápsula acusou um defeito que não existia.
+
+   E o que não se reconhecer devolve `null` DE PROPÓSITO, para quem chama ter
+   de decidir o que faz com o que ficou por medir, em vez de receber um número
+   inventado. */
 function corParaRGB(css) {
-  const n = String(css).match(/[\d.]+/g);
+  const t = String(css).trim();
+  if (/^color\(/i.test(t) && !/^color\(\s*srgb[\s)]/i.test(t)) return null;
+  const escala = /^color\(/i.test(t) ? 255 : 1;
+  const n = t.match(/[\d.]+(?:e-?\d+)?/g);
   if (!n || n.length < 3) return null;
-  return { r: +n[0], g: +n[1], b: +n[2], a: n.length > 3 ? +n[3] : 1 };
+  return {
+    r: +n[0] * escala, g: +n[1] * escala, b: +n[2] * escala,
+    a: n.length > 3 ? +n[3] : 1,
+  };
 }
 
 function luz({ r, g, b }) {

@@ -61,6 +61,17 @@ const TINTA_ESCURA = 'rgb(244, 242, 247)'; /* texto no tema escuro */
    nos dois temas.
    ========================================================================= */
 
+/* NEM TUDO O QUE SAI DO BROWSER É `rgb(...)`.
+
+   Um `color-mix()` volta do Chrome escrito `color(srgb 0.98 0.98 0.97 / 0.9)`:
+   os mesmos números, mas de 0 a 1 em vez de 0 a 255. Lidos à bruta, um vidro
+   quase branco passa a valer (0,98 · 0,98 · 0,97) — preto — e a medição jura
+   com todos os decimais que o rótulo tem 2,51:1 quando tem 5,2. Aconteceu: a
+   guarda da cápsula acusou um defeito que não existia.
+
+   E o que não se reconhecer devolve `null` DE PROPÓSITO, para quem chama ter
+   de decidir o que faz com o que ficou por medir, em vez de receber um número
+   inventado. */
 function corParaRGB(css) {
   const t = String(css).trim();
   if (t.startsWith('#')) {
@@ -70,9 +81,15 @@ function corParaRGB(css) {
     return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16),
              b: parseInt(h.slice(4, 6), 16), a: 1 };
   }
-  const n = t.match(/[\d.]+/g);
+  /* Ver a nota acima: `color(srgb ...)` traz os canais de 0 a 1. */
+  if (/^color\(/i.test(t) && !/^color\(\s*srgb[\s)]/i.test(t)) return null;
+  const escala = /^color\(/i.test(t) ? 255 : 1;
+  const n = t.match(/[\d.]+(?:e-?\d+)?/g);
   if (!n || n.length < 3) return null;
-  return { r: +n[0], g: +n[1], b: +n[2], a: n.length > 3 ? +n[3] : 1 };
+  return {
+    r: +n[0] * escala, g: +n[1] * escala, b: +n[2] * escala,
+    a: n.length > 3 ? +n[3] : 1,
+  };
 }
 
 const misturar = (frente, atras, alfa) => ({
@@ -185,6 +202,72 @@ const MEDIR_TEXTOS = `
   }
   scrollTo({ top: antes, behavior: 'instant' });
   return [...colhido.values()];`;
+
+/* =========================================================================
+   O QUE A CÁPSULA TEM POR BAIXO
+
+   A barra da app do cliente flutua e é de vidro: o que lhe passa por trás não
+   é o papel, é a carteira a rolar — cartões com a cor que o comerciante
+   escolheu e discos brancos de carimbo. A varredura de cima NÃO VÊ ISTO. Ela
+   sobe pelos pais à procura de um fundo opaco, e o pai da barra é o `body`:
+   devolve um número bonito de um cenário que deixou de existir. Uma barra
+   colada ao fundo tinha mesmo o papel atrás; uma que flutua não tem.
+
+   Aqui compõe-se à mão e DE PROPÓSITO PARA O PIOR: o fundo da barra por cima
+   de branco e por cima de preto, os dois. Nenhum cartão real é mais extremo do
+   que um deles, e a camada que desvanece o conteúdo antes da cápsula só
+   aproxima o que lá está do papel — ou seja, esta conta nunca aprova o que na
+   verdade reprova. O desfoque também não salva ninguém: esbater um campo
+   branco continua a dar branco.
+
+   O ANEL DE FOCO VEM DE GRAÇA. Ele é `var(--marca)`, a mesma cor do separador
+   activo, e a WCAG pede-lhe 3:1 enquanto ao rótulo pede 4,5 — medir o rótulo
+   activo é medir o anel com a fasquia mais alta. Por isso se exige que haja
+   um separador activo: sem ele, esta medição deixava a cor da marca de fora.
+   ========================================================================= */
+
+const A_CAPSULA = `
+  const barra = document.querySelector('.barra');
+  if (!barra) return null;
+  const e = getComputedStyle(barra);
+  const r = barra.getBoundingClientRect();
+  return {
+    fundo: e.backgroundColor,
+    flutua: Math.round(r.left) > 0 && Math.round(innerWidth - r.right) > 0,
+    itens: [...barra.querySelectorAll('.barra-item')].map((n) => {
+      const s = getComputedStyle(n);
+      return {
+        chave: n.dataset.ecra || '?',
+        activo: n.getAttribute('aria-current') === 'page',
+        cor: s.color,
+        px: parseFloat(s.fontSize),
+        peso: Number(s.fontWeight) || 400,
+      };
+    }),
+  };`;
+
+/** Os rótulos que não chegam ao mínimo com o pior conteúdo possível atrás. */
+function vidroNoPiorCaso(capsula) {
+  const fundo = corParaRGB(capsula.fundo);
+  if (!fundo) return null;
+  const maus = [];
+  let pior = Infinity;
+  for (const [nome, extremo] of [
+    ['branco', { r: 255, g: 255, b: 255 }], ['preto', { r: 0, g: 0, b: 0 }]]) {
+    const vidro = misturar(fundo, extremo, fundo.a ?? 1);
+    for (const it of capsula.itens) {
+      const cor = corParaRGB(it.cor);
+      /* Não medido é uma falha, não um silêncio: uma cor que o leitor não
+         reconheça faz a lista de maus encolher e a afirmação passar por boa. */
+      if (!cor) { maus.push(`«${it.chave}» tem uma cor que não sei ler: ${it.cor}`); continue; }
+      const c = razao(misturar(cor, vidro, cor.a ?? 1), vidro);
+      const m = minimoPara(it.px, it.peso);
+      if (c < pior) pior = c;
+      if (c < m) maus.push(`«${it.chave}» sobre ${nome} ${c.toFixed(2)}:1 (pede ${m})`);
+    }
+  }
+  return { maus, pior };
+}
 
 /**
  * Varre a página e devolve o que se mediu e o que reprovou.
@@ -665,6 +748,33 @@ export async function correr(palco, certo) {
     certo(maus.length === 0,
       `app · tema ${etiqueta}: os ${quantos} pedaços de texto da carteira passam o mínimo da WCAG`,
       `${maus.length} pares abaixo — ${maus.slice(0, 4).join(' · ')}`);
+
+    /* --- e a cápsula, que tem a carteira a passar-lhe por trás ----------- */
+    const capsula = await palco.js(A_CAPSULA);
+    certo(!!capsula && capsula.flutua
+      && capsula.itens.length >= 3 && capsula.itens.some((i) => i.activo),
+      `app · tema ${etiqueta}: a barra é uma cápsula afastada das duas margens,`
+      + ' com os seus separadores e um deles activo',
+      JSON.stringify(capsula && { flutua: capsula.flutua, itens: capsula.itens.length,
+        activos: capsula.itens.filter((i) => i.activo).length }));
+
+    /* A BARRA TEM DE DIZER ONDE A PESSOA ESTÁ. Uma regra nova mais específica
+       do que a do `aria-current` apaga-lhe a cor sem avisar, e o atributo
+       continua lá a jurar que está tudo bem — foi o que aconteceu quando a
+       barra passou a flutuar. Compara-se a cor que sai, não o atributo. */
+    const cores = capsula ? capsula.itens : [];
+    const doActivo = cores.filter((i) => i.activo).map((i) => i.cor);
+    const dosOutros = cores.filter((i) => !i.activo).map((i) => i.cor);
+    certo(doActivo.length === 1 && dosOutros.length >= 1
+      && !dosOutros.includes(doActivo[0]),
+      `app · tema ${etiqueta}: o separador em que a pessoa está tem cor própria`,
+      `activo ${doActivo.join('/')} vs os outros ${[...new Set(dosOutros)].join('/')}`);
+
+    const vidro = capsula && vidroNoPiorCaso(capsula);
+    certo(!!vidro && vidro.maus.length === 0,
+      `app · tema ${etiqueta}: os rótulos da cápsula lêem-se com o pior conteúdo`
+      + ` possível por trás do vidro (o pior mediu ${vidro ? vidro.pior.toFixed(2) : '?'}:1)`,
+      vidro ? vidro.maus.join(' · ') : 'não cheguei a medir a cápsula');
   }
 
   /* =======================================================================

@@ -78,6 +78,23 @@
   --coluna: 480px;        /* a app vive numa coluna de telemóvel            */
   --coluna-larga: 1120px; /* o site e o painel do balcão respiram mais      */
   --barra: 64px;          /* altura da barra de navegação inferior          */
+  /* O QUE A BARRA OCUPA POR BAIXO DELA, e não a altura dela.
+
+     São coisas diferentes desde que a barra do cliente passou a FLUTUAR: ela
+     tem a altura mais o afastamento até ao fundo do ecrã. Tudo o que descontava
+     a barra — a folga do corpo, os botões fixos, o visor do balcão — tem de
+     descontar ISTO, senão o último item de uma lista fica debaixo dela.
+
+     A CONTA INCLUI O RECORTE DO TELEMÓVEL. Ela é tudo o que a barra ocupa a
+     contar do fundo do ecrã, e não só a altura: quem desconta escreve uma
+     variável e não uma soma. Antes eram duas parcelas e cada um dos quatro
+     sítios somava a segunda à mão — e a barra flutuante, que não soma o
+     recorte mas o absorve, não cabia nessa forma sem mentir num deles.
+
+     No balcão a barra continua colada ao fundo e não tem afastamento: sobra a
+     altura mais o recorte. */
+  --barra-folga: calc(var(--barra) + var(--seguro-baixo));
+  --barra-lado: 0px;      /* afastamento lateral da barra (0 = largura toda) */
   --seguro-baixo: env(safe-area-inset-bottom, 0px);
   --seguro-cima:  env(safe-area-inset-top, 0px);
 }
