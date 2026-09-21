@@ -6,7 +6,7 @@ import {
   $, el, icone, avisar, guardar, ler, apagar, vibrar, confetes, prepararCampoDeCodigo,
   guardarNoSeparador, lerDoSeparador, foiRecarregamento,
   pintarCartao, haQuanto, dataCurta, horas, manterEcraAceso, seguro,
-  prenderFoco, colunas,
+  prenderFoco, colunas, carteiraProvavel, eSafari,
 } from '../js/nucleo.js';
 import { api, MODO, DEMO_FORCADO, CRACHA_APPLE, gerarCodigo, JANELA, guardarSegredo,
          temSegredo, esquecerSegredo, guardarDesvio } from '../js/api.js';
@@ -670,81 +670,6 @@ function largarCartao(cartao) {
     el('button', { class: 'btn btn-fantasma btn-bloco btn-pequeno', texto: 'Cancelar',
       aoClick: fecharPainel }));
 }
-
-/* =========================================================================
-   Qual das duas carteiras é que este telemóvel tem
-
-   O PEDIDO ERA «mostra só uma», e a pergunta que o resolve não é «que sistema
-   é este?» — é «este aparelho e este browser conseguem mesmo guardar o
-   passe?». São coisas diferentes, e confundi-las esconde um botão a quem
-   precisava dele.
-
-   O QUE SE MEDIU, e porque é que cada ramo é o que é:
-
-   · ANDROID é o único ramo limpo. Um Android nunca guarda um passe da Apple.
-
-   · iPHONE/iPod é o outro. A Google Wallet não existe no iPhone para isto.
-
-   · «MACINTOSH» NÃO É UM RAMO. Desde o iPadOS 13 o Safari do iPad diz-se
-     Macintosh por omissão — e um iPad, segundo as próprias directrizes do
-     crachá da Apple, NÃO está na lista de quem pode guardar um passe a partir
-     de uma página («iPhone, iPod touch, or Mac»). O que separa os dois são os
-     pontos de toque: um Mac tem zero, um iPad tem cinco. Sem esta linha,
-     escondíamos o botão da Google a um iPad que não guarda nem um nem outro.
-
-   · TUDO O RESTO — Windows, Linux, ChromeOS, e o que não se reconheceu —
-     mostra OS DOIS. Não é falta de esforço: é a única resposta honesta quando
-     não se sabe. Esconder por adivinhação custa a quem adivinhámos mal, e
-     essa pessoa fica sem forma de fazer uma coisa que o telemóvel dela faz.
-
-   O `userAgentData` vem primeiro porque é o que não mente — mas só existe no
-   Chromium, e por isso a cadeia de agente fica por baixo dele e não no lugar
-   dele.
-   ========================================================================= */
-
-function carteiraProvavel() {
-  const ua = navigator.userAgent || '';
-  const marca = (navigator.userAgentData || {}).platform || '';
-  if (marca === 'Android' || /Android/i.test(ua)) return 'google';
-  /* O teste do Android vem ANTES do da Apple de propósito: a cadeia de um
-     Android traz «Linux» e alguns browsers trazem «like Mac OS X». */
-  if (marca === 'iOS' || /iPhone|iPod/i.test(ua)) return 'apple';
-  if (marca === 'macOS' || /Macintosh|Mac OS X/i.test(ua)) {
-    /* Zero pontos de toque = Mac a sério. Mais do que um = iPad a fingir-se
-       de Mac, e esse não guarda passes de maneira nenhuma. */
-    return (navigator.maxTouchPoints || 0) > 1 ? 'ambas' : 'apple';
-  }
-  return 'ambas';
-}
-
-/**
- * Isto é o Safari?
- *
- * Um passe da Apple só entra na carteira a partir do Safari. No Chrome, no
- * Firefox ou dentro do browser embutido do Instagram, o ficheiro descarrega e
- * não acontece nada — sem erro nenhum, o que é a pior maneira de falhar.
- *
- * A pergunta é pela NEGATIVA, e tem de ser: todos os browsers do iPhone
- * dizem-se Safari, porque todos correm sobre o mesmo motor. O que os denuncia
- * é a marca própria que cada um acrescenta. A lista dos browsers embutidos
- * não é exaustiva nem pode ser — é a das casas onde uma ligação partilhada
- * mais vezes aterra.
- */
-function eSafari() {
-  const ua = navigator.userAgent || '';
-  /* O «Edg/» do Edge de secretária não está nesta lista, e é de propósito por
-     duas razões: a cadeia dele já traz «Chrome», que a linha apanha; e escrever
-     duas barras seguidas num ficheiro publicado faz a guarda do auditor lê-las
-     como um endereço de outro domínio. Ela não distingue uma expressão regular
-     de um endereço — e faz bem em não distinguir, porque um endereço sem
-     protocolo (duas barras e logo o domínio) tem exactamente esta forma.
-     Este comentário também não o pode escrever por extenso, pela mesma
-     razão: escrevi-o e a guarda apanhou-me. */
-  if (/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Firefox/i.test(ua)) return false;
-  if (/FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|LinkedInApp|Twitter/i.test(ua)) return false;
-  return /Safari/i.test(ua);
-}
-
 
 /* =========================================================================
    O botão da Carteira do Google

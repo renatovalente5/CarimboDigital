@@ -740,3 +740,91 @@ export async function lerChave(nome) {
 export async function apagarChave(nome) {
   try { await noCofre('readwrite', (g) => g.delete(nome)); } catch { /* paciência */ }
 }
+
+/* =========================================================================
+   Qual das duas carteiras é que este telemóvel tem
+
+   O PEDIDO ERA «mostra só uma», e a pergunta que o resolve não é «que sistema
+   é este?» — é «este aparelho e este browser conseguem mesmo guardar o
+   passe?». São coisas diferentes, e confundi-las esconde um botão a quem
+   precisava dele.
+
+   O QUE SE MEDIU, e porque é que cada ramo é o que é:
+
+   · ANDROID é o único ramo limpo. Um Android nunca guarda um passe da Apple.
+
+   · iPHONE/iPod é o outro. A Google Wallet não existe no iPhone para isto.
+
+   · «MACINTOSH» NÃO É UM RAMO. Desde o iPadOS 13 o Safari do iPad diz-se
+     Macintosh por omissão — e um iPad, segundo as próprias directrizes do
+     crachá da Apple, NÃO está na lista de quem pode guardar um passe a partir
+     de uma página («iPhone, iPod touch, or Mac»). O que separa os dois são os
+     pontos de toque: um Mac tem zero, um iPad tem cinco. Sem esta linha,
+     escondíamos o botão da Google a um iPad que não guarda nem um nem outro.
+
+   · UM COMPUTADOR QUE NÃO É UM MAC mostra só a Google, e isto não é
+     adivinhação: num Windows, num Linux ou num ChromeOS o ficheiro de um passe
+     da Apple descarrega e NÃO HÁ APLICAÇÃO NENHUMA que o abra. O botão não
+     está a ser escondido a quem podia usá-lo — está a ser tirado de um sítio
+     onde nunca funcionou. O da Google, esse, guarda na CONTA, e o passe
+     aparece depois no telemóvel: é a única das duas que um computador faz.
+
+     (O outro lado da moeda: quem tem um Mac e um telemóvel Android deixa de
+     ver o botão da Google. É o mesmo preço que um iPhone já paga, e paga-se
+     porque a promessa de «uma carteira só» vale mais do que o caso raro.)
+
+   · E SÓ O QUE NÃO SE RECONHECEU é que mostra os dois — que é a única resposta
+     honesta quando não se sabe mesmo.
+
+   O `userAgentData` vem primeiro porque é o que não mente — mas só existe no
+   Chromium, e por isso a cadeia de agente fica por baixo dele e não no lugar
+   dele.
+   ========================================================================= */
+
+export function carteiraProvavel() {
+  const ua = navigator.userAgent || '';
+  const marca = (navigator.userAgentData || {}).platform || '';
+  if (marca === 'Android' || /Android/i.test(ua)) return 'google';
+  /* O teste do Android vem ANTES do da Apple de propósito: a cadeia de um
+     Android traz «Linux» e alguns browsers trazem «like Mac OS X». */
+  if (marca === 'iOS' || /iPhone|iPod/i.test(ua)) return 'apple';
+  if (marca === 'macOS' || /Macintosh|Mac OS X/i.test(ua)) {
+    /* Zero pontos de toque = Mac a sério. Mais do que um = iPad a fingir-se
+       de Mac, e esse não guarda passes de maneira nenhuma. */
+    return (navigator.maxTouchPoints || 0) > 1 ? 'ambas' : 'apple';
+  }
+  /* Os computadores que não são Macs. O «Linux» vem depois do Android lá de
+     cima de propósito — a cadeia de um Android traz «Linux» lá dentro. */
+  if (marca === 'Windows' || /Windows NT|Win64|Win32/i.test(ua)) return 'google';
+  if (/^Chrom(e|ium) OS$/.test(marca) || /CrOS/i.test(ua)) return 'google';
+  if (marca === 'Linux' || /X11|Linux/i.test(ua)) return 'google';
+  return 'ambas';
+}
+
+/**
+ * Isto é o Safari?
+ *
+ * Um passe da Apple só entra na carteira a partir do Safari. No Chrome, no
+ * Firefox ou dentro do browser embutido do Instagram, o ficheiro descarrega e
+ * não acontece nada — sem erro nenhum, o que é a pior maneira de falhar.
+ *
+ * A pergunta é pela NEGATIVA, e tem de ser: todos os browsers do iPhone
+ * dizem-se Safari, porque todos correm sobre o mesmo motor. O que os denuncia
+ * é a marca própria que cada um acrescenta. A lista dos browsers embutidos
+ * não é exaustiva nem pode ser — é a das casas onde uma ligação partilhada
+ * mais vezes aterra.
+ */
+export function eSafari() {
+  const ua = navigator.userAgent || '';
+  /* O «Edg/» do Edge de secretária não está nesta lista, e é de propósito por
+     duas razões: a cadeia dele já traz «Chrome», que a linha apanha; e escrever
+     duas barras seguidas num ficheiro publicado faz a guarda do auditor lê-las
+     como um endereço de outro domínio. Ela não distingue uma expressão regular
+     de um endereço — e faz bem em não distinguir, porque um endereço sem
+     protocolo (duas barras e logo o domínio) tem exactamente esta forma.
+     Este comentário também não o pode escrever por extenso, pela mesma
+     razão: escrevi-o e a guarda apanhou-me. */
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Firefox/i.test(ua)) return false;
+  if (/FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|LinkedInApp|Twitter/i.test(ua)) return false;
+  return /Safari/i.test(ua);
+}

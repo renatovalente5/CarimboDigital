@@ -708,11 +708,12 @@ export async function correr(palco, certo) {
 
     /* UM BOTÃO SÓ, quando se sabe qual. Estavam os dois empilhados, e num
        iPhone o da Google é ruído que ocupa 55 píxeis no meio do ecrã do
-       cartão. O Chrome que corre esta bateria diz-se Linux, e nesse caso a
-       regra manda mostrar os DOIS — mas a demonstração só liga a Google, por
-       isso o que se conta aqui é «nunca mais do que um por carteira». O que a
-       afirmação apanha é a duplicação: se um dia a pintura correr duas vezes,
-       ficam dois botões iguais e ninguém repara a ler o código. */
+       cartão. A demonstração só liga a Google e não tem certificado da Apple,
+       por isso o que se conta AQUI é «nunca mais do que um por carteira» — a
+       escolha em si mede-se logo a seguir, a conduzir a função com cada
+       sistema à vez. O que esta afirmação apanha é a duplicação: se um dia a
+       pintura correr duas vezes, ficam dois botões iguais e ninguém repara a
+       ler o código. */
     const quantos = await palco.js(`
       const b = [...document.querySelectorAll('.btn-wallet')].map((x) => x.dataset.carteira);
       return { b, unicos: new Set(b).size }`);
@@ -722,6 +723,76 @@ export async function correr(palco, certo) {
     certo(!quantos.b.includes('apple'),
       'wallet: e a Apple não aparece na demonstração, onde não há certificado nenhum para assinar',
       quantos.b.join(',') || 'nenhum');
+
+    /* --- QUAL DAS DUAS CARTEIRAS É QUE ESTE APARELHO TEM ------------------
+
+       Nove ramos, cinco condições e zero afirmações — foi assim durante meses,
+       e o defeito que lá estava só apareceu porque alguém olhou para o ecrã do
+       computador e viu os dois botões. Um `.pkpass` num Windows descarrega e
+       não há aplicação nenhuma que o abra: o botão da Apple ali não estava
+       escondido a quem podia usá-lo, estava a prometer uma coisa impossível.
+
+       Conduz-se a FUNÇÃO A SÉRIO, importada da página, com o `navigator`
+       fingido à volta dela — e devolve-se o verdadeiro no fim, senão tudo o que
+       vier a seguir nesta bateria corre a pensar que é um iPhone. */
+    const escolhas = await palco.js(`
+      const m = await import('/js/nucleo.js');
+      const real = {
+        ua: navigator.userAgent,
+        uad: navigator.userAgentData,
+        toques: navigator.maxTouchPoints,
+      };
+      const finge = (ua, plataforma, toques) => {
+        Object.defineProperty(navigator, 'userAgent', { configurable: true, value: ua });
+        Object.defineProperty(navigator, 'userAgentData',
+          { configurable: true, value: plataforma ? { platform: plataforma } : undefined });
+        Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: toques });
+        return m.carteiraProvavel();
+      };
+      const casos = [
+        ['Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36', 'Windows', 0],
+        ['Windows sem UA-CH', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/140.0', '', 0],
+        ['Mac', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605 Version/18 Safari/605', 'macOS', 0],
+        ['iPad a fingir-se de Mac', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605 Version/18 Safari/605', '', 5],
+        ['iPhone', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605 Version/18 Safari/604', 'iOS', 5],
+        ['Android', 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36', 'Android', 5],
+        ['ChromeOS', 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 Chrome/140 Safari/537.36', 'Chrome OS', 0],
+        ['Linux', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36', 'Linux', 0],
+        ['desconhecido', 'AlgoQueNinguemConhece/1.0', '', 0],
+      ];
+      const r = {};
+      for (const [nome, ua, plataforma, toques] of casos) r[nome] = finge(ua, plataforma, toques);
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: real.ua });
+      Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: real.uad });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: real.toques });
+      return r;`);
+
+    const ESPERADO = {
+      Windows: 'google',
+      'Windows sem UA-CH': 'google',
+      Mac: 'apple',
+      'iPad a fingir-se de Mac': 'ambas',
+      iPhone: 'apple',
+      Android: 'google',
+      ChromeOS: 'google',
+      Linux: 'google',
+      desconhecido: 'ambas',
+    };
+    const erradas = Object.entries(ESPERADO)
+      .filter(([nome, q]) => escolhas[nome] !== q)
+      .map(([nome, q]) => `${nome}: esperava «${q}» e deu «${escolhas[nome]}»`);
+    certo(Object.keys(escolhas).length === Object.keys(ESPERADO).length && erradas.length === 0,
+      'wallet: cada sistema leva a carteira que consegue mesmo guardar o passe',
+      erradas.join(' · ') || `só medi ${Object.keys(escolhas).length} sistemas`);
+
+    /* E o `navigator` ficou como estava. Uma prova que muda o mundo à volta e
+       não o repõe não estraga esta afirmação — estraga as trinta seguintes,
+       noutro módulo, sem nada que aponte para aqui. */
+    const reposto = await palco.js(`return {
+      ua: navigator.userAgent, toques: navigator.maxTouchPoints }`);
+    certo(!/AlgoQueNinguemConhece|Windows NT|iPhone/.test(reposto.ua),
+      'wallet: e o navegador fica como estava depois de se fingir nove sistemas',
+      JSON.stringify(reposto));
 
     const b = !apareceu ? null : await palco.js(`
       const botao = document.querySelector('.btn-wallet');
