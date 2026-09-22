@@ -670,7 +670,99 @@ export async function correr(palco, certo) {
     'sessão expirada: a mensagem continua a ser para pessoas',
     String(await palco.texto('#principal .vazio .miudo')));
 
+  /* --- A SESSÃO MORRE ENTRE DUAS ABERTURAS ------------------------------
+
+     Este ecrã nunca teve uma única afirmação, e é o pior dos que existem: é o
+     que recebe alguém que abre a app e descobre que já não está lá dentro.
+     Com a conta obrigatória passa a ser o caminho de toda a gente que trocar
+     de telemóvel, e é também o que aparece no dia em que uma conta deixa de
+     existir do outro lado.
+
+     E A FRASE QUE ELE DIZIA NÃO ERA VERDADE NOS DOIS CASOS. «Entra outra vez e
+     os cartões voltam» vale quando a sessão apenas expirou; não vale quando a
+     conta já não existe — e a app não distingue os dois, porque a linha da
+     sessão desaparece com a conta e o que chega é o mesmo 401. */
+  /* DESDE O ARRANQUE, e não com o `window.__fingir`: um recarregar leva a
+     janela à frente, e com ela o modo. O que sobrevive é o localStorage. */
+  await fingirDesdeOArranque(palco, 'quatro01');
+  await palco.recarregar();
+  await palco.esperarTexto('A sessão terminou', 12000);
+
+  const morta = await palco.js(`
+    const v = document.querySelector('#principal .vazio');
+    return {
+      titulo: v ? (v.querySelector('h3') || {}).textContent : null,
+      frase: v ? (v.querySelector('p') || {}).textContent : null,
+      botoes: [...document.querySelectorAll('#principal .vazio button')]
+        .map((b) => b.textContent.trim()),
+      separadores: document.querySelectorAll('#barra .barra-item').length,
+    };`);
+
+  certo(morta.titulo === 'A sessão terminou neste telemóvel',
+    'sessão morta: a app diz o que aconteceu, em vez de um ecrã vazio',
+    String(morta.titulo));
+
+  /* A PROMESSA TEM DE SER CONDICIONAL. Não se exige uma frase à letra — o
+     texto muda — exige-se que ela não prometa o que a app não pode cumprir:
+     que os cartões voltam, ponto. Voltam COM A CONTA, se ela lá estiver. */
+  certo(/voltam com ela|dessa conta/i.test(String(morta.frase))
+    && !/\be os cartões voltam\./i.test(String(morta.frase)),
+    'sessão morta: e não promete os cartões de volta sem dizer de onde vêm',
+    String(morta.frase));
+
+  certo(morta.botoes.some((b) => /email/i.test(b)),
+    'sessão morta: a porta do email está lá — a lista guardada pode ser de '
+    + 'quem usou este telemóvel antes, ou de uma conta que já não existe',
+    morta.botoes.join(' · '));
+  certo(morta.botoes.some((b) => /sair deste telem/i.test(b)),
+    'sessão morta: e há uma saída que não promete um cartão novo — com a conta '
+    + 'obrigatória, sair é sair, e não recomeçar',
+    morta.botoes.join(' · '));
+  certo(morta.separadores === 0,
+    'sessão morta: a barra não fica com separadores que não levam a lado nenhum',
+    `${morta.separadores} separadores`);
+
+  /* E O OUTRO RAMO, que é metade do ecrã e não estava a ser visto.
+   *
+   * A frase muda conforme se saiba ou não por onde aquela conta entrava — são
+   * dois textos, e uma guarda que só percorra um deixa o outro a poder mentir
+   * à vontade. Provei-o: parti a promessa no ramo que a guarda não via e ela
+   * passou a verde. Põe-se uma identidade na cache, que é o que faz o ecrã
+   * tomar o outro caminho. */
+  await palco.js(`
+    localStorage.setItem('carimbo:identidades',
+      JSON.stringify([{ provedor: 'google', email: 'quem.entrou@gmail.com' }]));
+    return true;`);
+  await palco.recarregar();
+  await palco.esperarTexto('A sessão terminou', 12000);
+  const comPorta = await palco.js(`
+    const v = document.querySelector('#principal .vazio');
+    return {
+      frase: v ? (v.querySelector('p') || {}).textContent : null,
+      botoes: [...document.querySelectorAll('#principal .vazio button')]
+        .map((b) => b.textContent.trim()),
+    };`);
+  certo(/voltam com ela|dessa conta/i.test(String(comPorta.frase))
+    && !/\be os cartões voltam\./i.test(String(comPorta.frase)),
+    'sessão morta, sabendo por onde entrava: a promessa continua a dizer de onde vêm os cartões',
+    String(comPorta.frase));
+  certo(comPorta.botoes.some((b) => /google/i.test(b)),
+    'e a porta que aquela conta usava aparece em primeiro — é a que a pessoa conhece',
+    comPorta.botoes.join(' · '));
+  certo(comPorta.botoes.some((b) => /email/i.test(b)),
+    'e a do email continua lá ao lado, para quem afinal não é a mesma pessoa',
+    comPorta.botoes.join(' · '));
+  await palco.js("localStorage.removeItem('carimbo:identidades'); return true;");
+
   /* --- o servidor que aceita a chamada e nunca responde ------------------ */
+
+  /* Repõe-se o mundo — e pelo localStorage, que é o que sobrevive ao
+     recarregar que este bloco acabou de fazer. */
+  await fingirDesdeOArranque(palco, 'ok');
+  await palco.ir('/app/?demo=0');
+  await entrarNaApp(palco, { porta: 'email' });
+  await palco.esperar('#principal .pilha > .cartao', 10000);
+
 
   /* É o pior caso e o mais comum em Wi-Fi de café: a ligação abre e fica
      ali. Sem tecto, o `fetch` fica pendurado para sempre e o ecrã em branco

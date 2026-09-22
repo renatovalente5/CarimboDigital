@@ -3250,10 +3250,21 @@ function ecraSessaoTerminada(cliente) {
   principal.append(el('div', { class: 'vazio' },
     el('div', { class: 'vazio-desenho', html: icone('cadeado', { tamanho: 96 }) }),
     el('h3', { texto: 'A sessão terminou neste telemóvel' }),
+    /* A PROMESSA TEM DE SER VERDADE NOS DOIS CASOS, e há dois.
+     *
+     * «Entra outra vez e os cartões voltam» é verdade quando a sessão apenas
+     * expirou. Deixa de o ser quando a conta do outro lado já não existe — e a
+     * app NÃO consegue distinguir os dois: uma sessão de uma conta apagada e
+     * uma sessão fora do prazo dão o mesmo 401, porque a linha da sessão
+     * desapareceu com a conta. Prometer o que só é verdade num dos ramos é
+     * mentir a quem calhou no outro, e logo no pior momento.
+     *
+     * A frase passa a dizer o que é verdade sempre: os cartões voltam COM A
+     * CONTA, se ela ainda lá estiver. */
     el('p', { texto: comEmail || comGoogle || comApple
-      ? `${porque}Entra outra vez e os cartões voltam.`
-      : `${porque}Se guardaste a conta com um email, com a Google ou com a `
-        + 'Apple, entra e os cartões voltam.' }),
+      ? `${porque}Entra outra vez e os cartões dessa conta voltam com ela.`
+      : `${porque}Entra com o email, com a Google ou com a Apple: os cartões `
+        + 'dessa conta voltam com ela.' }),
     /* Os botões das portas só aparecem a quem entrou por elas — e quando
        existem, são eles os principais, porque são o caminho que aquela pessoa
        conhece. */
@@ -3263,11 +3274,14 @@ function ecraSessaoTerminada(cliente) {
       class: comGoogle || comApple ? 'btn btn-contorno' : 'btn btn-cheio btn-grande',
       style: comGoogle || comApple ? 'margin-top:8px' : '',
       texto: 'Entrar com o email',
-      aoClick: () => { RECARREGAR_DEPOIS = true; recuperarConta(); },
+      /* `entrada: true` e não só `recuperar`: a lista em cache é de quem usou
+         este telemóvel por último, e pode já não ser quem está à frente dele —
+         nem existir. Oferecem-se as portas todas. */
+      aoClick: () => { RECARREGAR_DEPOIS = true; guardarConta({ recuperar: true, entrada: true }); },
     }),
     el('button', {
       class: 'btn btn-contorno', style: 'margin-top:8px',
-      texto: 'Começar de novo neste telemóvel',
+      texto: 'Sair deste telemóvel',
       aoClick: comecarDeNovo,
     }),
     el('p', { class: 'miudo', style: 'margin-top:12px', texto:
@@ -3338,19 +3352,29 @@ function tirarEmail({ voltar = false } = {}) {
  * guardado a conta com um email fica sem caminho de regresso aos cartões
  * antigos, que continuam a existir do outro lado sem ninguém que lhes chegue.
  */
+/**
+ * LIMPAR ESTE TELEMÓVEL — e não «começar de novo».
+ *
+ * O nome e o texto prometiam um cartão novo e vazio com um número novo, e era
+ * verdade enquanto a conta nascia sozinha: apagar o telemóvel fazia a app
+ * registar outra. Com a conta obrigatória, o que isto faz é SAIR — apaga o que
+ * está guardado aqui e devolve a porta. Não há cartão novo nenhum à espera do
+ * outro lado, e prometê-lo era mandar alguém deitar fora a única coisa que
+ * tinha em troca de coisa nenhuma.
+ */
 function comecarDeNovo() {
-  const painel = abrirPainel('Começar de novo');
+  const painel = abrirPainel('Sair deste telemóvel');
   painel.append(
     el('p', { class: 'subtexto', texto:
-      'Este telemóvel passa a ter um cartão novo e vazio, com um número novo.' }),
+      'Este telemóvel esquece a tua conta e volta ao ecrã de entrada.' }),
     el('div', { class: 'folha caixa-texto', style: 'margin-bottom:16px' },
       el('p', { class: 'miudo', html:
-        '<b>Os cartões antigos não se apagam</b> — ficam onde estão. Mas só '
-        + 'voltam a este telemóvel se voltares a entrar na conta deles: com a '
-        + 'Google, ou com o email que lhes associaste. Se nunca guardaste a '
-        + 'conta de nenhuma das duas formas, não há caminho de volta.' })),
+        '<b>Os cartões não se apagam</b> — ficam na conta. Voltam a este '
+        + 'telemóvel assim que entrares outra vez, pela mesma porta: o email, '
+        + 'a Google ou a Apple. Para apagar mesmo os cartões, o botão é o de '
+        + 'apagar a conta, no perfil.' })),
     el('button', {
-      class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Começar de novo',
+      class: 'btn btn-perigo btn-bloco btn-grande', texto: 'Sair deste telemóvel',
       aoClick: async () => {
         apagar('cliente'); apagar('sessao'); apagar('cartoes');
         apagar('desvio'); apagar('sessao-por-juntar');
