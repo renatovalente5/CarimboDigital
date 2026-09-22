@@ -150,7 +150,16 @@ const ECRAS = [
             ${ATE('#principal .cartao-grande')}`,
   },
 
-  { nome: '10-balcao-entrada', espera: '#porta-entrar', url: '/balcao/', largura: 402, altura: 874, limpar: true },
+  {
+    /* ESPERA-SE PELO ELEMENTO, e não pelo relógio. O ecrã de entrada do balcão
+       é pintado por JavaScript depois do arranque, e os 1100 ms que este
+       script dá por omissão chegavam numa máquina descansada e não chegavam
+       numa a correr a bateria ao lado. Uma captura que falha por causa da
+       carga da máquina é uma captura que ninguém sabe se falhou a sério. */
+    nome: '10-balcao-entrada', espera: '#porta-entrar',
+    url: '/balcao/', largura: 402, altura: 874, limpar: true,
+    guiao: ATE('#porta-entrar'),
+  },
   /* O BALCÃO DA DEMONSTRAÇÃO ABRE-SE EM `?demo=1`, escrito no endereço. Já não
      há botão nenhum que lá leve: a porta de espreitar saiu do produto, porque
      era fácil entrar nela sem dar por isso e difícil sair. Ver `balcao.js`.
@@ -234,13 +243,13 @@ const ECRAS = [
   {
     nome: '19-traz-um-amigo', espera: '#convite-endereco',
     url: '/app/?demo=1', largura: 402, altura: 1000, limpar: true,
-    guiao: `${ABRIR_APP}
-            ${ABRIR_NO_MACO('Café Torrado')}
-            document.querySelector('#principal .cartao[data-aberto="sim"] .btn-cartao').click();
-            ${ATE('#traz-amigo')}
-            document.querySelector('#traz-amigo').click();
-            ${ATE('#convite-endereco')}
-            await new Promise((r)=>setTimeout(r,500));`,
+    guiao: ABRIR_APP,
+    depois: `${ABRIR_NO_MACO('Café Torrado')}
+             document.querySelector('#principal .cartao[data-aberto="sim"] .btn-cartao').click();
+             ${ATE('#traz-amigo')}
+             document.querySelector('#traz-amigo').click();
+             ${ATE('#convite-endereco')}
+             await new Promise((r)=>setTimeout(r,500));`,
   },
 
   /* E o mesmo painel pelo outro lado: guardar em vez de recuperar. NÃO se
@@ -281,14 +290,9 @@ const ECRAS = [
     espera: '#codigo-qr svg',
     url: '/app/?demo=1', largura: 402, altura: 900, limpar: true,
     recorte: '#folha-codigo .folha-caixa, #folha-codigo', folga: 0,
-    guiao: `for (let i = 0; i < 6; i++) {
-              const b = document.querySelector('#boas-vindas .btn-cheio');
-              if (!b) break;
-              b.click(); await new Promise(r=>setTimeout(r,420));
-            }
-            await new Promise(r=>setTimeout(r,900));
-            document.querySelector('.barra-item[data-ecra="codigo"]').click();
-            await new Promise(r=>setTimeout(r,1400));`,
+    guiao: ABRIR_APP,
+    depois: `document.querySelector('.barra-item[data-ecra="codigo"]').click();
+             await new Promise(r=>setTimeout(r,1400));`,
   },
 ];
 
@@ -327,9 +331,18 @@ for (const ecra of ECRAS) {
   await esperarCarregada(enviar, sessionId);
   await esperar(1100);
 
-  if (ecra.guiao) {
+  /* O GUIÃO CORRE EM DOIS TEMPOS, e é por causa da entrada.
+   *
+   * Entrar na app RECARREGA a página — de propósito, para ela se levantar com
+   * a sessão nova em vez de remendar meio estado. Só que um `Runtime.evaluate`
+   * morre quando a página por baixo dele se vai embora: tudo o que estivesse
+   * escrito a seguir ao gesto de entrar nunca chegava a correr, e a captura
+   * saía do ecrã anterior sem se queixar. O `depois` é o que corre com a app
+   * já de pé. */
+  for (const passo of [ecra.guiao, ecra.depois]) {
+    if (!passo) continue;
     await enviar('Runtime.evaluate', {
-      expression: `(async () => { ${ecra.guiao} })()`, awaitPromise: true,
+      expression: `(async () => { ${passo} })()`, awaitPromise: true,
     }, sessionId).catch((e) => console.warn(`  (guião de ${ecra.nome}: ${e.message})`));
     await esperar(450);
   }
@@ -408,8 +421,18 @@ for (const ecra of ECRAS) {
      tem de sobrar é a ausência dele, que se vê. E apaga-se o velho: um
      ficheiro de ontem é ainda mais convincente do que um errado de hoje. */
   if (!certo) {
-    if (existsSync(ficheiro)) rmSync(ficheiro);
-    console.log(`  ✗ ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}  (${porque})`);
+    /* APAGA-SE O QUE ESTAVA — MAS SÓ O QUE É DESCARTÁVEL.
+     *
+     * As capturas de `_dev/` são de trabalho: uma errada é pior do que
+     * nenhuma. As que vão PARA O SITE são fonte, estão no repositório e são
+     * citadas por páginas publicadas — apagar uma é deixar a página com um
+     * buraco, e foi o que aconteceu: um alvo partido levou à frente a
+     * fotografia do ecrã do código, que a «Como funciona» mostra. Um alvo
+     * partido é um problema meu; não pode ser um problema de quem abre o
+     * site. */
+    if (!ecra.paraOSite && existsSync(ficheiro)) rmSync(ficheiro);
+    console.log(`  ✗ ${ecra.nome}.png  ${ecra.largura}x${ecra.altura}  (${porque})`
+      + (ecra.paraOSite ? ' — a imagem publicada fica como estava' : ''));
     continue;
   }
 
