@@ -1353,11 +1353,17 @@ async function ecraPerfil(principal) {
 
   principal.append(el('p', { class: 'rodape-app', html:
     /* A ORIGEM TAMBÉM AQUI. Quem instala a app nunca mais vê o rodapé do
-       site, e é neste ecrã que se vai ver quem está do outro lado. É
-       texto e não um crachá, pela mesma razão do site: exibir uma marca
-       de certificação sem autorização é enganoso em qualquer
-       circunstância (DL 57/2008, art. 8.º, b). */
-    'Carimbo Digital · Feito em Portugal · '
+       site, e é neste ecrã que se vai ver quem está do outro lado.
+
+       A VÍRGULA FAZ TRABALHO. «Carimbo Digital, marca portuguesa» é um
+       aposto, e um aposto é descrição; com o ponto médio, as duas palavras
+       ficavam a ser mais um item de uma lista ao lado de «Termos» e
+       «Privacidade» — a gramática de um rótulo. O artigo 7.º, n.º 1 do
+       DL 57/2008 apanha informações «mesmo sendo factualmente correctas»
+       quando «a sua apresentação geral» induza em erro, e num rodapé a
+       apresentação é a pontuação. O raciocínio longo está no comentário do
+       rodapé do site. */
+    'Carimbo Digital, marca portuguesa · '
     + `<a class="ligacao" href="${base()}/termos/" target="_blank" rel="noopener">Termos</a> · `
     + `<a class="ligacao" href="${base()}/privacidade/" target="_blank" rel="noopener">Privacidade</a>`
     + (MODO === 'demo' ? ' · <b>modo de demonstração</b>' : '') }));

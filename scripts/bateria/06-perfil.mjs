@@ -144,8 +144,17 @@ export async function correr(palco, certo) {
     if (!p) return null;
     return { texto: p.textContent.replace(/\\s+/g, ' ').trim(),
              imagens: p.querySelectorAll('img, svg, picture').length }`);
-  certo(Boolean(rodapeApp) && /Feito em Portugal/.test(rodapeApp.texto),
-    'perfil: o rodapé da app diz onde isto é feito',
+  certo(Boolean(rodapeApp) && /Carimbo Digital, marca portuguesa/.test(rodapeApp.texto),
+    'perfil: o rodapé da app diz que marca é esta',
+    rodapeApp ? rodapeApp.texto : 'não há rodapé');
+  /* EM MINÚSCULAS E COM VÍRGULA, e a guarda tem de exigir as duas coisas. Em
+     caixa de título e separado por um ponto médio, «Marca Portuguesa» lê-se
+     como o nome de um esquema a que se pertence — e o artigo 22.º do
+     DL 57/2008 deixa as autoridades exigir prova da «exactidão material». Como
+     descrição, o que há a provar é quem presta e onde reside. Como nome, o que
+     pediriam era o esquema, e esse não existe. */
+  certo(Boolean(rodapeApp) && !/Marca Portuguesa/.test(rodapeApp.texto),
+    'perfil: a origem está escrita como descrição, e não como nome de um selo',
     rodapeApp ? rodapeApp.texto : 'não há rodapé');
   certo(Boolean(rodapeApp) && rodapeApp.imagens === 0,
     'perfil: a origem é texto, e não um emblema',

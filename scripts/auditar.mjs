@@ -261,25 +261,26 @@ console.log('\nDados legais');
 }
 
 /* --- 7b. origem ---------------------------------------------------------- */
-/* Dizer que isto é português é legal, e é das poucas coisas que distingue o
-   Carimbo Digital das plataformas estrangeiras. Mas há duas maneiras de a
-   frase passar a ilegal sem ninguém reparar, e são as duas um passo pequeno:
+/* Dizer que isto é uma marca portuguesa é legal, e é das poucas coisas que o
+   distingue das plataformas estrangeiras. Pesquisei o INPI, o EUIPO e a OMPI
+   antes de o escrever, e o que se aprendeu está no comentário do
+   `_fonte/parciais/rodape.html`. O resumo, porque é ele que manda aqui:
 
-   1. VIRAR SELO. O artigo 8.º, alínea b) do DL 57/2008 considera enganoso «em
-      qualquer circunstância» exibir «uma marca de certificação, uma marca de
-      qualidade ou equivalente sem ter obtido a autorização necessária» — e
-      «ou equivalente» apanha um emblema desenhado aqui com ar de chancela.
-      Não há defesa possível: a prática está na lista negra, não se pondera.
-      Não estamos aderentes ao Portugal Sou Eu, que é o único selo de origem
-      oficial português, e hoje nem podíamos estar — exige empresa constituída
-      e 80% de incorporação nacional, que o GitHub e a Cloudflare partem.
+   · NÃO existe marca de certificação nem marca colectiva sobre «marca
+     portuguesa», e não pode existir — o artigo 215.º do CPI define a marca de
+     certificação e EXCLUI dela a origem geográfica (art. 214.º). Logo a alínea
+     b) do artigo 8.º do DL 57/2008 não tem aqui objecto: não há selo de
+     portugalidade que se possa exibir sem autorização.
 
-   2. VIRAR PROMESSA DE INFRAESTRUTURA. «Feito em Portugal» é verdade porque a
-      origem de um serviço segue quem o presta. «Alojado em Portugal» é falso,
-      e é a conclusão que qualquer leitor tira sozinho se ninguém o desmentir.
+   · O que se aplica é o ARTIGO 7.º, n.º 1: apanha informações «mesmo sendo
+     factualmente correctas» quando «a sua apresentação geral» induza em erro.
+     Alínea b) para a origem, alínea f) para a natureza e a identidade de quem
+     presta — e aqui quem presta é uma pessoa singular, não uma empresa.
 
-   A frase certa não pode desaparecer em silêncio, e as erradas não podem
-   entrar. É o que as três varreduras a seguir fazem. */
+   O risco migrou do TEXTO para a FORMA. Por isso esta secção tem quatro
+   varreduras e três delas medem forma: a frase não pode desaparecer, não pode
+   ganhar as palavras de um selo, não pode ganhar desenho, e a folha de estilo
+   não pode fechar-lhe uma moldura à volta. */
 console.log('\nOrigem');
 {
   const visivel = (html) => html
@@ -289,15 +290,16 @@ console.log('\nOrigem');
     .replace(/&[a-z]+;|&#\d+;/gi, ' ')
     .replace(/\s+/g, ' ');
 
-  const ORIGEM = 'Feito em São João da Madeira, Portugal';
+  const ORIGEM = 'Marca portuguesa — feita e mantida em Portugal.';
 
-  /* Só as páginas do site têm o rodapé; a app e o balcão têm o deles. */
+  /* Só as páginas do site têm o rodapé; a app e o balcão têm o deles, que a
+     bateria mede porque é pintado por JavaScript e não existe no HTML. */
   const comRodape = paginas.filter((f) => readFileSync(f, 'utf8').includes('rodape-grelha'));
   const semOrigem = comRodape.filter((f) => !visivel(readFileSync(f, 'utf8')).includes(ORIGEM));
   if (!comRodape.length) falhar('nenhuma página tem o rodapé do site');
   else if (semOrigem.length) {
     for (const f of semOrigem) falhar(`${f.slice(SAIDA.length + 1)}: perdeu a declaração de origem`);
-  } else bem(`as ${comRodape.length} páginas do site dizem onde isto é feito`);
+  } else bem(`as ${comRodape.length} páginas do site dizem que marca é esta`);
 
   /* Palavras que transformam uma declaração de origem numa certificação. A
      lista é curta de propósito: cada entrada tem de ser indefensável sozinha,
@@ -306,7 +308,8 @@ console.log('\nOrigem');
     'marca de certificação', 'marca de garantia', 'marca de qualidade',
     'selo de qualidade', 'selo de origem', 'selo oficial', 'certificado de origem',
     'certificado pel', 'certificada pel', 'produto português',
-    'portugal sou eu', 'compro o que é nosso',
+    'marca portuguesa certificada', 'marca portuguesa registada',
+    'marca portuguesa oficial', 'portugal sou eu', 'compro o que é nosso',
   ];
   /* E promessas sobre onde as coisas correm, que a secção 5 da privacidade
      desmente com nomes. */
@@ -323,7 +326,7 @@ console.log('\nOrigem');
     const nome = f.slice(SAIDA.length + 1);
     for (const frase of SELO) {
       if (texto.includes(frase)) {
-        falhar(`${nome}: «${frase}» — isso é uma certificação que não temos (DL 57/2008, art. 8.º b)`);
+        falhar(`${nome}: «${frase}» — isso é uma certificação que não temos (DL 57/2008, art. 7.º e 8.º)`);
         apanhados++;
       }
     }
@@ -334,7 +337,61 @@ console.log('\nOrigem');
       }
     }
   }
-  if (!apanhados) bem('a origem é uma declaração, e não um selo nem uma promessa de servidores');
+  if (!apanhados) bem('nenhuma página promete certificação nem servidores portugueses');
+
+  /* A FORMA, NO HTML. Duas palavras em caixa de título, sozinhas, ou com um
+     desenho ao lado, são a gramática de um crachá — e é a «apresentação geral»
+     que o artigo 7.º, n.º 1 mede, não a veracidade. O logótipo INPI n.º 38590
+     «MARCA PORTUGUESA», em vigor até 2036, é precisamente um emblema circular
+     verde e vermelho com disco amarelo: é esse o desenho a nunca fazer. */
+  const SINAIS = [
+    [/<(img|svg|picture)\b/i, 'tem um desenho lá dentro — a origem é texto'],
+    [/[®™]/, 'tem um ® ou ™ — não há registo nenhum por trás disto'],
+    [/\bMarca Portuguesa\b/, 'escreve «Marca Portuguesa» em caixa de título, que se lê como nome de um esquema'],
+    [/\b(oficial|certificad[ao]|garantia|aderente|verificad[ao]|selo)\b/i, 'usa uma palavra de chancela'],
+  ];
+  let maus = 0;
+  for (const f of comRodape) {
+    const html = readFileSync(f, 'utf8').replace(/<!--[\s\S]*?-->/g, ' ');
+    const m = html.match(/<p class="rodape-origem">[\s\S]*?<\/p>/);
+    const nome = f.slice(SAIDA.length + 1);
+    if (!m) { falhar(`${nome}: não há <p class="rodape-origem">`); maus++; continue; }
+    for (const [padrao, porque] of SINAIS) {
+      if (padrao.test(m[0])) { falhar(`${nome}: a linha da origem ${porque}`); maus++; }
+    }
+  }
+  if (!maus && comRodape.length) bem('a linha da origem é texto: sem desenho, sem ®, sem palavra de chancela');
+
+  /* A FORMA, NO CSS. O HTML pode ficar impecável e a folha fechar-lhe uma
+     moldura à volta — e uma moldura à volta de uma afirmação de origem é
+     exactamente o que a torna um sinal. O traço tem licença para ser um traço
+     e mais nada: se crescer em altura ou arredondar, vira disco. */
+  {
+    const folha = readFileSync(join(RAIZ, '_fonte', 'estilos', 'site.css'), 'utf8');
+    const corpo = (selector) => {
+      const i = folha.indexOf(`\n${selector} {`);
+      return i < 0 ? null : folha.slice(i, folha.indexOf('}', i));
+    };
+    const origem = corpo('.rodape-origem');
+    const fita = corpo('.rodape-fita');
+    let mal = 0;
+    if (!origem || !fita) { falhar('não encontrei .rodape-origem ou .rodape-fita no site.css'); mal++; }
+    else {
+      for (const prop of ['border', 'background', 'outline', 'box-shadow', 'border-radius']) {
+        if (new RegExp(`\\b${prop}\\s*:`).test(origem)) {
+          falhar(`.rodape-origem declara «${prop}» — isso fecha uma moldura à volta da frase`);
+          mal++;
+        }
+      }
+      const px = (prop) => Number((fita.match(new RegExp(`\\b${prop}\\s*:\\s*(\\d+)px`)) || [])[1]);
+      if (!(px('height') <= 4)) { falhar(`.rodape-fita tem altura ${px('height') || '?'}px — acima de 4px deixa de ser um traço`); mal++; }
+      if (!(px('border-radius') <= 4)) { falhar(`.rodape-fita tem raio ${px('border-radius') || '?'}px — arredondar demais faz dele um disco`); mal++; }
+      if (/\baspect-ratio\s*:/.test(fita) || /\bborder\s*:/.test(fita)) {
+        falhar('.rodape-fita ganhou «aspect-ratio» ou «border» — está a virar forma fechada'); mal++;
+      }
+    }
+    if (!mal) bem('o traço continua a ser um traço, e a frase não tem moldura');
+  }
 }
 
 /* --- 8. segredos ---------------------------------------------------------*/
