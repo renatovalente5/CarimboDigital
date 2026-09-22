@@ -176,9 +176,24 @@ prioridade: 0.4
       iniciativa.</p>
 
     <h2 id="onde">5. Onde ficam os dados</h2>
-    <p>A base de dados fica na infraestrutura da Cloudflare, Inc., numa
-      região da União Europeia (D1 e Workers, <code>weur</code>). As páginas
-      são servidas pelo GitHub Pages (GitHub, Inc.).</p>
+    <p>A base de dados fica na infraestrutura da Cloudflare, Inc., <strong>com
+      a jurisdição <code>eu</code></strong>: a Cloudflare obriga-se a corrê-la e
+      a guardá-la só dentro da União Europeia. Isto não é uma preferência que se
+      possa ignorar — é uma restrição que se define quando a base nasce e que
+      não se altera depois.</p>
+    <!-- A DISTINÇÃO ENTRE OS DOIS NÃO É PORMENOR. Até 22 de Setembro de 2026
+         esta secção dizia «D1 e Workers, weur», e as duas coisas estavam
+         erradas juntas: `weur` é uma DICA de localização, que a própria
+         Cloudflare descreve como não garantida, e «Europa Ocidental» não é a
+         União Europeia; e o código do Worker nunca esteve restringido a
+         região nenhuma — corre onde o visitante está, que é o que o torna
+         rápido. Quem lesse aquilo concluía que o código também ficava cá. -->
+    <p>O <strong>código</strong> que trata dos pedidos é outra coisa: corre no
+      nó da Cloudflare mais perto de quem abre a aplicação, em qualquer parte
+      do mundo. O que ele lê e escreve está sempre na base europeia — mas se
+      abrires a aplicação fora da Europa, é aí que o código corre. As páginas
+      do site são servidas pelo GitHub Pages (GitHub, Inc.), também a partir da
+      rede mais perto de ti.</p>
     <p>O email — o que enviamos e o que recebemos — passa pela Hostinger
       International Ltd., que aloja a caixa
       <a href="mailto:geral@carimbodigital.pt">geral@carimbodigital.pt</a> em
@@ -220,8 +235,8 @@ prioridade: 0.4
       abrigo do artigo 28.º do RGPD. A Cloudflare e o GitHub são empresas dos
       Estados Unidos, e por isso o que lhes confiamos assenta nas cláusulas
       contratuais-tipo aprovadas pela Comissão Europeia — ainda que a base de
-      dados fique em região europeia. A Hostinger é europeia e o email não sai
-      da União.</p>
+      dados esteja presa à jurisdição europeia. A Hostinger é europeia e o
+      email não sai da União.</p>
     <p>Se preferires não passar por aqui, não deixes email <strong>nem entres
       pela Google ou pela Apple</strong>, e não ligues os avisos: a app funciona
       sem nada disso — só perdes a possibilidade de recuperar os cartões noutro

@@ -239,11 +239,25 @@ APOIO_MORADA = "Rua José Moreira 99, 4.º esq., 3700-155 São João da Madeira"
 APOIO_TELEFONE = "+351 925 110 570"
 APOIO_EMAIL = "geral@carimbodigital.pt"
 
+# A BASE VIVE NA JURISDIÇÃO `eu`, E ISSO NÃO É O MESMO QUE UMA DICA DE
+# LOCALIZAÇÃO. A primeira base nasceu com `--location=weur`, que a própria
+# Cloudflare diz ser só uma preferência — «providing a location hint does not
+# ensure your preferred placement». Corria mesmo em WEUR, mas WEUR é «Europa
+# Ocidental» e não «União Europeia», e nada impedia que mudasse. A secção 5 da
+# privacidade prometia União Europeia: era uma promessa que a configuração não
+# dava.
+#
+# `jurisdiction = "eu"` obriga. E só se pode definir na CRIAÇÃO da base — não
+# se acrescenta nem se altera depois — por isso isto é uma base nova, com os
+# dados da anterior copiados linha a linha e conferidos tabela a tabela.
+#
+# O nome leva `-ue` porque o `carimbodigital` ainda está ocupado pela base
+# antiga. Ninguém deve voltar a escrever este nome à mão: os scripts chamam o
+# BINDING (`DB`), que não muda quando a base muda.
 [[d1_databases]]
 binding = "DB"
-database_name = "carimbodigital"
-# Preenche-se depois de correr `npx wrangler d1 create carimbodigital`.
-database_id = "674af7c1-84ec-4b90-80db-f78152c116e0"
+database_name = "carimbodigital-ue"
+database_id = "795d5735-c7dd-4d33-96ce-c3a4ae82bd15"
 
 [observability]
 enabled = true

@@ -128,6 +128,28 @@ export async function correr(palco, certo) {
     String(numero));
 
   certo(await palco.visivel(LINHA_CONTA), 'perfil: a linha «Guardar a conta» está à vista');
+
+  /* A ORIGEM. Quem instala a app nunca mais vê o rodapé do site, e este é o
+     ecrã onde se vai ver quem está do outro lado — a linha é a única coisa
+     que o diz aqui dentro. Sem afirmação, desaparecia num refazer do perfil e
+     ninguém dava por isso; e o site tem uma guarda para a mesma frase no
+     auditor, que não alcança um rodapé pintado por JavaScript.
+
+     A segunda metade é tão importante como a primeira: a frase tem de ser
+     TEXTO. Um `<img>` ou um `<svg>` aqui seria um crachá, e exibir uma marca
+     de certificação sem autorização é enganoso em qualquer circunstância
+     (DL 57/2008, art. 8.º, b). */
+  const rodapeApp = await palco.js(`
+    const p = document.querySelector('.rodape-app');
+    if (!p) return null;
+    return { texto: p.textContent.replace(/\\s+/g, ' ').trim(),
+             imagens: p.querySelectorAll('img, svg, picture').length }`);
+  certo(Boolean(rodapeApp) && /Feito em Portugal/.test(rodapeApp.texto),
+    'perfil: o rodapé da app diz onde isto é feito',
+    rodapeApp ? rodapeApp.texto : 'não há rodapé');
+  certo(Boolean(rodapeApp) && rodapeApp.imagens === 0,
+    'perfil: a origem é texto, e não um emblema',
+    rodapeApp ? `${rodapeApp.imagens} imagens` : 'não há rodapé');
   /* E AGORA A LINHA DE EXPORTAR CAIU TAMBÉM, pela mesma razão e pela segunda
      vez: o perfil voltou a crescer, agora com as «Definições». A afirmação
      que interessa não é «está à vista» — é quanto se tem de deslizar para lá

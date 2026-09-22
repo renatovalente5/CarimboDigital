@@ -246,9 +246,14 @@ function certificadoDeMentira() {
  * sempre — e que DEVEM ser atómicos: um esquema meio aplicado é pior do que
  * nenhum.
  */
+/* `DB` É O BINDING, E NÃO O NOME DA BASE. Estava aqui o nome à mão, em cinco
+   sítios, e no dia em que a base mudou de nome — para nascer com jurisdição
+   `eu`, que só se define na criação — os cinco ficavam a apontar para uma base
+   que já não é a desta configuração, sem dizer nada. O binding vem do
+   `wrangler.toml` e sobrevive a qualquer mudança de nome. */
 function correrSQL(ficheiro) {
   try {
-    execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+    execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
       '--config', './wrangler.toml', '--local', `--file=${ficheiro}`],
     { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
   } catch (erro) {
@@ -368,7 +373,7 @@ function cortarInstrucoes(sql) {
 function correrMigracao(ficheiro) {
   const caminho = join(WORKER, ficheiro);
   try {
-    execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+    execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
       '--config', './wrangler.toml', '--local', `--file=${ficheiro}`],
     { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
     return;
@@ -377,7 +382,7 @@ function correrMigracao(ficheiro) {
   const instrucoes = cortarInstrucoes(semComentarios(readFileSync(caminho, 'utf8')));
   for (const instrucao of instrucoes) {
     try {
-      execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+      execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
         '--config', './wrangler.toml', '--local', '--command', instrucao],
       { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
     } catch (erro) {
@@ -448,7 +453,7 @@ function conferirBase() {
 
   /* Uma consulta só: o `sql` do `sqlite_master` traz o `CREATE TABLE` inteiro,
      e o SQLite reescreve-o a cada `ALTER TABLE ADD COLUMN`. */
-  const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+  const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
     '--config', './wrangler.toml', '--local', '--json', '--command',
     "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"],
   { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

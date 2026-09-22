@@ -104,14 +104,20 @@ async function pedirUmaVez(caminho, { metodo = 'GET', corpo, sessao, cabecalhos 
   return { estado: r.status, dados };
 }
 
+/* `DB` É O BINDING, E NÃO O NOME DA BASE — ver a mesma nota no com-worker.mjs.
+   Estas duas chamadas ficaram para trás quando a base mudou de nome, e foi a
+   corrida que as apanhou: o wrangler disse «Couldn't find a D1 DB with the
+   name or binding» e a bateria inteira morreu antes da primeira afirmação. A
+   varredura que fiz ao renomear cobriu `scripts/` e o `wrangler.toml` e não
+   este ficheiro. Uma mudança de nome procura-se no repositório todo. */
 function sql(instrucao) {
-  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
     '--local', '--command', instrucao], { cwd: AQUI, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 }
 
 /** Corre um ficheiro de migração, para se poder provar o que ele faz. */
 function sqlFicheiro(caminho) {
-  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+  return execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
     '--local', '--file', caminho], { cwd: AQUI, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 }
 

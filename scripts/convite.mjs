@@ -79,7 +79,7 @@ const ARGS = process.argv.slice(2);
 const LOCAL = ARGS.includes('--local');
 
 function correr(args) {
-  const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'carimbodigital',
+  const saida = execFileSync('npx', ['--yes', 'wrangler', 'd1', 'execute', 'DB',
     LOCAL ? '--local' : '--remote', '--config', './wrangler.toml', '--json', ...args],
     { cwd: WORKER, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
   const i = saida.indexOf('[');

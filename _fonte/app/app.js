@@ -1352,7 +1352,12 @@ async function ecraPerfil(principal) {
     el('h2', { class: 'seccao-titulo', texto: 'Os meus dados' }), dados));
 
   principal.append(el('p', { class: 'rodape-app', html:
-    'Carimbo Digital · '
+    /* A ORIGEM TAMBÉM AQUI. Quem instala a app nunca mais vê o rodapé do
+       site, e é neste ecrã que se vai ver quem está do outro lado. É
+       texto e não um crachá, pela mesma razão do site: exibir uma marca
+       de certificação sem autorização é enganoso em qualquer
+       circunstância (DL 57/2008, art. 8.º, b). */
+    'Carimbo Digital · Feito em Portugal · '
     + `<a class="ligacao" href="${base()}/termos/" target="_blank" rel="noopener">Termos</a> · `
     + `<a class="ligacao" href="${base()}/privacidade/" target="_blank" rel="noopener">Privacidade</a>`
     + (MODO === 'demo' ? ' · <b>modo de demonstração</b>' : '') }));
