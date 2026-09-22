@@ -260,6 +260,83 @@ console.log('\nDados legais');
   }
 }
 
+/* --- 7b. origem ---------------------------------------------------------- */
+/* Dizer que isto é português é legal, e é das poucas coisas que distingue o
+   Carimbo Digital das plataformas estrangeiras. Mas há duas maneiras de a
+   frase passar a ilegal sem ninguém reparar, e são as duas um passo pequeno:
+
+   1. VIRAR SELO. O artigo 8.º, alínea b) do DL 57/2008 considera enganoso «em
+      qualquer circunstância» exibir «uma marca de certificação, uma marca de
+      qualidade ou equivalente sem ter obtido a autorização necessária» — e
+      «ou equivalente» apanha um emblema desenhado aqui com ar de chancela.
+      Não há defesa possível: a prática está na lista negra, não se pondera.
+      Não estamos aderentes ao Portugal Sou Eu, que é o único selo de origem
+      oficial português, e hoje nem podíamos estar — exige empresa constituída
+      e 80% de incorporação nacional, que o GitHub e a Cloudflare partem.
+
+   2. VIRAR PROMESSA DE INFRAESTRUTURA. «Feito em Portugal» é verdade porque a
+      origem de um serviço segue quem o presta. «Alojado em Portugal» é falso,
+      e é a conclusão que qualquer leitor tira sozinho se ninguém o desmentir.
+
+   A frase certa não pode desaparecer em silêncio, e as erradas não podem
+   entrar. É o que as três varreduras a seguir fazem. */
+console.log('\nOrigem');
+{
+  const visivel = (html) => html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&[a-z]+;|&#\d+;/gi, ' ')
+    .replace(/\s+/g, ' ');
+
+  const ORIGEM = 'Feito em São João da Madeira, Portugal';
+
+  /* Só as páginas do site têm o rodapé; a app e o balcão têm o deles. */
+  const comRodape = paginas.filter((f) => readFileSync(f, 'utf8').includes('rodape-grelha'));
+  const semOrigem = comRodape.filter((f) => !visivel(readFileSync(f, 'utf8')).includes(ORIGEM));
+  if (!comRodape.length) falhar('nenhuma página tem o rodapé do site');
+  else if (semOrigem.length) {
+    for (const f of semOrigem) falhar(`${f.slice(SAIDA.length + 1)}: perdeu a declaração de origem`);
+  } else bem(`as ${comRodape.length} páginas do site dizem onde isto é feito`);
+
+  /* Palavras que transformam uma declaração de origem numa certificação. A
+     lista é curta de propósito: cada entrada tem de ser indefensável sozinha,
+     senão o primeiro falso alarme leva alguém a enfraquecer a guarda. */
+  const SELO = [
+    'marca de certificação', 'marca de garantia', 'marca de qualidade',
+    'selo de qualidade', 'selo de origem', 'selo oficial', 'certificado de origem',
+    'certificado pel', 'certificada pel', 'produto português',
+    'portugal sou eu', 'compro o que é nosso',
+  ];
+  /* E promessas sobre onde as coisas correm, que a secção 5 da privacidade
+     desmente com nomes. */
+  const INFRA = [
+    'alojado em portugal', 'alojada em portugal', 'alojamento em portugal',
+    'servidores em portugal', 'servidores portugueses',
+    'dados ficam em portugal', 'dados em portugal',
+    '100% português', '100% portuguesa', 'totalmente português',
+  ];
+
+  let apanhados = 0;
+  for (const f of paginas) {
+    const texto = visivel(readFileSync(f, 'utf8')).toLowerCase();
+    const nome = f.slice(SAIDA.length + 1);
+    for (const frase of SELO) {
+      if (texto.includes(frase)) {
+        falhar(`${nome}: «${frase}» — isso é uma certificação que não temos (DL 57/2008, art. 8.º b)`);
+        apanhados++;
+      }
+    }
+    for (const frase of INFRA) {
+      if (texto.includes(frase)) {
+        falhar(`${nome}: «${frase}» — a infraestrutura não é portuguesa; ver privacidade §5`);
+        apanhados++;
+      }
+    }
+  }
+  if (!apanhados) bem('a origem é uma declaração, e não um selo nem uma promessa de servidores');
+}
+
 /* --- 8. segredos ---------------------------------------------------------*/
 /* O repositório é público. Uma chave que escape aqui escapa para sempre. */
 console.log('\nSegredos');

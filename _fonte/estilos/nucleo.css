@@ -48,6 +48,18 @@
   --mau:          #B92B2B;
   --mau-fundo:    #FBEAEA;
 
+  /* --- a origem --------------------------------------------------------- */
+  /* O verde e o vermelho da bandeira, usados como TRAÇO e nunca como crachá:
+     ver o comentário do rodapé sobre o artigo 8.º, b) do DL 57/2008. São os
+     tons Pantone 349/485 em hexadecimal, que é o que a bandeira usa quando é
+     impressa — o #006600/#FF0000 de web é mais berrante do que o real.
+     No escuro clareiam os dois: #046A38 sobre #0E0D12 dá 2,88:1 e some-se num
+     traço de 3px. Não há mínimo legal a cumprir aqui — o traço é decorativo e
+     a frase ao lado diz o mesmo em palavras — mas invisível não serve de
+     nada. Medidos: no claro 6,44:1 e 4,66:1; no escuro 5,33:1 e 5,65:1. */
+  --pt-verde:     #046A38;
+  --pt-vermelho:  #DA291C;
+
   /* --- sombras: baixas e largas, como papel pousado --------------------- */
   --sombra-1: 0 1px 2px rgba(23, 22, 28, .05), 0 1px 1px rgba(23, 22, 28, .04);
   --sombra-2: 0 2px 4px rgba(23, 22, 28, .05), 0 6px 16px rgba(23, 22, 28, .07);
@@ -124,6 +136,7 @@
     --bom:          #4ED39A; --bom-fundo:     #10261D;
     --atencao:      #F0B366; --atencao-fundo: #2A1E0E;
     --mau:          #FF8B8B; --mau-fundo:     #2C1416;
+    --pt-verde:     #129A55; --pt-vermelho:   #F0564A;
     --sombra-1: 0 1px 2px rgba(0, 0, 0, .40);
     --sombra-2: 0 2px 4px rgba(0, 0, 0, .40), 0 6px 16px rgba(0, 0, 0, .44);
     --sombra-3: 0 8px 20px rgba(0, 0, 0, .48), 0 24px 48px rgba(0, 0, 0, .52);
@@ -143,6 +156,7 @@
   --bom: #4ED39A; --bom-fundo: #10261D;
   --atencao: #F0B366; --atencao-fundo: #2A1E0E;
   --mau: #FF8B8B; --mau-fundo: #2C1416;
+  --pt-verde: #129A55; --pt-vermelho: #F0564A;
   --sombra-1: 0 1px 2px rgba(0,0,0,.40);
   --sombra-2: 0 2px 4px rgba(0,0,0,.40), 0 6px 16px rgba(0,0,0,.44);
   --sombra-3: 0 8px 20px rgba(0,0,0,.48), 0 24px 48px rgba(0,0,0,.52);

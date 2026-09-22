@@ -354,6 +354,26 @@ body.pagina-negocios .porta-app {
 .rodape ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--e-2); }
 .rodape a { font-size: .9375rem; color: var(--tinta-2); }
 .rodape a:hover { color: var(--tinta); text-decoration: underline; text-underline-offset: 2px; }
+
+/* A ORIGEM. É uma frase com um traço, e é assim de propósito — um emblema
+   desenhado por mim, com círculo e fita, passaria a ler-se como certificação
+   e cai na alínea b) do artigo 8.º do DL 57/2008 («ou equivalente»). Nada
+   aqui fecha a frase dentro de coisa nenhuma: sem caixa, sem fundo, sem aro.
+   O `flex: 0 0 auto` no traço não é decoração — sem ele, numa coluna estreita
+   o flex esmaga-o até 0 de largura e fica uma frase com um espaço a mais. */
+.rodape-origem {
+  margin-top: var(--e-4);
+  display: flex; align-items: center; gap: var(--e-2);
+  font-size: .8125rem; font-weight: 600;
+  color: var(--tinta-2);
+}
+.rodape-fita {
+  flex: 0 0 auto;
+  width: 26px; height: 3px; border-radius: 2px;
+  /* 2/5 verde e 3/5 vermelho, como na bandeira. */
+  background: linear-gradient(to right,
+    var(--pt-verde) 0 40%, var(--pt-vermelho) 40% 100%);
+}
 .rodape-fim {
   margin-top: var(--e-8); padding-top: var(--e-5);
   border-top: 1px solid var(--linha);
