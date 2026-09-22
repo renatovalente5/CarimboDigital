@@ -102,10 +102,31 @@ const ABRIR_NO_MACO = (nome) => `
     await new Promise((r) => setTimeout(r, 400));
   }`;
 
+/* ENTRAR, e não «passar as boas-vindas».
+ *
+ * O passeio deixou de dar acesso a nada: no fim abre a porta, porque a conta é
+ * obrigatória. Clicar três vezes no «Continuar» deixava a captura parada no
+ * painel de entrada, e o alvo que vinha a seguir não aparecia nunca. Entra-se
+ * pela Google, que na demonstração é um caminho fingido de um toque — o do
+ * email obrigaria a escrever a morada e o código, e o que se quer aqui é a
+ * fotografia do ecrã seguinte. */
 const ABRIR_APP = `
-  const b = document.querySelector('#bv-seguinte');
-  if (b) { for (let i = 0; i < 3; i++) { b.click(); await new Promise(r=>setTimeout(r,260)); } }
-  await new Promise(r=>setTimeout(r,1500));
+  const saltar = document.querySelector('#bv-saltar');
+  if (saltar) {
+    saltar.click();
+    for (let i = 0; i < 60; i++) {
+      const g = document.querySelector('#painel button[data-porta="google"]');
+      if (g) { g.click(); break; }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    /* A entrada RECARREGA a página. A captura tem de esperar pelo outro lado,
+       e não pelo relógio: um temporizador fotografava o recarregar a meio. */
+    for (let i = 0; i < 120; i++) {
+      if (document.querySelector('#barra .barra-item')) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  await new Promise(r=>setTimeout(r,1200));
 `;
 
 const ECRAS = [
@@ -225,14 +246,6 @@ const ECRAS = [
   /* E o mesmo painel pelo outro lado: guardar em vez de recuperar. NÃO se
      carrega em porta nenhuma aqui — fora da demonstração, tocar na Google sai
      do site e a captura acaba noutro ecrã com o nome deste. */
-  {
-    nome: '16-guardar-a-conta', espera: '#painel', url: '/app/?demo=1', largura: 402, altura: 1100, limpar: true,
-    guiao: `${ABRIR_APP}
-            document.querySelector('.barra-item[data-ecra="perfil"]').click();
-            ${ATE('#principal .lista .linha')}
-            document.querySelector('#principal .lista .linha').click();
-            ${ATE('#painel .btn-google, #painel #campo-email')}`,
-  },
 
   /* ===================================================================== */
   /* AS FOTOGRAFIAS DO SITE. Vão para `_fonte/imagens/` e entram no           */
@@ -261,12 +274,7 @@ const ECRAS = [
     nome: 'produto-carteira', paraOSite: true,
     espera: '#principal .pilha .cartao',
     url: '/app/?demo=1', largura: 402, altura: 900, limpar: true,
-    guiao: `for (let i = 0; i < 6; i++) {
-              const b = document.querySelector('#boas-vindas .btn-cheio');
-              if (!b) break;
-              b.click(); await new Promise(r=>setTimeout(r,420));
-            }
-            await new Promise(r=>setTimeout(r,1200));`,
+    guiao: ABRIR_APP,
   },
   {
     nome: 'produto-codigo', paraOSite: true,

@@ -205,14 +205,13 @@ function certificadoDeMentira() {
     const c = join(pasta, 'c.pem');
     const k8 = join(pasta, 'k8.pem');
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', k,
-      /* DEZ ANOS, e não dois dias. Este certificado é gerado UMA vez e fica no
-         `.dev.vars` até alguém o apagar — com dois dias de vida, a bateria da
-         API passava hoje e morria depois de amanhã, a apontar para o que
-         estivesse a ser mexido nessa altura. Aconteceu: o ficheiro foi escrito
-         a 20 de Setembro e a 22 a corrida inteira rebentava no `unzip`, porque
-         a rota do passe recusava assinar com um certificado caducado e o que
-         chegava ao teste era JSON em vez de um ZIP. */
-      '-out', c, '-days', '3650', '-nodes',
+      /* SEM PRAZO. Um X.509 tem sempre campo de validade, mas há um valor
+         combinado para dizer «não expira»: `99991231235959Z`, que é o que a
+         RFC 5280 §4.1.2.5 manda pôr no `notAfter` de um certificado sem fim
+         definido. Estava a dois dias, e ao terceiro matava a bateria inteira.
+         Um certificado de mentira que é gerado uma vez e fica em disco não
+         tem razão nenhuma para envelhecer. */
+      '-out', c, '-not_after', '99991231235959Z', '-nodes',
       '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: de mentira'],
     { stdio: 'ignore' });
     execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', k, '-out', k8],

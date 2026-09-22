@@ -2312,7 +2312,7 @@ grupo('O cartão na Apple Wallet');
 
   try {
     openssl('req', '-x509', '-newkey', 'rsa:2048', '-keyout', caminho('k.pem'),
-      '-out', caminho('c.pem'), '-days', '2', '-nodes',
+      '-out', caminho('c.pem'), '-not_after', '99991231235959Z', '-nodes',
       '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: pass.pt.carimbodigital.cartao');
     openssl('pkcs8', '-topk8', '-nocrypt', '-in', caminho('k.pem'), '-out', caminho('k8.pem'));
     const cert = readFileSync(caminho('c.pem'), 'utf8');
@@ -2426,7 +2426,7 @@ grupo('O cartão na Apple Wallet');
          verificava, os testes passavam, e o iPhone recusava-o por não
          conseguir fechar a cadeia. */
       openssl('req', '-x509', '-newkey', 'rsa:2048', '-keyout', caminho('k2.pem'),
-        '-out', caminho('c2.pem'), '-days', '2', '-nodes', '-subj', '/CN=Intermedio de mentira');
+        '-out', caminho('c2.pem'), '-not_after', '99991231235959Z', '-nodes', '-subj', '/CN=Intermedio de mentira');
       const intermedio = readFileSync(caminho('c2.pem'), 'utf8');
 
       const comCadeia = await p.construirPasse({
@@ -2865,7 +2865,7 @@ grupo('O passe da Apple, de ponta a ponta');
       correr2('openssl', ['rsa', '-in', join(dir, 'p8.pem'), '-traditional',
         '-out', join(dir, 'pk1.pem')], { stdio: 'ignore' });
       correr2('openssl', ['req', '-x509', '-key', join(dir, 'p8.pem'), '-out',
-        join(dir, 'c.pem'), '-days', '2', '-subj', '/CN=x'], { stdio: 'ignore' });
+        join(dir, 'c.pem'), '-not_after', '99991231235959Z', '-subj', '/CN=x'], { stdio: 'ignore' });
       await p2.construirPasse({
         passe: { formatVersion: 1 },
         imagens: { 'icon.png': Uint8Array.from(atob(PNG_FIXO), (c) => c.charCodeAt(0)) },
