@@ -41,7 +41,25 @@ export function garantirSegredos() {
      projecto todos os dias — uma chave NOVA nunca lá chegava. Os testes
      passavam no CI, que parte de uma máquina limpa, e falhavam em casa. */
   if (existsSync(ficheiro)) {
-    const actual = readFileSync(ficheiro, 'utf8');
+    let actual = readFileSync(ficheiro, 'utf8');
+
+    /* E REPARA O QUE CADUCOU, que é o passo que faltava a este raciocínio.
+
+       Acrescentar o que falta resolve uma chave NOVA; não resolve uma chave
+       que envelheceu no sítio. O certificado da Apple tem data de validade, e
+       um `.dev.vars` de duas semanas atrás tem lá um certificado morto — a
+       rota do passe recusa-se a assinar com ele, devolve JSON, e a bateria
+       rebenta no `unzip` a acusar seja o que for que tenha sido mexido por
+       último. Perguntar a validade custa uma chamada ao openssl e poupa a
+       tarde a quem for procurar o defeito no sítio errado. */
+    if (caducou(actual)) {
+      const novos = Object.fromEntries(certificadoParaVars());
+      actual = actual.replace(/^(APPLE_CERTIFICADO|APPLE_CHAVE)=.*$/gm,
+        (_, chave) => `${chave}=${novos[chave]}`);
+      writeFileSync(ficheiro, actual);
+      console.log('  (o certificado de mentira da Apple tinha caducado — foi emitido outro)');
+    }
+
     const faltam = paresDeDesenvolvimento()
       .filter(([k]) => !new RegExp(`^${k}=`, 'm').test(actual));
     if (faltam.length) {
@@ -145,6 +163,41 @@ function chavesDePushDeMentira() {
   ];
 }
 
+/** O par do certificado, na forma em que vai para o `.dev.vars`. */
+function certificadoParaVars() {
+  const apple = certificadoDeMentira();
+  return [['APPLE_CERTIFICADO', apple.certificado], ['APPLE_CHAVE', apple.chave]];
+}
+
+/**
+ * O certificado que está no `.dev.vars` já passou do prazo?
+ *
+ * Pergunta-se ao openssl, que é quem sabe. Sem certificado lá dentro a
+ * resposta é «não» — o que falta é tratado pelo caminho do que falta, e não
+ * por este. E qualquer atrapalhação a ler responde «não» também: um ficheiro
+ * ilegível não é um certificado caducado, e deitar fora segredos bons por uma
+ * leitura que correu mal é pior do que o problema.
+ */
+function caducou(conteudo) {
+  const linha = (conteudo.match(/^APPLE_CERTIFICADO=(.*)$/m) || [])[1];
+  if (!linha) return false;
+  const pasta = mkdtempSync(join(tmpdir(), 'carimbo-val-'));
+  try {
+    const c = join(pasta, 'c.pem');
+    writeFileSync(c, linha.replace(/\\n/g, '\n'));
+    /* `-checkend 86400`: sai diferente de zero se caducar nas próximas 24
+       horas. Um dia de folga é de propósito — um certificado que morre a meio
+       de uma corrida longa é o mesmo defeito com outra hora. */
+    execFileSync('openssl', ['x509', '-in', c, '-noout', '-checkend', '86400'],
+      { stdio: 'ignore' });
+    return false;
+  } catch {
+    return true;
+  } finally {
+    rmSync(pasta, { recursive: true, force: true });
+  }
+}
+
 function certificadoDeMentira() {
   const pasta = mkdtempSync(join(tmpdir(), 'carimbo-apple-'));
   try {
@@ -152,7 +205,14 @@ function certificadoDeMentira() {
     const c = join(pasta, 'c.pem');
     const k8 = join(pasta, 'k8.pem');
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', k,
-      '-out', c, '-days', '2', '-nodes',
+      /* DEZ ANOS, e não dois dias. Este certificado é gerado UMA vez e fica no
+         `.dev.vars` até alguém o apagar — com dois dias de vida, a bateria da
+         API passava hoje e morria depois de amanhã, a apontar para o que
+         estivesse a ser mexido nessa altura. Aconteceu: o ficheiro foi escrito
+         a 20 de Setembro e a 22 a corrida inteira rebentava no `unzip`, porque
+         a rota do passe recusava assinar com um certificado caducado e o que
+         chegava ao teste era JSON em vez de um ZIP. */
+      '-out', c, '-days', '3650', '-nodes',
       '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: de mentira'],
     { stdio: 'ignore' });
     execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', k, '-out', k8],

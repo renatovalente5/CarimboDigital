@@ -64,9 +64,12 @@ function grelhaCarimbos(cartao, { novos = 0 } = {}) {
     const peca = el('div', {
       class: 'carimbo',
       estilo: { '--inclina': `${inclina}deg` },
-      html: cheio
-        ? icone(p.selo, { tipo: 'cheio', tamanho: 24 })
-        : icone(p.selo, { tipo: 'cheio', tamanho: 24 }),
+      /* O MESMO DESENHO NOS DOIS ESTADOS, e é de propósito: o que distingue
+         um carimbo dado de uma casa vazia é o `data-estado` e o que o CSS faz
+         com ele — disco cheio contra aro tracejado. Estava escrito como um
+         ternário com os dois ramos iguais, o que fazia parecer que um deles
+         estava por acabar. */
+      html: icone(p.selo, { tipo: 'cheio', tamanho: 24 }),
     });
     peca.dataset.estado = cheio ? 'cheio' : 'vazio';
     if (novos && i >= cheios - novos && i < cheios) peca.dataset.novo = 'sim';
@@ -220,6 +223,63 @@ function proximoPremio(cartao) {
    por isso que ela vive FORA do painel que abre e fecha.
    ========================================================================= */
 
+/**
+ * A MARCA DO CAFÉ NUM CARTÃO — o logótipo dele, ou a inicial.
+ *
+ * É o que distingue dois cartões escuros um do outro. Medido: a cor da
+ * Barbearia Navalha está a ΔE 9,2 da cor por omissão — dois negócios que não
+ * escolham cor nenhuma ficam com o MESMO cartão, e no maço lêem-se como duas
+ * bandas seguidas. O nome resolve para quem lê; um desenho resolve para quem
+ * passa os olhos, que é o que se faz a uma carteira.
+ *
+ * QUANDO NÃO HÁ LOGÓTIPO não se deixa um buraco: fica a inicial do nome num
+ * disco, que é o que as carteiras de fidelidade fazem e nunca falha. E a
+ * inicial é a primeira LETRA, não o primeiro caractere — «O Cantinho» dá «O»,
+ * mas «...» ou um emoji dariam um quadrado preto.
+ */
+function marcaDoNegocio(negocio) {
+  const letra = (String(negocio.nome || '').match(/\p{L}/u) || ['?'])[0].toUpperCase();
+  /* A INICIAL ESTÁ SEMPRE LÁ, E A IMAGEM VEM POR CIMA.
+
+     Escrito ao contrário — imagem OU inicial — um logótipo que não carregue
+     deixa o ícone de imagem partida do browser no meio do cartão, que é pior
+     do que não ter logótipo nenhum. Testado com um PNG inválido: cinco
+     quadrados partidos e nenhuma inicial, porque o código já tinha decidido.
+     Assim a imagem é o que TAPA a inicial, e se não chegar não tapa nada. */
+  const marca = el('span', { class: 'cartao-logo cartao-monograma',
+    'aria-hidden': 'true', texto: letra });
+
+  const endereco = negocio.logotipo
+    || (negocio.temLogotipo && api.base()
+      ? `${api.base()}/v1/negocio/${encodeURIComponent(negocio.slug)}/logotipo`
+        + (negocio.logotipoEm ? `?v=${String(negocio.logotipoEm).replace(/\D/g, '')}` : '')
+      : null);
+  if (!endereco) return marca;
+
+  marca.append(el('img', {
+    class: 'cartao-logo-imagem', src: endereco, alt: '', loading: 'lazy', decoding: 'async',
+    /* Some-se em vez de se remover: um `remove()` a meio de uma pintura mexe
+       no que já está no ecrã, e esconder é o que o browser sabe fazer sem
+       segunda passagem. */
+    aoError: (ev) => { ev.currentTarget.hidden = true; },
+  }));
+  return marca;
+}
+
+/**
+ * O PROGRESSO DITO EM NÚMEROS, para o cartão fechado.
+ *
+ * Ele já existia — no `aria-label` da faixa. Quem ouve a app sabia que ia em
+ * sete de dez; quem a vê tinha de abrir o cartão para saber. Era a informação
+ * que se vai lá buscar, escondida atrás de um toque.
+ */
+function contagemDoCartao(cartao) {
+  const p = cartao.programa;
+  if (cartao.porResgatar > 0) return null;      /* a tira do prémio já o diz */
+  if (p.tipo === 'pontos') return `${cartao.pontos} pt`;
+  return `${cartao.carimbos}/${p.objetivo}`;
+}
+
 /** O cartão como aparece no baralho da carteira. */
 function cartaoDoBaralho(cartao) {
   const p = cartao.programa;
@@ -227,6 +287,7 @@ function cartaoDoBaralho(cartao) {
   const pronto = cartao.porResgatar > 0;
   const aberto = estado.cartaoExpandido === cartao.id;
   const idPainel = `cartao-painel-${cartao.id}`;
+  const contagem = contagemDoCartao(cartao);
 
   /* O `aria-label` da faixa diz o que a faixa NÃO mostra — em que ponto vai o
      cartão — para quem a ouve decidir se vale a pena abrir. Sem isto, o
@@ -238,9 +299,11 @@ function cartaoDoBaralho(cartao) {
     'aria-label': `${cartao.negocio.nome}, ${p.nome}. ${prox.rotulo}: ${prox.texto}.`,
     aoClick: () => alternarCartao(cartao.id),
   },
+    marcaDoNegocio(cartao.negocio),
     el('span', { class: 'cartao-marca' },
       el('span', { class: 'cartao-nome', texto: cartao.negocio.nome }),
       el('span', { class: 'cartao-tipo', texto: p.nome })),
+    contagem ? el('span', { class: 'cartao-contagem', 'aria-hidden': 'true', texto: contagem }) : null,
     el('span', { class: 'cartao-seta', html: icone('seta', { tamanho: 20 }) }));
 
   /* O painel é `hidden` de verdade, e não uma altura a zero. Uma altura a zero

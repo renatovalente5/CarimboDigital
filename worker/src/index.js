@@ -309,6 +309,30 @@ async function exigirCliente(env, pedido) {
 }
 
 /**
+ * A CONTA DE QUEM PEDE, SE HOUVER UMA — e `null` sem barulho nenhum.
+ *
+ * Existe porque a porta do email passou a ter de funcionar dos dois lados. Com
+ * a conta obrigatória, o primeiro pedido de código de sempre vem de um
+ * telemóvel onde não há conta, não há sessão e não há nada: `exigirCliente`
+ * fechava-lhe a porta com 401 e a pessoa ficava sem forma de entrar. Mas o
+ * MESMO pedido feito de dentro da app, por quem já entrou, tem de continuar a
+ * saber de quem é — é o que permite juntar uma morada nova à conta que já
+ * existe em vez de criar uma segunda.
+ *
+ * A diferença com o `exigirCliente` é uma só: aqui uma sessão inválida ou
+ * gasta não é um erro, é a ausência de conta. Quem chama tem de saber o que
+ * fazer com `null`.
+ */
+async function clienteSeHouver(env, pedido) {
+  try {
+    return await exigirCliente(env, pedido);
+  } catch (erro) {
+    if (erro instanceof Falha && erro.estado === 401) return null;
+    throw erro;
+  }
+}
+
+/**
  * Guarda que a conta deu sinal de vida.
  *
  * Existia uma coluna `visto_em` desde o primeiro dia e nada lhe tocava depois
@@ -513,6 +537,7 @@ async function programaCompleto(env, programaId) {
             n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
             n.morada AS negocio_morada, n.telefone AS negocio_telefone,
             (n.logotipo IS NOT NULL) AS negocio_tem_logotipo,
+            n.logotipo_em AS negocio_logotipo_em,
             (substr(n.logotipo, 1, 10) = 'image/png;') AS negocio_logotipo_png
        FROM programas p JOIN negocios n ON n.id = p.negocio_id
       WHERE p.id = ?`
@@ -547,6 +572,17 @@ function moldarNegocio(p) {
     cor: p.negocio_cor, categoria: p.negocio_categoria,
     localidade: p.negocio_localidade, morada: p.negocio_morada,
     telefone: p.negocio_telefone,
+    /* O LOGÓTIPO, que já cá estava e nunca saiu daqui.
+
+       A coluna existe, a rota pública que a serve existe
+       (`/v1/negocio/:slug/logotipo`), e até o CSS que o desenha no cartão
+       existe — só que esta função não dizia que ele havia, por isso a app
+       nunca o pediu. Não vai o PNG: vai só se existe e quando mudou, porque a
+       imagem é um base64 de dezenas de kilobytes e cinco cartões davam meio
+       megabyte a cada abertura da carteira. O `logotipoEm` é o que permite ao
+       endereço ser imutável e à cache durar um ano. */
+    temLogotipo: Boolean(p.negocio_tem_logotipo),
+    logotipoEm: p.negocio_logotipo_em || null,
   };
 }
 
@@ -703,6 +739,7 @@ async function moldarCartoes(env, cartoes) {
             n.categoria AS negocio_categoria, n.localidade AS negocio_localidade,
             n.morada AS negocio_morada, n.telefone AS negocio_telefone,
             (n.logotipo IS NOT NULL) AS negocio_tem_logotipo,
+            n.logotipo_em AS negocio_logotipo_em,
             (substr(n.logotipo, 1, 10) = 'image/png;') AS negocio_logotipo_png
        FROM programas p JOIN negocios n ON n.id = p.negocio_id
       WHERE p.id IN (${marcas})`);
@@ -2086,7 +2123,21 @@ rota('GET', '/v1/descobrir', async (env) => {
  * exportação de dados chamava-lhe «o teu email».
  */
 rota('POST', '/v1/cliente/email', async (env, pedido) => {
-  const clienteId = await exigirCliente(env, pedido);
+  /* SEM SESSÃO TAMBÉM, e é isto que faz a conta poder ser obrigatória.
+
+     Esta rota exigia sessão, e funcionava porque havia SEMPRE uma conta
+     anónima por baixo — até o botão «já tenho conta noutro telemóvel»
+     registava uma conta antes de abrir o painel. No dia em que a conta anónima
+     deixar de nascer sozinha, um telemóvel limpo fica sem forma nenhuma de
+     pedir o primeiro código: a porta do email estaria fechada por dentro.
+
+     E a trava passa a correr AQUI. Ela guardava o registo anónimo, que era a
+     única porta por onde uma conta nascia; agora uma conta pode nascer no fim
+     deste caminho, e uma porta que cria contas sem contador é uma porta por
+     onde se esgotam as escritas diárias do D1 — que são partilhadas com tudo o
+     resto que vive nesta conta da Cloudflare. */
+  const clienteId = await clienteSeHouver(env, pedido);
+  if (!clienteId) await travarRegistos(env, pedido);
   const { email } = await corpoJSON(pedido);
   const correio = normalizarEmail(email);
   if (!EMAIL_VALIDO.test(correio)) throw new Falha('Email inválido');
@@ -2098,7 +2149,12 @@ rota('POST', '/v1/cliente/email', async (env, pedido) => {
      O `clientes.email` continua a ser escrito, mas já não é ele que decide. */
   const dono = await donoDaIdentidade(env, 'email', correio);
   const recuperar = Boolean(dono) && dono !== clienteId;
-  const alvo = `cliente:${recuperar ? dono : clienteId}`;
+  /* TRÊS DESTINOS E NÃO DOIS: a conta que já tem esta morada, a conta de quem
+     pede, ou NENHUMA — e a última é o caso de quem ainda não tem conta. Fica
+     escrito `novo`, e é na troca do código que a conta nasce; não aqui, porque
+     pedir um código não prova nada e uma conta por email não escrito é uma
+     linha na base que ninguém vai buscar. */
+  const alvo = `cliente:${dono || clienteId || 'novo'}`;
 
   const codigo = await emitirCodigo(env, { email: correio, alvo });
   const r = await enviarEmail(env, {
@@ -2132,7 +2188,28 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
      de correio entra na conta que já é dela; se não houver nenhuma, a conta
      que pediu fica com ela. */
   let dono = await donoDaIdentidade(env, 'email', linha.email);
-  let alvoFinal = dono || valor;
+  /* O `novo` é o que fica escrito quando o código foi pedido de um telemóvel
+     sem conta. Aqui já está provado que quem escreveu a morada a lê — que é a
+     única prova que uma conta precisa para nascer. */
+  let alvoFinal = dono || (valor === 'novo' ? null : valor);
+  if (!alvoFinal) {
+    const nova = await instrucoesDeClienteNovo(env);
+    try {
+      await env.DB.batch([nova.instrucao, ...instrucoesDeIdentidade(env, {
+        clienteId: nova.id, provedor: 'email', sujeito: linha.email, email: linha.email,
+      })]);
+      alvoFinal = nova.id;
+      dono = nova.id;
+    } catch (erro) {
+      /* Perdeu a corrida contra a mesma pessoa noutro aparelho: os dois
+         escreveram o mesmo código e o índice único apanhou o segundo. A
+         resposta certa é entrar na conta que ficou com a morada. */
+      if (!/UNIQUE|constraint/i.test(String(erro))) throw erro;
+      dono = await donoDaIdentidade(env, 'email', linha.email);
+      if (!dono) throw erro;
+      alvoFinal = dono;
+    }
+  }
 
   /* É aqui que a morada passa a ser da conta, e não no pedido do código:
      agora está provado que quem a escreveu a lê. O índice único sobre
@@ -2168,7 +2245,7 @@ rota('POST', '/v1/cliente/entrar', async (env, pedido) => {
     horaDoServidor: agora(),
     /* Diz-se a verdade: os cartões que vai ver podem não ser os que tinha
        neste aparelho. A app já sabe avisar. */
-    recuperada: Boolean(dono) && dono !== valor,
+    recuperada: Boolean(dono) && dono !== valor && valor !== 'novo',
   };
 });
 
@@ -3352,8 +3429,36 @@ rota('DELETE', '/v1/cliente/email', async (env, pedido) => {
  * identidade nasce outra vez — noutra conta, se for esse o caso, porque a
  * morada nunca decidiu nada e continua a não decidir.
  */
-rota('DELETE', /^\/v1\/cliente\/identidades\/(google)$/, async (env, pedido, [provedor]) => {
+/* DESLIGAR UMA PORTA — e nunca a última.
+ *
+ * DUAS COISAS ESTAVAM ERRADAS AQUI, e as duas em silêncio.
+ *
+ * A primeira: o padrão só aceitava `google`. A app já pede
+ * `/v1/cliente/identidades/apple` desde que a Apple existe como porta — esse
+ * pedido não batia em rota nenhuma e voltava como «não encontrado», que a app
+ * mostra como um erro qualquer. Desligar a Apple nunca funcionou.
+ *
+ * A segunda passa a ser fatal com a conta obrigatória: desligar a ÚNICA porta
+ * de uma conta deixa lá dentro os cartões de alguém e não deixa ninguém entrar.
+ * Enquanto a identidade era opcional isso era só voltar ao ponto de partida;
+ * agora é apagar uma conta sem o dizer. Recusa-se, com um código próprio para
+ * a app poder oferecer a coisa certa — trocar por outra, em vez de desligar.
+ */
+rota('DELETE', /^\/v1\/cliente\/identidades\/(google|apple|email)$/, async (env, pedido, [provedor]) => {
   const clienteId = await exigirCliente(env, pedido);
+
+  const quantas = (await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM identidades WHERE cliente_id = ?'
+  ).bind(clienteId).first()).n;
+  const tem = (await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM identidades WHERE cliente_id = ? AND provedor = ?'
+  ).bind(clienteId, provedor).first()).n;
+  if (tem > 0 && quantas - tem < 1) {
+    throw new Falha(
+      'Esta é a única forma de entrares na tua conta. Liga outra antes de desligar esta.',
+      { estado: 409, codigo: 'ultima-porta' });
+  }
+
   await env.DB.prepare('DELETE FROM identidades WHERE cliente_id = ? AND provedor = ?')
     .bind(clienteId, provedor).run();
   /* E as idas a meio, que doutra forma podiam concluir-se depois de a pessoa

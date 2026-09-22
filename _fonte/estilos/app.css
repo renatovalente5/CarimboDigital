@@ -208,6 +208,23 @@ body.app:not(.balcao) .barra {
    O raio é o que o torna uma pastilha em vez de um rectângulo dentro de um
    oval: o traço segue o `border-radius` do elemento, e sem ele os cantos do
    anel furavam as pontas da cápsula. */
+/* A faixa passou a ter quatro coisas em linha — marca, nome, contagem e seta —
+   e o nome é a única que pode encolher.
+
+   E ELE PARTE LINHA EM VEZ DE SE CORTAR. Na lista antiga o nome tinha o cartão
+   todo e cabia sempre; com o monograma de 40, a contagem e a seta, num ecrã de
+   320 sobram-lhe cem píxeis, e «Barbearia Navalha» pede cento e quarenta e
+   seis. Reticências num nome de café é a informação que a pessoa foi lá
+   buscar, e a regra da casa é a mesma que o prémio já segue: duas linhas em
+   vez de um corte. Num ecrã normal isto não muda nada, porque os nomes cabem
+   numa linha — só os compridos, e só onde é apertado. */
+.cartao-aba .cartao-marca { min-width: 0; }
+.cartao-aba .cartao-nome {
+  white-space: normal;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  line-height: 1.25;
+}
+
 body.app:not(.balcao) .barra-interior { width: auto; max-width: none; }
 body.app:not(.balcao) .barra-item {
   /* Largura fixa e não `flex: 1`: é a soma delas que dá a largura da cápsula,
@@ -491,10 +508,52 @@ a.cartao:active,
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden; line-height: 1.3;
 }
+/* A MARCA DO CAFÉ — o logótipo dele, ou a inicial.
+
+   Esta regra existia e estava MORTA: o CSS estava escrito, a coluna do
+   logótipo estava na base, a rota pública que a serve estava feita, e o
+   molde do negócio simplesmente não dizia que ele havia. Quarenta píxeis de
+   identidade à espera de uma linha.
+
+   O FUNDO É O VÉU E NÃO O BRANCO: um logótipo com fundo transparente — que é
+   a maioria — assenta na cor do café em vez de flutuar num quadrado branco. */
 .cartao-logo {
   flex: 0 0 auto; width: 40px; height: 40px;
-  border-radius: var(--r-2); object-fit: cover;
+  border-radius: var(--r-2); object-fit: contain;
   background: var(--m-veu);
+}
+
+/* Sem logótipo fica a inicial, que é o que as carteiras de fidelidade fazem.
+   Nunca é um buraco, e distingue dois cartões da mesma cor — que é o caso
+   que isto existe para resolver. */
+.cartao-monograma {
+  position: relative;
+  display: grid; place-items: center;
+  background: var(--m-veu-forte);
+  font-size: 1.125rem; font-weight: 800; letter-spacing: -.02em;
+  overflow: hidden;
+}
+/* O logótipo TAPA a inicial. Se não carregar, o `onerror` esconde-o e o que
+   fica é a letra — e não o quadrado partido do browser. */
+.cartao-logo-imagem {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  /* SEM FUNDO PRÓPRIO. Uma imagem que não carregue continua a pintar o fundo
+     dela, e esse véu ficava por cima da inicial — o que se via era uma letra
+     desmaiada em vez da letra. O fundo é do monograma, que está por baixo. */
+}
+
+/* A CONTAGEM NA FAIXA. «7/10» em números de largura fixa, para a coluna não
+   dançar entre cartões nem quando o número muda. Está em `aria-hidden` porque
+   o rótulo da faixa já diz a mesma coisa por extenso, e ouvir «sete barra dez»
+   a seguir a «faltam 3 carimbos» é ouvir duas vezes. */
+.cartao-contagem {
+  flex: 0 0 auto;
+  font-size: .9375rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+  opacity: .92;
 }
 .cartao-id {
   flex: 0 0 auto; text-align: right;

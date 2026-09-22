@@ -879,6 +879,57 @@ export async function correr(palco, certo) {
     'voltar: com os cartões todos outra vez',
     `${await palco.contar('#principal .pilha > .cartao')} de ${esperados.length}`);
 
+  /* --- o que um cartão FECHADO diz de si ---------------------------------
+
+     Num maço vê-se a faixa de cada um e mais nada, e é por ela que a pessoa
+     escolhe. Duas coisas estavam a faltar-lhe, e as duas já existiam noutro
+     sítio: a marca do café (o logótipo está na base e a rota pública que o
+     serve estava feita — só o molde do negócio é que não dizia que ele havia)
+     e o progresso, que vivia apenas no rótulo lido em voz alta. */
+  const fechados = await palco.js(`
+    const opaco = (c) => { const p = String(c).match(/[\\d.]+/g);
+      return p && (p.length < 4 || Number(p[3]) > 0.95); };
+    return [...document.querySelectorAll('#principal .pilha > .cartao')].map((n) => {
+      const marca = n.querySelector('.cartao-aba .cartao-logo');
+      const conta = n.querySelector('.cartao-aba .cartao-contagem');
+      return {
+        nome: n.querySelector('.cartao-nome')?.textContent.trim() ?? null,
+        temMarca: !!marca,
+        /* A inicial tem de estar LÁ, mesmo quando há logótipo por cima: é ela
+           que fica quando a imagem não chega. */
+        inicial: marca ? (marca.firstChild && marca.firstChild.nodeType === 3
+          ? marca.firstChild.textContent.trim() : null) : null,
+        marcaLarga: marca ? Math.round(marca.getBoundingClientRect().width) : 0,
+        contagem: conta ? conta.textContent.trim() : null,
+        premio: !!n.querySelector('.cartao-tira'),
+      };
+    });`);
+
+  certo(fechados.length >= 4 && fechados.every((c) => c.temMarca && c.marcaLarga >= 32),
+    'maço: cada cartão fechado tem a marca do café à vista',
+    fechados.map((c) => `${c.nome}: ${c.temMarca ? c.marcaLarga + 'px' : 'sem marca'}`).join(' · '));
+
+  certo(fechados.every((c) => c.inicial && /^\p{L}$/u.test(c.inicial)),
+    'maço: e por baixo dela está sempre a inicial do nome — é o que fica se o logótipo não chegar',
+    fechados.map((c) => `${c.nome}: «${c.inicial}»`).join(' · '));
+
+  certo(fechados.every((c) => c.premio || (c.contagem && /\d/.test(c.contagem))),
+    'maço: um cartão fechado diz em que ponto vai, sem ser preciso abri-lo',
+    fechados.map((c) => `${c.nome}: ${c.premio ? 'tem prémio' : c.contagem || 'não diz'}`).join(' · '));
+
+  /* E a contagem tem de ser a VERDADEIRA, não um número qualquer com o ar
+     certo. Compara-se com o que a demonstração semeou. */
+  const contagensErradas = esperados.map((e) => {
+    const visto = fechados.find((c) => c.nome === e.negocio.nome);
+    if (!visto || visto.premio) return null;
+    const esperada = e.programa.tipo === 'pontos'
+      ? `${e.pontos} pt` : `${e.carimbos}/${e.programa.objetivo}`;
+    return visto.contagem === esperada ? null : `${e.negocio.nome}: diz «${visto.contagem}» e são «${esperada}»`;
+  }).filter(Boolean);
+  certo(contagensErradas.length === 0,
+    'maço: e o número que mostra é o do cartão, não um qualquer',
+    contagensErradas.join(' · '));
+
   /* --- o maço: como os cartões se encaixam uns nos outros ---------------- */
 
   /* Os cartões da carteira estão EMPILHADOS, não alinhados: cada um entra por

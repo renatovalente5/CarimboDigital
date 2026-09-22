@@ -4422,6 +4422,27 @@ grupo('Entrar com a Google');
     certo(!JSON.stringify(eu.dados.identidades).includes('sub-'),
       'e NÃO mostra o `sub` — não serve para nada do lado do ecrã');
 
+    /* A ÚLTIMA PORTA NÃO SE DESLIGA, e é isto que a conta obrigatória traz de
+       novo. Enquanto a identidade era opcional, desligar a única era voltar ao
+       ponto de partida; agora é deixar os cartões de alguém numa conta em que
+       ninguém entra. Prova-se ANTES de ligar a segunda, que é o estado em que
+       toda a gente vai estar no primeiro dia. */
+    const sozinhas = linhas(`SELECT provedor FROM identidades WHERE cliente_id = '${contaA}'`);
+    certo(sozinhas.length === 1,
+      'a conta tem uma porta só (o teste é válido)', JSON.stringify(sozinhas));
+    const recusa = await pedir('/v1/cliente/identidades/google',
+      { metodo: 'DELETE', sessao: sessaoA, cabecalhos: ORIGEM });
+    certo(recusa.estado === 409 && recusa.dados.codigo === 'ultima-porta',
+      'a única forma de entrar na conta não se desliga — ficavam lá cartões e ninguém entrava',
+      `${recusa.estado} ${JSON.stringify(recusa.dados)}`);
+    certo(linhas(`SELECT COUNT(*) AS n FROM identidades
+                   WHERE cliente_id = '${contaA}' AND provedor = 'google'`)[0].n === 1,
+      'e a recusa é mesmo uma recusa — a identidade fica onde estava');
+
+    /* Com uma segunda porta ligada, desligar volta a ser um toque. */
+    sql(`INSERT INTO identidades (id, cliente_id, provedor, sujeito, email, criada_em, verificada_em)
+         VALUES ('id-segunda-porta', '${contaA}', 'email', 'segunda@exemplo.pt',
+                 'segunda@exemplo.pt', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`);
     const fora = await pedir('/v1/cliente/identidades/google',
       { metodo: 'DELETE', sessao: sessaoA, cabecalhos: ORIGEM });
     certo(fora.estado === 200 && !fora.dados.identidades.some((i) => i.provedor === 'google'),
@@ -4430,6 +4451,20 @@ grupo('Entrar com a Google');
     certo(linhas(`SELECT COUNT(*) AS n FROM identidades
                    WHERE cliente_id = '${contaA}' AND provedor = 'google'`)[0].n === 0,
       'e a identidade sai mesmo da base de dados');
+
+    /* E A PORTA DA APPLE PASSA A EXISTIR. O padrão da rota só aceitava
+       `google`; a app pede `/v1/cliente/identidades/apple` desde que a Apple é
+       uma porta, e esse pedido não batia em rota nenhuma. Desligar a Apple
+       nunca funcionou, e ninguém deu por isso porque o erro que voltava era
+       «não encontrado», que se lê como um problema qualquer. */
+    sql(`INSERT INTO identidades (id, cliente_id, provedor, sujeito, email, criada_em, verificada_em)
+         VALUES ('id-apple-teste', '${contaA}', 'apple', 'sub-apple-teste',
+                 'apple@exemplo.pt', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`);
+    const foraApple = await pedir('/v1/cliente/identidades/apple',
+      { metodo: 'DELETE', sessao: sessaoA, cabecalhos: ORIGEM });
+    certo(foraApple.estado === 200,
+      'e a da Apple também — a rota dela só aceitava a Google e ninguém dava por isso',
+      `${foraApple.estado} ${JSON.stringify(foraApple.dados)}`);
   }
   {
     /* Apagar a conta leva as idas a meio que lhe pertenciam. Sem chave
@@ -5663,6 +5698,89 @@ grupo('Levantar um prémio: a intenção viaja no código');
 }
 
 
+
+/* =========================================================================
+   A PORTA DO EMAIL NUM TELEMÓVEL SEM CONTA
+
+   É a peça que faz a conta poder ser obrigatória, e não tinha nenhuma prova.
+
+   Esta rota exigia sessão, e funcionava porque havia SEMPRE uma conta anónima
+   por baixo — a app registava uma antes de abrir o painel de recuperação. No
+   dia em que a conta anónima deixar de nascer sozinha, um telemóvel limpo
+   fica sem forma de pedir o primeiro código: a porta do email estaria fechada
+   por dentro e ninguém dava por isso a testar com o armazenamento cheio.
+   ========================================================================= */
+
+grupo('Entrar pelo email sem ter conta nenhuma');
+{
+  const correio = 'primeira.vez@exemplo.pt';
+  sql(`DELETE FROM envios`);
+  sql(`DELETE FROM registos`);
+
+  /* SEM SESSÃO. É este o pedido que um telemóvel acabado de abrir faz. */
+  const pedido = await pedir('/v1/cliente/email', { metodo: 'POST', corpo: { email: correio } });
+  certo(pedido.estado === 200,
+    'quem nunca cá esteve consegue pedir um código',
+    `${pedido.estado} ${JSON.stringify(pedido.dados)}`);
+  certo(pedido.dados.recuperar === false,
+    'e não lhe é dito que está a recuperar nada — não há nada para recuperar',
+    String(pedido.dados.recuperar));
+
+  const alvo = (sql(`SELECT alvo FROM entradas WHERE email = '${correio}' AND usada_em IS NULL`)
+    .match(/"alvo":\s*"([^"]+)"/) || [])[1];
+  certo(alvo === 'cliente:novo',
+    'o código fica à espera de uma conta que ainda não existe',
+    String(alvo));
+  certo(linhas(`SELECT COUNT(*) AS n FROM clientes WHERE id = 'novo'`)[0].n === 0,
+    'e PEDIR não cria conta nenhuma — pedir um código não prova que se lê a caixa');
+
+  /* A conta nasce na troca do código, que é onde a prova existe.
+
+     O código não se lê da base — lá só está o RESUMO de «morada|código», que é
+     o ponto. Forja-se um com o alvo que o servidor escreveu, que é
+     exactamente o que o email faria chegar. */
+  const resumoDe = (morada, codigo) =>
+    createHash('sha256').update(`${morada}|${codigo}`).digest('hex');
+  sql(`DELETE FROM entradas WHERE email = '${correio}'`);
+  sql(`INSERT INTO entradas (resumo, alvo, email, criada_em, expira_em)
+       VALUES ('${resumoDe(correio, '424242')}', 'cliente:novo', '${correio}',
+               datetime('now'), '${new Date(Date.now() + 600000).toISOString()}')`);
+  const entrada = await pedir('/v1/cliente/entrar',
+    { metodo: 'POST', corpo: { email: correio, codigo: '424242' } });
+  certo(entrada.estado === 200 && entrada.dados.cliente && entrada.dados.cliente.publico,
+    'trocar o código cria a conta e devolve o número do cartão',
+    `${entrada.estado} ${JSON.stringify(entrada.dados).slice(0, 160)}`);
+  certo(entrada.dados.recuperada === false,
+    'e diz que é uma conta nova, não uma conta recuperada',
+    String(entrada.dados.recuperada));
+
+  const novaId = entrada.dados.cliente.id;
+  const portas = linhas(`SELECT provedor, sujeito FROM identidades WHERE cliente_id = '${novaId}'`);
+  certo(portas.length === 1 && portas[0].provedor === 'email' && portas[0].sujeito === correio,
+    'A CONTA NASCE COM UMA PORTA. É o invariante todo: não há contas sem forma de entrar nelas',
+    JSON.stringify(portas));
+
+  /* E a segunda vez entra na MESMA conta, em vez de criar outra. */
+  sql(`DELETE FROM envios`);
+  const outraVez = await pedir('/v1/cliente/email', { metodo: 'POST', corpo: { email: correio } });
+  const alvo2 = (sql(`SELECT alvo FROM entradas WHERE email = '${correio}' AND usada_em IS NULL`)
+    .match(/"alvo":\s*"([^"]+)"/) || [])[1];
+  certo(outraVez.estado === 200 && alvo2 === `cliente:${novaId}`,
+    'e da segunda vez o código aponta para a conta que já existe, sem sessão nenhuma pelo meio',
+    `${outraVez.estado} ${alvo2}`);
+  certo(linhas(`SELECT COUNT(*) AS n FROM clientes WHERE id != '${novaId}'
+                 AND id IN (SELECT cliente_id FROM identidades WHERE sujeito = '${correio}')`)[0].n === 0,
+    'e não ficou uma segunda conta com a mesma morada');
+
+  /* A TRAVA ACOMPANHOU A PORTA. Ela guardava o registo anónimo, que era a
+     única forma de uma conta nascer; agora uma conta nasce no fim deste
+     caminho, e uma porta que cria contas sem contador esgota as escritas
+     diárias do D1 — que são partilhadas com tudo o resto. */
+  const contados = linhas(`SELECT COUNT(*) AS n FROM registos`)[0].n;
+  certo(contados >= 1,
+    'e um pedido sem sessão conta para a trava de criação em série',
+    `${contados} registos`);
+}
 
 console.log(`\n${passou} passaram, ${falhou} falharam.`);
 if (falhou) {

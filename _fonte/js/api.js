@@ -417,6 +417,16 @@ function criarDemo() {
         id: negocio.id, nome: negocio.nome, slug: negocio.slug, cor: negocio.cor,
         categoria: negocio.categoria, localidade: negocio.localidade,
         morada: negocio.morada, telefone: negocio.telefone,
+        /* O MESMO QUE O SERVIDOR DIZ, e mais o próprio desenho.
+
+           A demonstração não tem servidor de onde ir buscar a imagem, por isso
+           manda o `logotipo` (um endereço de dados) já feito — e a app usa-o em
+           vez de compor um endereço. As duas formas existem de propósito: a
+           app pergunta «há logótipo?» e «onde está?», e cada mundo responde à
+           sua maneira sem que o cartão saiba em qual deles está. */
+        temLogotipo: Boolean(negocio.logotipo),
+        logotipoEm: negocio.logotipo_em || null,
+        logotipo: negocio.logotipo || null,
       },
       programa: p,
       porResgatar: premios.length,
