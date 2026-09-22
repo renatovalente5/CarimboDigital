@@ -41,7 +41,7 @@
    Corre em modo de demonstração; o tema vive em `carimbo-demo:tema`.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '13 · Tema, modo escuro e movimento reduzido';
 
@@ -509,7 +509,7 @@ export async function correr(palco, certo) {
 
   await palco.tema('light');
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
 
   const abriuClaro = await olharTema(palco);

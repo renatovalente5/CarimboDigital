@@ -26,7 +26,7 @@
    no `worker/testes.mjs`, contra a Google de mentira.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '17 · Entrar com a Google';
 
@@ -69,17 +69,17 @@ async function guardado(palco, chave) {
 
 export async function correr(palco, certo) {
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
-  await palco.esperar('#barra .barra-item');
 
-  /* --- 1. A PORTA APARECE ONDE FOI PROMETIDA --------------------------- */
-  await palco.clicar(PERFIL);
-  await palco.esperar(LINHA_CONTA);
-  certo((await palco.texto(LINHA_CONTA)).includes('Guardar a conta'),
-    'antes de entrar, o perfil diz «Guardar a conta»', await palco.texto(LINHA_CONTA));
+  /* --- 1. A PORTA APARECE ONDE FOI PROMETIDA ---------------------------
 
-  await palco.clicar(LINHA_CONTA);
-  await palco.esperar(BOTAO_GOOGLE);
+     E o sítio mudou. A Google era uma oferta do PERFIL, para quem quisesse
+     guardar uma conta que já existia; com a conta obrigatória ela é uma das
+     três portas por onde se ENTRA, e o sítio onde isso se prova é a porta —
+     antes de haver conta nenhuma. Provar no perfil passou a ser provar o
+     caso raro: quem já entrou e quer juntar mais uma. */
+  await palco.esperar('#bv-saltar');
+  await palco.clicar('#bv-saltar');
+  await palco.esperar(BOTAO_GOOGLE, 10000);
   certo(await palco.visivel(BOTAO_GOOGLE),
     'o botão «Continuar com a Google» está à vista no painel de guardar a conta');
   certo((await palco.texto(BOTAO_GOOGLE)).includes('Google'),
@@ -123,7 +123,15 @@ export async function correr(palco, certo) {
 
   /* --- 2. ENTRAR ------------------------------------------------------- */
   await palco.clicar(BOTAO_GOOGLE);
-  await palco.esperarTexto('demonstração não há Google a sério');
+  /* A ENTRADA RECARREGA A APP, de propósito: ela levanta-se com a sessão nova
+     em vez de remendar meio estado. A frase da demonstração atravessa o
+     recarregar de propósito também — um aviso deitado fora por um `reload` é
+     um aviso que ninguém leu. */
+  await palco.esperar('#barra .barra-item', 12000);
+  await palco.esperarTexto('demonstração não há Google a sério', 8000);
+  /* E aterra-se na CARTEIRA, que é onde uma pessoa quer estar depois de
+     entrar. O perfil é para onde se vai a seguir, quando se quer ver a conta. */
+  await palco.clicar(PERFIL);
   await palco.esperar(LINHA_CONTA);
   certo((await palco.texto(LINHA_CONTA)).includes('A conta está guardada'),
     'depois de entrar, o perfil deixa de pedir para guardar a conta',

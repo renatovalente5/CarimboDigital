@@ -380,8 +380,22 @@ export function apagar(chave) {
    ========================================================================= */
 
 export function guardarNoSeparador(chave, valor) {
-  try { sessionStorage.setItem(ESPACO + chave, String(valor)); return true; }
-  catch { return false; }
+  try {
+    /* GUARDAR «NADA» É APAGAR, e não escrever a palavra.
+     *
+     * Isto era `String(valor)` e mais nada: quem limpasse uma chave passando
+     * `null` guardava a cadeia de quatro letras «null», e a leitura seguinte
+     * devolvia-a como se fosse um valor. Aconteceu com a frase que atravessa
+     * um recarregar: o aviso a seguir à entrada mostrava, em cima do ecrã, a
+     * palavra «null». A guarda da bateria que procura «null» no ecrã apanhou-o
+     * — e é para isto que ela existe. */
+    if (valor === null || valor === undefined) {
+      sessionStorage.removeItem(ESPACO + chave);
+      return true;
+    }
+    sessionStorage.setItem(ESPACO + chave, String(valor));
+    return true;
+  } catch { return false; }
 }
 
 /**

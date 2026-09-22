@@ -40,7 +40,7 @@
      acontecer. Espera-se que a página assente antes de olhar.
    ========================================================================= */
 
-import { passarBoasVindas, abrirOCartaoTodo } from './01-arranque.mjs';
+import { entrarNaApp, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '11 · Teclado, foco e alvos de toque';
 export const desculpar = [/favicon/];
@@ -399,7 +399,7 @@ export async function correr(palco, certo) {
     'boas-vindas: os pontos dos passos não se anunciam como uma lista de separadores vazia',
     pontos ? `role=${pontos.papel}, filhos=[${pontos.filhos.join(', ')}]` : 'não há pontos');
 
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
   await palco.esperar('#principal .pilha .cartao', 10000);
   await recolherAlvos(palco, alvosApp, 'carteira');

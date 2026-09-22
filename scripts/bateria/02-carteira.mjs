@@ -13,7 +13,7 @@
    mude sem o ecrã mudar passa a ser uma falha, que é o que se quer.
    ========================================================================= */
 
-import { abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
+import { abrirNoMaco, abrirOCartaoTodo, entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '02 · A carteira e o cartão';
 
@@ -71,14 +71,11 @@ function minimoPara(px, peso) {
    ========================================================================= */
 
 /** Passa as boas-vindas se estiverem lá. Devolve quantos passos deu. */
-async function passarBoasVindas(palco) {
-  if (!(await palco.ver('#boas-vindas'))) return 0;
-  for (let i = 0; i < 8; i++) {
-    if (!(await palco.visivel('#boas-vindas'))) return i;
-    await palco.clicar('#bv-seguinte');
-  }
-  return 8;
-}
+/* A CÓPIA LOCAL SAIU DAQUI. Ela clicava no «Continuar» até o passeio
+   desaparecer — e o passeio deixou de desaparecer: no fim ele abre a PORTA,
+   porque a conta passou a ser obrigatória. Uma cópia de um gesto que mudou é
+   a forma mais silenciosa de um teste passar a provar outra coisa. O gesto
+   vive num sítio só, ao lado do arranque. */
 
 /**
  * Começa do zero: sem localStorage e sem cofre.
@@ -96,7 +93,7 @@ async function comecarLimpo(palco) {
   });
   return true`);
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#principal .pilha .cartao', 10000);
 }
 
@@ -516,9 +513,7 @@ export async function correr(palco, certo) {
   /* --- abrir um cartão --------------------------------------------------- */
 
   const indice = vistos.findIndex((c) => c.nome === 'Café Torrado');
-  const passosAntes = await palco.js('return history.length');
   await abrirOCartaoTodo(palco, indice + 1);
-  const passosDepois = await palco.js('return history.length');
   await palco.captura('02-cartao-aberto');
 
   certo(await palco.visivel('#principal .cartao-grande'),
@@ -540,11 +535,22 @@ export async function correr(palco, certo) {
     'cartão: há um botão para voltar à carteira');
 
   /* Numa app instalada, o botão «para trás» do telemóvel é o gesto natural
-     para fechar um cartão. Se abrir não deixa marca no histórico, esse gesto
-     sai da app em vez de voltar à carteira. */
-  certo(passosDepois > passosAntes,
-    'cartão: abrir um cartão deixa um passo no histórico do browser',
-    `history.length ${passosAntes} → ${passosDepois}`);
+     para fechar um cartão. Se abrir não deixar marca no histórico, esse gesto
+     SAI DA APP em vez de voltar à carteira.
+     
+     ISTO CONTAVA `history.length`, e essa conta mente de duas maneiras: ela
+     tem tecto (cinquenta no Chrome, e uma sessão de testes chega lá), e um
+     número que não cresce tanto pode ser um empurrão em falta como o tecto a
+     bater. Prova-se o gesto: recua-se, e tem de aparecer a carteira. */
+  await palco.voltarAtras();
+  const voltouAoMaco = await palco.esperar('#principal .pilha > .cartao', 6000)
+    .then(() => true, () => false);
+  certo(voltouAoMaco && !(await palco.ver('#principal .cartao-grande')),
+    'cartão: recuar fecha o cartão e devolve a carteira, em vez de sair da app',
+    `carteira ${voltouAoMaco ? 'voltou' : 'não voltou'}`);
+
+  /* E entra-se outra vez, que é onde o resto deste bloco continua. */
+  await abrirOCartaoTodo(palco, indice + 1);
 
   /* --- o histórico de movimentos ---------------------------------------- */
 

@@ -33,7 +33,7 @@
    por conta da casa, uma hora de arrefecimento.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '08 · Balcão: carimbar, entregar e anular';
 export const desculpar = [/favicon/];
@@ -352,7 +352,7 @@ export async function correr(palco, certo) {
      e é assim que uma pessoa a experimenta — a app numa mão, o balcão na
      outra. */
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#principal .pilha .cartao', 12000);
 
   const semente = await estadoDemo(palco);

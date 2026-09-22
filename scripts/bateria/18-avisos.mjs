@@ -19,7 +19,7 @@
    lá chega.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '18 · Avisar quando o cartão fica cheio';
 
@@ -28,13 +28,21 @@ const LINHA_AVISOS = '#linha-avisos';
 
 export async function correr(palco, certo) {
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
   await palco.clicar(PERFIL);
   await palco.esperar('#principal .linha-perigo');
 
   /* --- 1. A LINHA EXISTE, E DIZ O ESTADO ------------------------------- */
   await palco.esperar(LINHA_AVISOS);
+  /* ROLA-SE ATÉ LÁ ANTES DE PERGUNTAR SE SE VÊ. O perfil cresceu — a conta
+     passou a dizer por onde se entrou — e esta linha desceu para baixo do
+     bordo. «Não está no ecrã agora» não é «não está no perfil», e a pergunta
+     que importa é a segunda. */
+  await palco.js(`
+    document.querySelector('${LINHA_AVISOS}')
+      .scrollIntoView({ block: 'center', behavior: 'instant' });
+    return true;`);
   certo(await palco.visivel(LINHA_AVISOS),
     'a linha dos avisos está no perfil');
   const texto = await palco.texto(LINHA_AVISOS);

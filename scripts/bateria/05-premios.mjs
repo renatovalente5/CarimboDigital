@@ -30,7 +30,7 @@
    precisamente o que a app mostra sem recarregar (fase 4).
    ========================================================================= */
 
-import { abrirOCartaoTodo } from './01-arranque.mjs';
+import { abrirOCartaoTodo, entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '05 · Prémios: ganhar, ver e resgatar';
 
@@ -41,12 +41,14 @@ const PREMIO_INVENTADO = 'Bica e pastel de nata por conta da casa';
 
 /* --- ferramentas ---------------------------------------------------------- */
 
-/** Passa as boas-vindas e espera pela carteira desenhada. */
-async function entrarNaApp(palco) {
+/** Entra na app e espera pela carteira desenhada. */
+async function abrirACarteira(palco) {
   await palco.ir('/app/?demo=1');
-  for (let i = 0; i < 8 && (await palco.visivel('#boas-vindas')); i++) {
-    await palco.clicar('#bv-seguinte');
-  }
+  /* O gesto de entrar vive num sítio só: o passeio deixou de dar acesso a
+     nada e no fim abre a porta, porque a conta é obrigatória. Uma cópia local
+     do gesto antigo continuava a clicar num botão que agora abre um painel — e
+     o clique seguinte batia no painel. */
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
   await palco.esperar('.pilha .cartao');
 }
@@ -118,7 +120,7 @@ async function premiosPorLevantar(palco) {
 /* --- o módulo ------------------------------------------------------------- */
 
 export async function correr(palco, certo) {
-  await entrarNaApp(palco);
+  await abrirACarteira(palco);
 
   /* =======================================================================
      Fase 1 — o que a semente deixou: um cartão cheio e quatro a meio

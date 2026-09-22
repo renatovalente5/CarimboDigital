@@ -1236,14 +1236,24 @@ function criarDemo() {
     },
 
     async confirmarEmail(email, codigo) {
-      const e = estado();
+      let e = estado();
       if (codigo !== (e.codigoDemo || '000000')) {
         const err = new Error('Na demonstração o código é 000000.');
         err.codigo = 'codigo-invalido'; throw err;
       }
-      const cliente = e.clientes.find((c) => c.email === null || c.email === undefined) || e.clientes[0];
+      /* PELA PORTA DO EMAIL A CONTA TAMBÉM NASCE AQUI. É o mesmo desenho do
+         servidor: pedir o código não cria nada, TROCÁ-LO é que cria — porque é
+         a troca que prova que a caixa de correio é de quem a escreveu. */
+      const nascida = await this.contaDaEntrada(e);
+      e = estado();
+      const cliente = e.clientes.find((c) => c.id === nascida.cliente.id)
+        || e.clientes.find((c) => c.email === null || c.email === undefined)
+        || e.clientes[0];
       if (cliente) { cliente.email = email; gravar(e); }
-      return { ok: true };
+      return {
+        ok: true, cliente: cliente || null,
+        segredo: nascida.segredo, sessao: nascida.sessao, horaDoServidor: agora(),
+      };
     },
 
     /* Na demonstração não há contas a sério para juntar, mas as chaves têm de
@@ -1281,9 +1291,50 @@ function criarDemo() {
       return { ok: true, demo: true };
     },
 
+    /**
+     * A CONTA DA DEMONSTRAÇÃO NASCE AQUI, e não no arranque.
+     *
+     * Isto acompanha a app a sério: com a conta obrigatória, uma conta só nasce
+     * no fim de uma entrada — e se a demonstração continuasse a nascer sozinha,
+     * dezasseis módulos da bateria continuavam a provar um caminho que a app já
+     * não tem. E o pior é que passavam.
+     *
+     * Devolve as mesmas três coisas que o servidor devolve — conta, segredo e
+     * sessão — porque quem chama não sabe em que mundo está.
+     */
+    async contaDaEntrada(e) {
+      /* A PERGUNTA É SOBRE ESTE TELEMÓVEL, e não sobre o mundo.
+       *
+       * «Já há clientes na demonstração?» é a pergunta errada: um telemóvel
+       * novo que entre num mundo onde já vive outra pessoa é exactamente o
+       * caso do «traz um amigo» — dois aparelhos, duas contas, o mesmo
+       * servidor. Perguntando ao mundo, o amigo entrava na conta de quem o
+       * convidou e o convite ficava sem ninguém a quem ser atribuído.
+       *
+       * A quem JÁ tem conta neste telemóvel isto nem chega a ser chamado: a
+       * porta só se abre quando não há. Mas quem estiver dentro da app a
+       * juntar uma segunda forma de entrar passa por aqui, e essa não pode
+       * ganhar conta nova. */
+      const daqui = (() => {
+        try {
+          const c = localStorage.getItem('carimbo-demo:cliente');
+          return c ? JSON.parse(c) : null;
+        } catch { return null; }
+      })();
+      const cliente = daqui && e.clientes.find((c) => c.id === daqui.id);
+      if (cliente) return { cliente, segredo: null, sessao: 'demo:' + cliente.id };
+      const r = await this.registarCliente();
+      /* A carteira enche-se aqui: uma demonstração que abre vazia não
+         demonstra nada, e este é agora o único sítio por onde se entra. */
+      await this.semear(r.cliente.id);
+      return r;
+    },
+
     async estadoEntrada(_bilhete, provedor = 'google') {
-      const e = estado();
-      const cliente = e.clientes[0] || null;
+      let e = estado();
+      const nascida = await this.contaDaEntrada(e);
+      e = estado();
+      const cliente = e.clientes.find((c) => c.id === nascida.cliente.id) || e.clientes[0] || null;
       if (!cliente) return { situacao: 'expirada', demo: true };
       if (provedor === 'apple') {
         /* Da Apple não vem morada — nem aqui. A demonstração tem de ensinar o
@@ -1293,7 +1344,10 @@ function criarDemo() {
         cliente.google = cliente.google || 'a.tua.conta@gmail.com';
       }
       gravar(e);
-      return { situacao: 'pronta', cliente, recuperada: false, pista: null, provedor, demo: true };
+      return {
+        situacao: 'pronta', cliente, recuperada: false, pista: null, provedor, demo: true,
+        segredo: nascida.segredo, sessao: nascida.sessao, horaDoServidor: agora(),
+      };
     },
 
     async desligarPorta(provedor) {

@@ -30,7 +30,7 @@
    Corre em modo de demonstração, onde o código do email é sempre 000000.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '06 · Perfil: conta, email, exportar e apagar';
 
@@ -110,7 +110,11 @@ async function esperarRecomeco(palco, tecto = 12000) {
 export async function correr(palco, certo) {
   /* --- chegar ao perfil -------------------------------------------------- */
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  /* ENTRA-SE PELA GOOGLE, e não pelo email. Este módulo prova o caminho de
+     JUNTAR um email a uma conta — e quem entrasse por email já cá chegava com
+     um, por isso o painel mostrava «Como entras nesta conta» em vez do campo.
+     A conta que interessa a este módulo é a que ainda não tem morada. */
+  await entrarNaApp(palco, { porta: 'google' });
   await palco.esperar('#barra .barra-item');
   await palco.clicar(PERFIL);
   await palco.esperar('#principal .identidade-numero');

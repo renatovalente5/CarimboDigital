@@ -11,16 +11,96 @@
 
 export const nome = '01 · Arranque das duas apps';
 
-/** Passa as boas-vindas. Devolve quantos passos foram precisos. */
-export async function passarBoasVindas(palco) {
-  if (!(await palco.ver('#boas-vindas'))) return 0;
-  for (let i = 0; i < 8; i++) {
-    /* O painel some sozinho no último passo; enquanto lá estiver, avança. */
-    if (!(await palco.visivel('#boas-vindas'))) return i;
-    await palco.clicar('#bv-seguinte');
+/**
+ * ENTRA NA APP. Era «passar as boas-vindas», e mudou de nome porque mudou de
+ * trabalho.
+ *
+ * O passeio deixou de dar acesso a nada: ele mostra o que a app faz e no fim
+ * abre a PORTA. A conta é obrigatória, e uma conta só nasce no fim de uma
+ * entrada — por isso um teste que queira ver a carteira tem de entrar, como
+ * qualquer pessoa. Entra-se pelo email, que é o caminho que não depende de
+ * provedor nenhum estar configurado; na demonstração o código é sempre
+ * `000000` e está escrito no ecrã.
+ *
+ * O NOME MUDOU DE PROPÓSITO. Um `passarBoasVindas` que por dentro cria uma
+ * conta é uma mentira ao próximo que o ler — e oito módulos chamam-no.
+ */
+/* A PORTA POR OMISSÃO É A DA GOOGLE, e a escolha não é de gosto.
+ *
+ * Entrar por email deixa a conta JÁ com uma morada ligada — e meia dúzia de
+ * módulos provam justamente o caminho de juntar um email a uma conta que ainda
+ * não tem nenhum. Com o email à entrada, o que eles encontravam era o painel
+ * de gerir portas em vez do campo, e morriam todos no mesmo sítio por uma
+ * razão que nada tinha a ver com o que estavam a provar.
+ *
+ * A porta do email prova-se onde ela é o assunto: no módulo do arranque e no
+ * de mudar de telemóvel. */
+export async function entrarNaApp(palco, { email = 'bateria@exemplo.pt', porta = 'google' } = {}) {
+  /* ESPERA-SE QUE O ARRANQUE DECIDA, e só depois se pergunta o que ele decidiu.
+   *
+   * Perguntar «o passeio está à vista?» no instante a seguir a navegar é
+   * perguntar antes de haver resposta: o arranque vai ao armazenamento, ao
+   * cofre e — quando há volta de um provedor — à rede, e só então mostra a
+   * porta ou a app. A resposta «não está à vista» chegava antes de o passeio
+   * nascer, o ajudante dava a entrada por feita, e quem chamava ficava doze
+   * segundos à espera de uma barra que ninguém ia pintar. */
+  const pronto = await palco.js(`
+    for (let i = 0; i < 120; i++) {
+      const bv = document.querySelector('#boas-vindas');
+      if (bv && !bv.hidden && bv.getBoundingClientRect().height > 0) return 'porta';
+      if (document.querySelector('#barra .barra-item')) return 'dentro';
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return 'nada';`);
+  if (pronto !== 'porta') return false;
+
+  /* Salta-se o passeio: quem o quiser provar prova-o à parte, e três cliques
+     por módulo são três cliques que nada acrescentam. */
+  await palco.clicar('#bv-saltar');
+
+  /* PELA PORTA QUE SE PEDIR. A do email é a que não depende de provedor
+     nenhum estar configurado, e é a omissão — mas quem entra por ela fica com
+     uma conta que JÁ tem email, e um módulo que queira provar o caminho de
+     juntar um email precisa de entrar por outro lado. */
+  if (porta !== 'email') {
+    const marca = porta === 'apple' ? 'Apple' : 'Google';
+    await palco.esperar(`#painel button[data-porta="${porta}"]`, 10000);
+    await palco.clicar(`#painel button[data-porta="${porta}"]`);
+    await palco.esperar('#barra .barra-item', 12000);
+    return true;
   }
-  return 8;
+  /* ESPERA-SE PELO BOTÃO E NÃO PELO CAMPO.
+   *
+   * O painel pinta-se em dois tempos: primeiro o texto, e só depois de o
+   * servidor dizer que portas estão abertas é que nasce a oferta — campo,
+   * botão e tudo. Esperar pelo CAMPO apanhava-o no instante entre as duas
+   * pinturas: o `esperar` dava-o por encontrado e o `escrever`, logo a seguir,
+   * já não o achava. O botão é o último a nascer, por isso é ele o sinal de
+   * que o painel está feito. */
+  await palco.esperar('#botao-enviar', 10000);
+  await palco.escrever('#campo-email', email);
+  await palco.clicar('#botao-enviar');
+  await palco.esperar('#campo-codigo', 8000);
+  await palco.escrever('#campo-codigo', '000000');
+  /* O BOTÃO PODE JÁ NÃO LÁ ESTAR, e não é defeito: o campo do código confirma
+     sozinho ao sexto algarismo — é o que poupa um toque a quem está ao balcão.
+     Clica-se se ele existir, e segue-se se não existir; o que decide é o que
+     vem a seguir, não este clique. */
+  await palco.js(`
+    const b = [...document.querySelectorAll('button')]
+      .find((x) => x.textContent.trim() === 'Confirmar');
+    if (b) b.click();
+    return Boolean(b);`);
+
+  /* A ENTRADA RECARREGA A PÁGINA, de propósito: a app levanta-se com a sessão
+     nova em vez de remendar meio estado. Espera-se pelo que só existe do outro
+     lado do recarregar. */
+  await palco.esperar('#barra .barra-item', 12000);
+  return true;
 }
+
+/** O nome antigo, para não partir o que ainda não foi lido. */
+export const passarBoasVindas = entrarNaApp;
 
 /* =========================================================================
    O MAÇO DA CARTEIRA — dois gestos que todos os módulos precisam
@@ -118,9 +198,13 @@ export async function correr(palco, certo) {
     'a barra da demonstração está à frente das boas-vindas, e não atrás delas',
     `no ponto dela está «${noTopo?.quemTapa ?? noTopo?.erro}»`);
 
-  const passos = await passarBoasVindas(palco);
-  certo(passos > 0 && passos < 8,
-    `app do cliente: as boas-vindas acabam (${passos} passos)`, `passos=${passos}`);
+  /* O PASSEIO JÁ NÃO ACABA NA APP: acaba na porta, e é a entrada que acaba na
+     app. A pergunta passa a ser a que interessa — de um telemóvel limpo,
+     consegue-se entrar? */
+  const entrou = await entrarNaApp(palco);
+  certo(entrou === true,
+    'app do cliente: de um telemóvel limpo, entra-se e chega-se à app',
+    `entrarNaApp devolveu ${JSON.stringify(entrou)}`);
 
   await palco.esperar('#barra .barra-item');
   const separadores = await palco.textos('.barra-item');

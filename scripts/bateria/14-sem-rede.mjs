@@ -36,7 +36,7 @@
    medir.
    ========================================================================= */
 
-import { passarBoasVindas, abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
+import { entrarNaApp, abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '14 · Sem rede e com a API avariada';
 
@@ -177,7 +177,11 @@ export async function correr(palco, certo) {
      ======================================================================= */
 
   await irComRede(palco, '/app/?demo=1');
-  await passarBoasVindas(palco);
+  /* PELO EMAIL. A porta de um provedor pergunta ao servidor que portas estão
+     abertas antes de se desenhar, e este módulo existe justamente para cortar
+     a rede: o botão da Google não chega a nascer. A do email desenha-se
+     sempre — é a que não depende de ninguém do outro lado. */
+  await entrarNaApp(palco, { porta: 'email' });
   await palco.esperar('#principal .pilha .cartao', 10000);
 
   await espiarPedidos(palco);
@@ -403,37 +407,37 @@ export async function correr(palco, certo) {
   certo(await palco.visivel('#boas-vindas'),
     'remoto: as boas-vindas aparecem sem precisar de rede — são texto local');
 
-  await passarBoasVindas(palco);
-  await palco.esperarTexto('Sem ligação ao servidor', 20000);
+  /* COM A CONTA OBRIGATÓRIA, O QUE FALHA É A PORTA — e é lá que a app tem de
+     dizer a verdade. Antes, a app entrava sozinha e só depois é que dava de
+     caras com o servidor morto; agora nem chega a entrar, e o sítio onde isso
+     se vê é o pedido do código. O que não pode acontecer é o botão ficar a
+     girar para sempre sem uma palavra. */
+  await palco.clicar('#bv-saltar');
+  await palco.esperar('#botao-enviar', 10000);
+  await palco.escrever('#campo-email', 'sem.rede@exemplo.pt');
+  await palco.clicar('#botao-enviar');
   await palco.captura('14-app-remota-sem-rede');
 
-  certo(!(await palco.visivel('#boas-vindas')),
-    'remoto sem rede: as boas-vindas fecham-se — não ficam penduradas no último passo');
-  certo(await palco.visivel('#aplicacao'),
-    'remoto sem rede: a app aparece, mesmo que só para explicar o que falhou');
-  certo(await palco.texto('#principal .vazio h3') === 'Sem ligação ao servidor',
-    'remoto sem rede: o ecrã diz que é a ligação que falta',
-    String(await palco.texto('#principal .vazio h3')));
-  certo((await palco.texto('#principal .vazio p')).includes('Os teus cartões estão a salvo'),
-    'remoto sem rede: e tranquiliza quem tem cartões',
-    String(await palco.texto('#principal .vazio p')));
-  certo(await palco.texto('#principal .vazio .btn') === 'Tentar outra vez',
-    'remoto sem rede: há um botão para voltar a tentar',
-    String(await palco.texto('#principal .vazio .btn')));
-  certo(await palco.visivel('#principal .vazio .btn'),
-    'remoto sem rede: e o botão está mesmo à vista');
-
-  const miudo = await palco.texto('#principal .vazio .miudo');
-  certo(miudo === 'Sem ligação ao servidor. Verifica a Internet.',
-    'remoto sem rede: o detalhe é a mensagem em português, não a do fetch',
-    String(miudo));
-  certo(mensagemCrua(await palco.textoTodo()) === null,
-    'remoto sem rede: não há uma palavra de inglês do fetch no ecrã',
-    String(mensagemCrua(await palco.textoTodo())));
-
-  /* Nesta abertura não há conta nenhuma — não há cartão, não há número, não
-     há nada por trás de separador nenhum. Uma barra com cinco separadores
-     seria uma promessa falsa: carregar em qualquer um deles não fazia nada. */
+  const queixa = await palco.esperarTexto('ligação', 20000).then(() => true, () => false);
+  certo(queixa,
+    'remoto sem rede: a porta diz que não conseguiu falar com o servidor',
+    (await palco.textoTodo()).slice(0, 200));
+  certo(await palco.visivel('#botao-enviar'),
+    'e o botão volta a poder ser tocado — quem ficou sem rede tenta outra vez');
+  certo(await palco.visivel('#boas-vindas'),
+    'e a porta fica onde estava, em vez de deixar a pessoa num ecrã vazio');
+  /* AQUI ESTAVA O RESTO DESTE ACTO, e saiu com o caminho que ele descrevia.
+   *
+   * Ele provava o ecrã de «Sem ligação ao servidor» — com o texto que
+   * tranquiliza, o botão de tentar outra vez e nem uma palavra de inglês do
+   * `fetch`. Esse ecrã continua a existir e continua a ser o certo, mas só se
+   * chega a ele por um caminho: TER conta e ficar sem rede. Numa primeira
+   * abertura já não há por onde lá chegar, porque a app nem chega a tentar
+   * entrar — pára na porta, que é o que este acto passou a provar.
+   *
+   * O ecrã continua provado nos actos anteriores, onde há conta. Manter aqui
+   * afirmações sobre um ecrã que este caminho já não pinta era ficar com um
+   * teste a descrever uma app que não é esta. */
   certo(await palco.contar('#barra .barra-item') === 0,
     'remoto sem rede, primeira abertura: a barra não fica com separadores vazios',
     `${await palco.contar('#barra .barra-item')} separadores`);
@@ -514,6 +518,10 @@ export async function correr(palco, certo) {
   const guiao = await montarServidorFingido(palco);
 
   await palco.ir('/app/?demo=0');
+  /* ENTRA-SE, porque a conta é obrigatória também aqui. O servidor de mentira
+     responde às duas portas do email — pedir o código e trocá-lo — e o que
+     devolve é a mesma conta que devolvia ao registo. */
+  await entrarNaApp(palco, { porta: 'email' });
   await palco.esperar('#principal .pilha .cartao', 10000);
 
   certo(await palco.js("return document.documentElement.dataset.tema !== undefined || true")
@@ -524,12 +532,18 @@ export async function correr(palco, certo) {
   /* O testemunho da sessão tem de seguir nos pedidos que vêm a seguir ao
      registo — se não seguir, em produção respondem todos 401. */
   const primeiros = await palco.js('return window.__fingir.pedidos');
-  certo(primeiros[0] && primeiros[0].caminho.endsWith('/v1/cliente/registar'),
-    'API de mentira: o primeiro pedido é o registo do cliente',
-    JSON.stringify(primeiros[0] || null));
-  certo(primeiros.slice(1).every((p) => p.autorizacao === 'Bearer sessao-de-mentira'),
-    'API de mentira: os pedidos seguintes levam o testemunho da sessão',
-    JSON.stringify(primeiros.slice(1).map((p) => p.autorizacao)));
+  /* A PERGUNTA MUDOU COM A PORTA. Ela era «o primeiro pedido é o registo?»,
+     porque a app criava a conta antes de falar de identidade. Agora a conta
+     nasce na entrada, que acontece ANTES de o espião começar a olhar — e o
+     que vale a pena provar é o que sobrou: que a sessão que veio da entrada é
+     usada em TODOS os pedidos, e não só no primeiro a seguir. Um pedido sem
+     testemunho é um 401 à espera de acontecer. */
+  certo(primeiros.length > 0,
+    'API de mentira: houve pedidos para observar (senão isto não prova nada)',
+    `${primeiros.length} pedidos`);
+  certo(primeiros.every((p) => p.autorizacao === 'Bearer sessao-de-mentira'),
+    'API de mentira: todos os pedidos levam o testemunho que a entrada devolveu',
+    JSON.stringify(primeiros.map((p) => `${p.caminho} ${p.autorizacao}`)));
 
   /* --- a rede cai a meio da sessão -------------------------------------- */
 
@@ -939,6 +953,20 @@ async function montarServidorFingido(palco) {
       function encaminhar(caminho, metodo) {
         var D = window.__DADOS;
         if (metodo === 'POST' && /\\/v1\\/cliente\\/registar$/.test(caminho)) return [200, D.registo];
+        /* AS DUAS PORTAS DO EMAIL. O servidor de mentira nasceu quando a conta
+           nascia sozinha e bastava-lhe responder ao registo; com a conta
+           obrigatória, o primeiro pedido que a app faz é pedir um código, e o
+           segundo é trocá-lo. A resposta da troca é a mesma do registo — conta,
+           segredo e sessão — porque é a mesma coisa vista do outro lado. */
+        if (metodo === 'POST' && /\\/v1\\/cliente\\/email$/.test(caminho)) {
+          return [200, { enviado: true, motivo: null, recuperar: false }];
+        }
+        if (metodo === 'POST' && /\\/v1\\/cliente\\/entrar$/.test(caminho)) {
+          return [200, Object.assign({}, D.registo, { recuperada: false })];
+        }
+        if (metodo === 'GET' && /\\/v1\\/portas$/.test(caminho)) {
+          return [200, { email: true, google: false, apple: false }];
+        }
         if (metodo === 'GET' && /\\/v1\\/cliente\\/cartoes$/.test(caminho)) return [200, D.cartoes];
         if (metodo === 'GET' && /\\/v1\\/cliente\\/cartoes\\/[^/]+$/.test(caminho)) {
           var id = caminho.split('/').pop();

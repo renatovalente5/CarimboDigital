@@ -412,3 +412,74 @@ body.pagina-negocios .porta-app {
   font-size: .9375rem; line-height: 1.6;
 }
 .caixa-aviso p { color: var(--tinta); }
+
+/* =========================================================================
+   AS DUAS PORTAS — cliente e balcão, lado a lado
+
+   Não são botões: são cartões inteiros tocáveis, porque o que se escolhe aqui
+   não é uma acção, é QUEM SE É. Um botão pequeno ao lado de outro botão
+   pequeno obriga a ler duas palavras e adivinhar; um cartão com um nome e uma
+   frase deixa a pessoa reconhecer-se numa delas.
+
+   E são `<a>` e não `<div>` com um `onclick`: quem anda de teclado chega lá
+   pela tabulação, o menu do botão direito oferece «abrir noutro separador», e
+   o browser mostra o destino na barra de estado antes do toque.
+   ========================================================================= */
+
+/* `.duas-portas` e não `.portas`: essa já era do CABEÇALHO, e havia uma
+   afirmação a contá-las lá — «o cabeçalho tem DUAS portas» passou a encontrar
+   quatro no dia em que esta secção nasceu. Uma classe é um nome, e um nome
+   já dado não se toma emprestado. */
+.duas-portas {
+  display: grid; gap: var(--e-4);
+  margin-top: var(--e-6);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .duas-portas { grid-template-columns: 1fr 1fr; gap: var(--e-5); }
+}
+
+.porta-cartao {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: var(--e-2) var(--e-4);
+  padding: var(--e-6);
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-5);
+  color: inherit; text-decoration: none;
+  transition: transform var(--t-2) var(--mola), border-color var(--t-2) ease,
+              background-color var(--t-2) ease;
+}
+@media (hover: hover) {
+  .porta-cartao:hover { border-color: var(--marca); background: var(--papel-3); }
+}
+.porta-cartao:active { transform: scale(.99); }
+
+.porta-nome {
+  grid-column: 1; grid-row: 1;
+  font-size: 1.375rem; font-weight: 800; letter-spacing: -.03em;
+}
+/* A frase ocupa as DUAS colunas: a seta fica alinhada com o nome, em cima, e
+   o texto corre por baixo dela até ao fim do cartão. Encaixada só na primeira
+   coluna, ela partia linha cedo de mais e sobrava um vazio à direita. */
+.porta-diz {
+  grid-column: 1 / -1; grid-row: 2;
+  color: var(--tinta-2); font-size: .9375rem; line-height: 1.5;
+}
+.porta-seta {
+  grid-column: 2; grid-row: 1;
+  display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: var(--r-max);
+  background: var(--marca-fundo); color: var(--marca);
+  transition: translate var(--t-2) var(--mola);
+}
+@media (hover: hover) {
+  .porta-cartao:hover .porta-seta { translate: 3px 0; }
+}
+
+.entrada-nota {
+  margin-top: var(--e-4);
+  color: var(--tinta-3); font-size: .875rem;
+}

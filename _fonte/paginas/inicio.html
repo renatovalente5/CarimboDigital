@@ -118,9 +118,10 @@ prioridade: 1.0
       </div>
       <div class="tijolo">
         <div class="tijolo-icone"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10" width="15" height="11" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg></div>
-        <h3>Sem conta, sem dados a mais</h3>
-        <p>Não pedimos nome, telefone nem morada. Começas a usar no primeiro
-           segundo — e apagas tudo com um toque quando quiseres.</p>
+        <h3>Uma conta, e nada mais</h3>
+        <p>O teu email, ou a conta da Google ou da Apple que já tens. Não
+           pedimos nome, telefone nem morada — e apagas tudo com um toque
+           quando quiseres.</p>
       </div>
     </div>
   </div>
@@ -255,6 +256,56 @@ prioridade: 1.0
         </div>
       </details>
     </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     AS DUAS PORTAS
+
+     O produto são duas apps e sempre foram dois endereços, mas a página
+     nunca as pôs lado a lado: quem chegava pelo cartaz de um café e quem
+     chegava por ser dono de um café liam o mesmo texto e tinham de adivinhar
+     em qual dos dois botões carregar.
+
+     OS NOMES SÃO «CLIENTE» E «BALCÃO», e não «Os meus cartões» e «Abrir o
+     balcão». Os antigos descreviam o que está lá dentro; estes dizem QUEM É
+     QUEM, que é a pergunta que se faz aqui. E há uma frase por baixo de cada
+     um, porque um nome sozinho não desempata para quem nunca cá esteve.
+
+     Não se lembra a escolha, de propósito. O telemóvel do balcão passa por
+     várias mãos, e o dono de um café também junta carimbos noutro sítio: uma
+     porta que se fecha sozinha por causa da escolha da semana passada é uma
+     porta pior do que duas. Quem já tem sessão vê a tira do topo, que o
+     `molde.html` pinta e que diz o que este aparelho já tem.
+     ===================================================================== -->
+<section class="faixa" id="entrar">
+  <div class="dentro">
+    <span class="olho">Entrar</span>
+    <h2 class="seccao-titulo-grande">Duas portas.<br>Só uma é a tua.</h2>
+    <div class="duas-portas">
+      <a class="porta-cartao" href="{{BASE}}/app/">
+        <span class="porta-nome">Cliente</span>
+        <span class="porta-diz">Junto carimbos nos cafés onde vou. Mostro o
+          meu código ao balcão e vejo os cartões todos no telemóvel.</span>
+        <span class="porta-seta" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"
+               fill="none" stroke="currentColor" stroke-width="1.75"
+               stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>
+        </span>
+      </a>
+      <a class="porta-cartao" href="{{BASE}}/balcao/">
+        <span class="porta-nome">Balcão</span>
+        <span class="porta-diz">Tenho um café, um salão, uma barbearia. Aponto
+          a câmara ao código do cliente e dou o carimbo.</span>
+        <span class="porta-seta" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"
+               fill="none" stroke="currentColor" stroke-width="1.75"
+               stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>
+        </span>
+      </a>
+    </div>
+    <p class="entrada-nota">Enganaste-te? Volta atrás e escolhe a outra — não
+      guardamos a escolha, e o mesmo telemóvel pode ter as duas.</p>
   </div>
 </section>
 

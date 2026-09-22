@@ -23,6 +23,8 @@
      ficaram por limpar depois de fechar.
    ========================================================================= */
 
+import { entrarNaApp } from './01-arranque.mjs';
+
 export const nome = '03 · O ecrã do código QR';
 export const ecra = { largura: 390, altura: 844 };
 
@@ -41,12 +43,11 @@ let ANEL = 119.38;          /* substituído pelo valor real, lido do SVG */
 const dorme = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Passa as boas-vindas, se lá estiverem. */
-async function passarBoasVindas(palco) {
-  if (!(await palco.ver('#boas-vindas'))) return;
-  for (let i = 0; i < 8 && await palco.visivel('#boas-vindas'); i++) {
-    await palco.clicar('#bv-seguinte');
-  }
-}
+/* A CÓPIA LOCAL SAIU DAQUI. Ela clicava no «Continuar» até o passeio
+   desaparecer — e o passeio deixou de desaparecer: no fim ele abre a PORTA,
+   porque a conta passou a ser obrigatória. Uma cópia de um gesto que mudou é
+   a forma mais silenciosa de um teste passar a provar outra coisa. O gesto
+   vive num sítio só, ao lado do arranque. */
 
 /* -------------------------------------------------------------------------
    Espião dos temporizadores
@@ -157,7 +158,7 @@ function lerAnel(palco) {
 
 export async function correr(palco, certo) {
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
 
   /* Um separador escondido não pinta nem corre `requestAnimationFrame`, e

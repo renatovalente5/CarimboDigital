@@ -1875,9 +1875,26 @@ async function assentarEntradaPorPorta(r, { demo = false, provedor = 'google' } 
   }
   await carregarIdentidades();
   fecharPainel();
-  avisar(demo
+  /* SE ISTO FOI UMA ENTRADA, RECARREGA-SE — e não se tenta ir ao perfil.
+   *
+   * Este caminho foi escrito para quem JÁ estava dentro da app e vinha ligar
+   * mais uma porta: `irPara('perfil')` só faz sentido com a app pintada. À
+   * porta, `#aplicacao` está escondido e o que está à frente é o passeio: o
+   * ecrã não mudava, e quem tocou no botão ficava a olhar para o mesmo sítio
+   * convencido de que não tinha funcionado. */
+  const frase = demo
     ? `Nesta demonstração não há ${marca} a sério — mas o caminho é este.`
-    : 'Conta guardada. Os cartões já não se perdem.', 'bom');
+    : 'Conta guardada. Os cartões já não se perdem.';
+  if (RECARREGAR_DEPOIS) {
+    /* A FRASE ATRAVESSA O RECARREGAR. Um aviso mostrado e logo a seguir
+       deitado fora por um `reload` é um aviso que ninguém leu — e na
+       demonstração este é o que diz que a Google não foi a sério, que é
+       precisamente o que não se pode perder. Guarda-se para o outro lado. */
+    guardarNoSeparador('aviso-depois', frase);
+    location.reload();
+    return;
+  }
+  avisar(frase, 'bom');
   await irPara('perfil');
 }
 
@@ -2171,7 +2188,7 @@ function linhaDaPorta({ marca, nome, morada, accao, aoClick }) {
  * para desligar seja o que for. Um botão de desligar ali era prometer uma coisa
  * que ia dar 401.
  */
-async function guardarConta({ recuperar = false } = {}) {
+async function guardarConta({ recuperar = false, entrada = false } = {}) {
   /* DUAS PERGUNTAS DIFERENTES, e confundi-las custava caro.
      «O que é que esta conta TEM» decide o que se oferece, e sai da lista —
      da cache, quando não há sessão para a ir buscar. «Posso MEXER nisto»
@@ -2193,14 +2210,19 @@ async function guardarConta({ recuperar = false } = {}) {
   const podeMexer = !recuperar;
   const ligadas = conhecidas && podeMexer;
 
+  /* TRÊS PERGUNTAS DIFERENTES, TRÊS TÍTULOS. «Recuperar os cartões» é o que
+     se diz a quem já teve conta; a quem chega pela primeira vez isso não quer
+     dizer nada — não há nada para recuperar, e a palavra sugere que se perdeu
+     alguma coisa. `entrada` é o caminho de quem está à porta. */
   const painel = abrirPainel(ligadas
     ? 'Como entras nesta conta'
-    : (recuperar ? 'Recuperar os cartões' : 'Guardar a conta'));
+    : (entrada ? 'Entrar ou criar conta'
+      : (recuperar ? 'Recuperar os cartões' : 'Guardar a conta')));
 
   /* No modo recuperar, quando já se sabe por onde esta conta entra, diz-se —
      em vez de oferecer as duas como se fosse um telemóvel novo. */
   const quantas = [comEmail, comGoogle, comApple].filter(Boolean).length;
-  const soUma = recuperar && quantas === 1;
+  const soUma = recuperar && !entrada && quantas === 1;
 
   /* O TEXTO NASCE VAZIO E ENCHE-SE DEPOIS, e é de propósito. Ele nomeia as
      portas — «com a Google, com a Apple, ou com um email» — e quem sabe quais
@@ -2214,7 +2236,7 @@ async function guardarConta({ recuperar = false } = {}) {
   /* E na demonstração diz-se JÁ, antes de qualquer botão: não há conta
      nenhuma noutro telemóvel para ir buscar. O caminho mostra-se todo, mas
      ninguém sai daqui a pensar que recuperou alguma coisa. */
-  if (MODO === 'demo' && recuperar) {
+  if (MODO === 'demo' && recuperar && !entrada) {
     painel.append(el('p', { class: 'miudo', texto:
       'Nesta demonstração não há conta noutro telemóvel para ir buscar — cada '
       + 'telemóvel tem a sua. O caminho é este, e é o que vais ver a sério.' }));
@@ -2272,8 +2294,16 @@ async function guardarConta({ recuperar = false } = {}) {
 
   /* Em modo de recuperação oferece-se o que a conta TEM; a gerir, o que lhe
      FALTA. Num telemóvel novo não se sabe nada dela, e oferecem-se todas. */
+  /* À PORTA OFERECEM-SE TODAS, e é a diferença que interessa.
+   *
+   * Em modo de recuperação, a lista em cache diz por onde ESTA conta entra e o
+   * painel oferece só essa — é a coisa certa a fazer a quem está a voltar. Mas
+   * à ENTRADA a cache não é da pessoa que está à frente do telemóvel: é de
+   * quem o usou antes. Um telemóvel cuja última conta entrou pela Google
+   * escondia a porta do email a quem chegasse a seguir, e essa pessoa ficava
+   * sem forma de entrar na conta dela. */
   const oferecer = (tem, existe = true) => existe
-    && (recuperar ? (conhecidas ? tem : true) : !tem);
+    && (entrada ? true : (recuperar ? (conhecidas ? tem : true) : !tem));
   const oferecerGoogle = oferecer(comGoogle, portas.google);
   const oferecerApple = oferecer(comApple, portas.apple);
   const oferecerEmail = oferecer(comEmail);
@@ -2301,11 +2331,15 @@ async function guardarConta({ recuperar = false } = {}) {
           + 'cartões voltam para este telemóvel.'
         : `Esta conta entra pela ${comApple ? 'Apple' : 'Google'}. Toca no botão `
           + 'e os cartões voltam para este telemóvel.')
+      : (entrada
+        ? `Entra ${emProsa}. É a conta que te distingue: é por ela que os `
+          + 'carimbos te seguem se mudares de telemóvel, e é por ela que os '
+          + 'podes apagar todos de uma vez.'
       : (recuperar
         ? `Entra ${emProsa} — o mesmo que já usaste — e os cartões voltam para `
           + 'este telemóvel.'
         : `Chega uma forma: ${emProsa}. Se mudares de telemóvel, entras outra `
-          + 'vez e os cartões voltam todos.'));
+          + 'vez e os cartões voltam todos.')));
 
   if (!oferecerGoogle && !oferecerApple && !oferecerEmail) {
     painel.append(el('p', { class: 'miudo', style: 'margin-top:16px', texto: ligadas
@@ -3019,8 +3053,15 @@ const PASSOS = [
     c: 'Aquele cartão do café que está sempre em casa quando é preciso — agora está aqui, e nunca se perde.' },
   { t: 'Um código.<br>Todos os cartões.',
     c: 'Não é um código por sítio. É um só, teu. O balcão aponta a câmara e o carimbo aparece.' },
-  { t: 'Sem conta,<br>sem dados a mais.',
-    c: 'Não pedimos nome, telefone nem morada. Começas a usar já — e podes apagar tudo quando quiseres.' },
+  /* ISTO DIZIA «Sem conta, sem dados a mais», e deixou de ser verdade no dia
+     em que a conta passou a ser obrigatória. Não se corrige uma promessa
+     apagando-a: põe-se no lugar dela a razão POR QUE a conta existe — e essa
+     razão tem de ser concreta, porque é dela que depende o fundamento legal.
+     «Está no contrato» não torna um tratamento necessário; o que o torna
+     necessário é a promessa de não perder os carimbos ao mudar de telemóvel,
+     e essa promessa tem de ser verdadeira no código. */
+  { t: 'A conta é o<br>teu cartão.',
+    c: 'Só o email, ou a conta da Google ou da Apple que já tens. É por ela que os carimbos te seguem para o telemóvel seguinte — e é por ela que os podes apagar todos quando quiseres.' },
 ];
 
 function boasVindas() {
@@ -3075,23 +3116,24 @@ function boasVindas() {
     const anuncio = caixa.querySelector('#bv-passo');
     if (anuncio) anuncio.textContent = `Passo ${passo + 1} de ${PASSOS.length}`;
     caixa.querySelector('#bv-seguinte').textContent =
-      passo === PASSOS.length - 1 ? 'Começar' : 'Continuar';
+      passo === PASSOS.length - 1 ? 'Entrar ou criar conta' : 'Continuar';
     palco.dataset.passo = String(passo);
   }
 
+  /* O ÚLTIMO PASSO ABRE A PORTA, E NÃO A APP.
+   *
+   * Ele entrava direito na carteira, porque a conta nascia sozinha por baixo.
+   * Agora o passeio é o que se mostra ANTES de pedir a conta — que é a ordem
+   * que quase toda a gente usa e a que o Fresha usa: ver o que a coisa faz,
+   * e só depois dar alguma coisa em troca.
+   *
+   * E NÃO se escreve o `visto-bv` aqui. O painel abre POR CIMA do passeio; se
+   * a pessoa o fechar sem entrar, tem de voltar a encontrar o que estava. Quem
+   * escreve essa chave são os caminhos que chegam ao fim da entrada. */
   caixa.querySelector('#bv-seguinte').addEventListener('click', async () => {
     if (passo < PASSOS.length - 1) { passo++; pintar(); vibrar(8); return; }
-    guardar('visto-bv', true);
-    caixa.hidden = true;
-    try {
-      await entrar();
-      /* Também aqui, e não só para quem já conhece a app: quem chega pelo
-         cartaz de um café é, por definição, quem nunca a abriu. O convite
-         ficava a ser lido apenas no ramo de quem já tinha visto as
-         boas-vindas — ou seja, nunca para o público a que o cartaz se
-         dirige. */
-      await seguirConvite();
-    } catch (e) { console.error(e); ecraSemLigacao(e); }
+    RECARREGAR_DEPOIS = true;
+    guardarConta({ recuperar: true, entrada: true });
   });
 
   /* «Já tenho conta noutro telemóvel» dava um aviso e mais nada — e o aviso
@@ -3104,12 +3146,12 @@ function boasVindas() {
      precisar dele: é o que aparece a quem mudou de telemóvel. Um beco na
      demonstração é ensinar que a app não tem por onde voltar. O painel abre,
      e é ele que diz, por escrito, que aqui não há nada a sério do outro lado. */
-  caixa.querySelector('#bv-saltar').addEventListener('click', async () => {
-    guardar('visto-bv', true);
-    caixa.hidden = true;
-    try { await entrar(); }
-    catch (e) { console.error(e); ecraSemLigacao(e); return; }
-    recuperarConta();
+  /* E QUEM JÁ TEM CONTA SALTA O PASSEIO. É o mesmo painel: as portas não são
+     diferentes conforme se seja novo ou antigo — o servidor é que sabe, pela
+     morada, se aquilo é uma conta que nasce ou uma que volta. */
+  caixa.querySelector('#bv-saltar').addEventListener('click', () => {
+    RECARREGAR_DEPOIS = true;
+    guardarConta({ recuperar: true, entrada: true });
   });
   pintar();
 }
@@ -3325,23 +3367,31 @@ function comecarDeNovo() {
    ir. Recarregar devolve uma app inteira e limpa, e custa um piscar de olhos. */
 let RECARREGAR_DEPOIS = false;
 
+/**
+ * HÁ CONTA NESTE TELEMÓVEL?
+ *
+ * As duas metades, e não uma: a conta guardada E o segredo no cofre. Meia
+ * conta não é conta — com o cliente guardado e o cofre vazio, a app sabe quem
+ * é mas não consegue assinar um único código, que é a única coisa que ela
+ * existe para fazer ao balcão.
+ */
+async function haConta() {
+  return Boolean(ler('cliente')) && Boolean(await temSegredo());
+}
+
 async function entrar() {
   $('#aplicacao').hidden = false;
-  let cliente = ler('cliente');
+  const cliente = ler('cliente');
 
-  /* O segredo vive no cofre (IndexedDB, chave não-extraível). Se o cliente
-     está guardado mas o segredo desapareceu — janela privada, dados do site
-     limpos — não vale a pena continuar com metade: recomeça-se. */
+  /* A CONTA JÁ NÃO NASCE AQUI.
+   *
+   * Isto registava uma conta anónima a quem chegasse, e a identidade era uma
+   * oferta para depois. Agora a conta é o que distingue a pessoa, e nasce onde
+   * está a prova de que a conta é dela: no fim de uma entrada. Quem chega aqui
+   * sem conta não é um erro — é alguém que ainda não entrou, e quem o trata é
+   * o arranque. */
   if (!cliente || !(await temSegredo())) {
-    const r = await api.registarCliente();
-    cliente = r.cliente;
-    await guardarSegredo(r.segredo);
-    guardar('cliente', cliente);
-    guardar('sessao', r.sessao);
-    if (r.horaDoServidor) guardarDesvio(r.horaDoServidor);
-    /* Na demonstração enche-se a carteira, senão vê-se um ecrã vazio e
-       ninguém percebe o que a app faz. */
-    if (MODO === 'demo') await api.semear(cliente.id);
+    throw Object.assign(new Error('Ainda não há conta neste telemóvel'), { semConta: true });
   }
   estado.cliente = cliente;
   /* Os cartões ficam também em local. Não é cache por gosto: o momento em
@@ -3592,15 +3642,32 @@ async function arrancar() {
   const volta = await voltarDaPorta();
   if (volta && volta.falhou) return;
 
-  if (ler('visto-bv') || (volta && volta.entrou)) {
+  /* A PERGUNTA DO ARRANQUE MUDOU: era «já viu as boas-vindas?» e passou a ser
+     «já entrou?». A chave `visto-bv` decidia o ramo porque a conta nascia
+     sozinha e a única coisa por decidir era se se mostrava o passeio; agora o
+     que decide é haver conta, que é o que a app precisa para fazer seja o que
+     for. Quem já viu o passeio e nunca entrou vê a porta e não o passeio
+     outra vez. */
+  /* O que ficou por dizer do outro lado de um recarregar. */
+  const frasePendente = lerDoSeparador('aviso-depois');
+  if (frasePendente) guardarNoSeparador('aviso-depois', null);
+
+  const entrou = (volta && volta.entrou) || await haConta();
+  if (entrou) {
     try { await entrar(); }
-    catch (e) { console.error(e); ecraSemLigacao(e); return; }
+    catch (e) {
+      /* `semConta` aqui é impossível — acabámos de perguntar — mas se alguma
+         vez acontecer, a resposta certa é a porta e não um ecrã de erro. */
+      if (e && e.semConta) { boasVindas(); return; }
+      console.error(e); ecraSemLigacao(e); return;
+    }
     await seguirConvite();
     if (volta && volta.entrou) await terminarEntradaPorPorta(volta);
     /* O manifesto declara um atalho «Mostrar o meu código» que aponta para
        `?acao=codigo` — uma pressão longa no ícone da app, no Android. Ninguém
        lia o parâmetro: o atalho abria a carteira como qualquer outro toque. */
     if (new URLSearchParams(location.search).get('acao') === 'codigo') abrirCodigo();
+    if (frasePendente) avisar(frasePendente, 'bom');
   } else {
     boasVindas();
   }

@@ -39,8 +39,13 @@ export async function correr(palco, certo) {
   /* --- 1. O BOTÃO ESTÁ NAS BOAS-VINDAS, E LÊ-SE ------------------------ */
   await palco.esperar(SALTAR);
   const rotulo = await palco.texto(SALTAR);
-  certo(/conta/i.test(rotulo) && /telem[óo]vel/i.test(rotulo),
-    'as boas-vindas têm um caminho para quem já tem conta noutro telemóvel', rotulo);
+  /* O RÓTULO ENCURTOU COM O SENTIDO. Ele dizia «Já tenho conta noutro
+     telemóvel» porque era um desvio do caminho normal — o normal era entrar
+     sem conta nenhuma. Agora entrar é o caminho de toda a gente, e o que este
+     botão faz é saltar o passeio: «Já tenho conta» chega, e é verdade para
+     quem volta e para quem muda de telemóvel. */
+  certo(/conta/i.test(rotulo),
+    'as boas-vindas têm um caminho para quem já tem conta', rotulo);
   certo(await palco.visivel(SALTAR),
     'e ele está mesmo visível, não só no HTML');
 
@@ -54,20 +59,22 @@ export async function correr(palco, certo) {
     'e carregar nele abre o painel — não um aviso que desaparece sozinho');
 
   const titulo = await palco.texto('#painel h2, #painel .painel-titulo');
-  certo(/recuperar/i.test(titulo),
-    'o painel chama-se «Recuperar os cartões» e não «Guardar a conta» — '
-    + 'quem já tem conta não está a criar outra', titulo);
+  /* O PAINEL É O MESMO PARA OS DOIS, e o título passou a dizê-lo. Ele
+     chamava-se «Recuperar os cartões» porque só aqui se chegava a vir buscar
+     alguma coisa; agora é por aqui que TODA A GENTE entra, e a quem chega pela
+     primeira vez «recuperar» não quer dizer nada — sugere que se perdeu
+     qualquer coisa. Quem sabe se é uma conta que nasce ou uma que volta é o
+     servidor, pela morada. */
+  certo(/entrar|conta/i.test(titulo),
+    'o painel diz que é por ali que se entra, e serve quem volta e quem chega',
+    titulo);
 
-  /* --- 3. AS BOAS-VINDAS NÃO VOLTAM ------------------------------------ */
-  /* Quem passou por aqui já escolheu; mostrar-lhe os quatro passos outra vez
-     por cima do painel seria pô-la a começar do princípio. */
-  certo(!(await palco.visivel('#boas-vindas')),
-    'e as boas-vindas ficam para trás — não voltam por cima do painel');
-
-  /* --- 4. DIZ QUE É UMA DEMONSTRAÇÃO, ANTES DOS BOTÕES ----------------- */
-  const texto = await palco.texto('#painel');
-  certo(texto.includes('não há conta noutro telemóvel'),
-    'e diz, por escrito, que aqui não há nada de verdade para ir buscar', texto.slice(0, 200));
+  /* --- 3. O PASSEIO FICA POR BAIXO, E NÃO POR CIMA --------------------- */
+  /* O painel abre SOBRE o passeio de propósito: quem o fechar sem entrar tem
+     de voltar a encontrar o que estava. O que não pode é o passeio aparecer
+     por cima do painel. */
+  certo(await palco.visivel('#painel'),
+    'e o painel fica à frente — quem fechar sem entrar volta a encontrar o passeio');
 
   /* --- 5. O TEXTO DE CIMA NOMEIA AS PORTAS QUE EXISTEM ----------------- */
   /* Cada nome que ele diz tem de ter um botão por baixo. É a afirmação que

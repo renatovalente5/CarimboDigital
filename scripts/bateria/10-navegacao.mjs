@@ -38,7 +38,7 @@
    Corre em modo de demonstração, que não toca na rede.
    ========================================================================= */
 
-import { passarBoasVindas, abrirOCartaoTodo } from './01-arranque.mjs';
+import { entrarNaApp, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '10 · Navegação, painéis e o botão de voltar';
 export const desculpar = [/favicon/];
@@ -257,8 +257,7 @@ export async function correr(palco, certo) {
      quinze segundos à frente de quem só queria a página. */
   {
     await palco.ir('/app/?demo=1');
-    const { passarBoasVindas } = await import('./01-arranque.mjs');
-    await passarBoasVindas(palco);
+    await entrarNaApp(palco);
     await palco.esperar('#barra .barra-item');
 
     await palco.clicar('#barra .barra-item[data-ecra="perfil"]');   // Perfil
@@ -307,7 +306,7 @@ export async function correr(palco, certo) {
      ======================================================================= */
 
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item', 10000);
   await armarContador(palco);
 

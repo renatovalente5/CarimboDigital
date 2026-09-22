@@ -37,7 +37,7 @@
    tem de caber num telemóvel na mesma.
    ========================================================================= */
 
-import { passarBoasVindas, abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
+import { entrarNaApp, abrirNoMaco, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '12 · Ecrãs pequenos e conteúdo que transborda';
 export const desculpar = [/favicon/];
@@ -418,7 +418,7 @@ async function appDoCliente(palco, certo, l) {
   await palco.esperar('#boas-vindas');
   await medir(palco, certo, 'app · boas-vindas', l);
 
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
   await palco.esperar('#principal .pilha .cartao', 10000);
 

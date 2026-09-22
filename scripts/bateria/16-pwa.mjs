@@ -53,7 +53,7 @@
    guardadas a meio da bateria.
    ========================================================================= */
 
-import { passarBoasVindas } from './01-arranque.mjs';
+import { entrarNaApp } from './01-arranque.mjs';
 
 export const nome = '16 · PWA: service worker, manifesto e offline';
 export const comServiceWorker = true;
@@ -288,7 +288,7 @@ export async function correr(palco, certo) {
     JSON.stringify(CFG));
   const BASE = CFG ? CFG.base : null;
   const VERSAO = await palco.js("return (window.CARIMBO_CONFIG || {}).versao || null");
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item', 10000);
 
   const swApp = await swPronto(palco, 20000);

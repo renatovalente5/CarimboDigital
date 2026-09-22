@@ -25,7 +25,7 @@
    carimbo para cada lado) e os outros não — que é como um programa nasce.
    ========================================================================= */
 
-import { passarBoasVindas, abrirOCartaoTodo } from './01-arranque.mjs';
+import { entrarNaApp, abrirOCartaoTodo } from './01-arranque.mjs';
 
 export const nome = '22 · Traz um amigo';
 
@@ -59,7 +59,7 @@ const demo = (palco) => palco.js(`
 
 export async function correr(palco, certo) {
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item');
 
   /* --- 1. O BOTÃO SÓ EXISTE ONDE A OFERTA EXISTE ------------------------ */
@@ -132,7 +132,7 @@ export async function correr(palco, certo) {
      mais simples de o vigarizar, e o servidor recusa-o. Larga-se para
      percorrer o caminho de quem não tem. */
   await palco.ir('/app/?demo=1');
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item', 10000);
   await palco.js(`
     const { api } = await import('/js/api.js');
@@ -142,7 +142,7 @@ export async function correr(palco, certo) {
     if (torrado) await api.largarCartao(torrado.id);
     return true`);
   await palco.ir(`/app/?demo=1&n=cafe-torrado&a=${encodeURIComponent(codigo)}`);
-  await passarBoasVindas(palco);
+  await entrarNaApp(palco);
   await palco.esperar('#barra .barra-item', 10000);
   await dormir(palco, 1200);
 
