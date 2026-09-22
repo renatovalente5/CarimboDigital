@@ -204,16 +204,31 @@ function certificadoDeMentira() {
     const k = join(pasta, 'k.pem');
     const c = join(pasta, 'c.pem');
     const k8 = join(pasta, 'k8.pem');
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', k,
-      /* SEM PRAZO. Um X.509 tem sempre campo de validade, mas há um valor
-         combinado para dizer «não expira»: `99991231235959Z`, que é o que a
-         RFC 5280 §4.1.2.5 manda pôr no `notAfter` de um certificado sem fim
-         definido. Estava a dois dias, e ao terceiro matava a bateria inteira.
-         Um certificado de mentira que é gerado uma vez e fica em disco não
-         tem razão nenhuma para envelhecer. */
-      '-out', c, '-not_after', '99991231235959Z', '-nodes',
-      '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: de mentira'],
-    { stdio: 'ignore' });
+    /* SEM PRAZO — e por dois caminhos, porque nem todo o openssl aceita o
+       primeiro.
+     *
+     * Um X.509 tem sempre campo de validade: não há forma de o deixar em
+     * branco. O que há é um valor combinado para dizer «não expira» —
+     * `99991231235959Z`, que é o que a RFC 5280 §4.1.2.5 manda pôr no
+     * `notAfter` de um certificado sem fim definido. É o que se tenta
+     * primeiro.
+     *
+     * Só que o `-not_after` do `openssl req` não existe em todas as versões:
+     * aqui (3.6) existe, no runner do CI não — e a publicação ficou vermelha
+     * numa alteração que não lhe tocava. A alternativa é uma contagem de dias
+     * tão grande que dá no mesmo século: 2 912 000 dias são os anos que faltam
+     * até 9999. Tenta-se o certo, e cai-se no que funciona em todo o lado.
+     *
+     * Isto estava a DOIS DIAS, e ao terceiro matava a bateria da API inteira —
+     * o ficheiro é gerado uma vez e fica em disco até alguém o apagar. */
+    const base = ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', k,
+      '-out', c, '-nodes',
+      '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: de mentira'];
+    try {
+      execFileSync('openssl', [...base, '-not_after', '99991231235959Z'], { stdio: 'ignore' });
+    } catch {
+      execFileSync('openssl', [...base, '-days', '2912000'], { stdio: 'ignore' });
+    }
     execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', k, '-out', k8],
       { stdio: 'ignore' });
     const achatar = (f) => readFileSync(f, 'utf8').trim().replace(/\n/g, '\\n');

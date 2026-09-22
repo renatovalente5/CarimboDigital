@@ -2306,14 +2306,33 @@ grupo('O cartão na Apple Wallet');
   const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
 
+/* SEM PRAZO, nos certificados de mentira — e por dois caminhos.
+ *
+ * Um X.509 tem sempre campo de validade. O valor combinado para «não expira» é
+ * `99991231235959Z` (RFC 5280 §4.1.2.5), e é o que se tenta primeiro. Mas o
+ * `-not_after` do `openssl req` não existe em todas as versões — está no
+ * openssl desta máquina e não está no do runner do CI, e uma publicação ficou
+ * vermelha por isso. A alternativa é uma contagem de dias que dá no mesmo
+ * século: 2 912 000 dias são os anos que faltam até 9999.
+ *
+ * Porque é que um certificado de teste não pode ter prazo: eles são gerados
+ * numa corrida e comparados noutra, e um que caduque entre as duas parte a
+ * bateria inteira num sítio que nada tem a ver com a causa. Já aconteceu. */
+const SEM_PRAZO = ['-not_after', '99991231235959Z'];
+const MUITOS_DIAS = ['-days', '2912000'];
+function certificadoSemPrazo(correr, args) {
+  try { return correr(...args, ...SEM_PRAZO); }
+  catch { return correr(...args, ...MUITOS_DIAS); }
+}
+
   const pasta = mkdtempSync(join(tmpdir(), 'carimbo-apple-'));
   const caminho = (n) => join(pasta, n);
   const openssl = (...args) => execFileSync('openssl', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
   try {
-    openssl('req', '-x509', '-newkey', 'rsa:2048', '-keyout', caminho('k.pem'),
-      '-out', caminho('c.pem'), '-not_after', '99991231235959Z', '-nodes',
-      '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: pass.pt.carimbodigital.cartao');
+    certificadoSemPrazo(openssl, ['req', '-x509', '-newkey', 'rsa:2048',
+      '-keyout', caminho('k.pem'), '-out', caminho('c.pem'), '-nodes',
+      '-subj', '/C=PT/O=Carimbo Digital/CN=Pass Type ID: pass.pt.carimbodigital.cartao']);
     openssl('pkcs8', '-topk8', '-nocrypt', '-in', caminho('k.pem'), '-out', caminho('k8.pem'));
     const cert = readFileSync(caminho('c.pem'), 'utf8');
     const chave = readFileSync(caminho('k8.pem'), 'utf8');
@@ -2425,8 +2444,9 @@ grupo('O cartão na Apple Wallet');
          levava um. O ficheiro saía bem formado, o `openssl -noverify`
          verificava, os testes passavam, e o iPhone recusava-o por não
          conseguir fechar a cadeia. */
-      openssl('req', '-x509', '-newkey', 'rsa:2048', '-keyout', caminho('k2.pem'),
-        '-out', caminho('c2.pem'), '-not_after', '99991231235959Z', '-nodes', '-subj', '/CN=Intermedio de mentira');
+      certificadoSemPrazo(openssl, ['req', '-x509', '-newkey', 'rsa:2048',
+        '-keyout', caminho('k2.pem'), '-out', caminho('c2.pem'), '-nodes',
+        '-subj', '/CN=Intermedio de mentira']);
       const intermedio = readFileSync(caminho('c2.pem'), 'utf8');
 
       const comCadeia = await p.construirPasse({
@@ -2864,8 +2884,10 @@ grupo('O passe da Apple, de ponta a ponta');
       /* A forma ANTIGA, que é a que não serve ao WebCrypto. */
       correr2('openssl', ['rsa', '-in', join(dir, 'p8.pem'), '-traditional',
         '-out', join(dir, 'pk1.pem')], { stdio: 'ignore' });
-      correr2('openssl', ['req', '-x509', '-key', join(dir, 'p8.pem'), '-out',
-        join(dir, 'c.pem'), '-not_after', '99991231235959Z', '-subj', '/CN=x'], { stdio: 'ignore' });
+      certificadoSemPrazo(
+        (...a) => correr2('openssl', a, { stdio: 'ignore' }),
+        ['req', '-x509', '-key', join(dir, 'p8.pem'), '-out', join(dir, 'c.pem'),
+         '-subj', '/CN=x']);
       await p2.construirPasse({
         passe: { formatVersion: 1 },
         imagens: { 'icon.png': Uint8Array.from(atob(PNG_FIXO), (c) => c.charCodeAt(0)) },
