@@ -431,6 +431,9 @@ function criarDemo() {
       programa: p,
       porResgatar: premios.length,
       premios,
+      /* Arrumado para fora da vista. O mesmo nome do servidor: a app pergunta
+         uma coisa só e cada mundo responde à sua maneira. */
+      arquivadoEm: c.arquivadoEm || null,
       /* A mesma regra do servidor a sério: sem logótipo não há passe, porque
          as duas carteiras exigem um. Aqui não há Google nem Apple nenhuma —
          mas se a demonstração mostrasse o botão onde a aplicação a sério não
@@ -461,14 +464,76 @@ function criarDemo() {
       return { cliente, segredo, sessao: 'demo:' + cliente.id, horaDoServidor: agora() };
     },
 
+    /* A MESMA ORDEM DO SERVIDOR, nos mesmos quatro degraus: prémio por
+       levantar, arquivado no fim, a ordem escolhida, e o resto pela
+       actividade. Se esta cópia divergir da do Worker, a bateria de browser
+       passa a provar um comportamento que a produção não tem — e ela corre
+       INTEIRA aqui dentro. O raciocínio de cada degrau está no
+       `ordenarCarteira` do worker/src/index.js; o que interessa saber deste
+       lado é que são os mesmos quatro e pela mesma ordem. */
     async cartoes(clienteId) {
       const e = estado();
+      const cliente = e.clientes.find((c) => c.id === clienteId);
+      let lista = [];
+      try {
+        const cru = JSON.parse((cliente && cliente.ordemCartoes) || '[]');
+        if (Array.isArray(cru)) lista = cru.filter((x) => typeof x === 'string');
+      } catch { lista = []; }
+      const posicao = new Map(lista.map((id, i) => [id, i]));
+      const quando = (c) => new Date(c.ultimoEm || c.aderiuEm).getTime() || 0;
+
       return e.cartoes
         .filter((c) => c.clienteId === clienteId)
         .map((c) => comporCartao(e, c))
         .filter(Boolean)
-        .sort((a, b) => (b.porResgatar - a.porResgatar)
-          || (new Date(b.ultimoEm || b.aderiuEm) - new Date(a.ultimoEm || a.aderiuEm)));
+        .sort((a, b) => {
+          if (Boolean(a.porResgatar) !== Boolean(b.porResgatar)) return b.porResgatar ? 1 : -1;
+          if (Boolean(a.arquivadoEm) !== Boolean(b.arquivadoEm)) return a.arquivadoEm ? 1 : -1;
+          const pa = posicao.has(a.id) ? posicao.get(a.id) : Infinity;
+          const pb = posicao.has(b.id) ? posicao.get(b.id) : Infinity;
+          if (pa !== pb) return pa - pb;
+          return quando(b) - quando(a);
+        });
+    },
+
+    /* Guardar a ordem. Recebe a lista inteira de ids, como no servidor, e
+       deita fora o que não é desta pessoa e o que vem repetido. */
+    async guardarOrdem(clienteId, ordem) {
+      const e = estado();
+      const meus = new Set(e.cartoes.filter((c) => c.clienteId === clienteId).map((c) => c.id));
+      const limpa = [];
+      const vistos = new Set();
+      for (const x of Array.isArray(ordem) ? ordem : []) {
+        const id = String(x || '');
+        if (meus.has(id) && !vistos.has(id)) { vistos.add(id); limpa.push(id); }
+      }
+      const cliente = e.clientes.find((c) => c.id === clienteId);
+      if (cliente) {
+        cliente.ordemCartoes = limpa.length ? JSON.stringify(limpa) : null;
+        cliente.ordemEm = limpa.length ? agora() : null;
+      }
+      gravar(e);
+      return { ordem: limpa, em: cliente ? cliente.ordemEm : null };
+    },
+
+    /* Arrumar para fora da vista, ou trazer de volta. A recusa é a mesma do
+       servidor, e tem de ser: a app trata o código de erro e não a mensagem. */
+    async arquivarCartao(clienteId, cartaoId, arquivado) {
+      const e = estado();
+      const c = e.cartoes.find((x) => x.id === cartaoId && x.clienteId === clienteId);
+      if (!c) throw new Error('Cartão não encontrado');
+      if (arquivado !== false) {
+        const porLevantar = e.premios.some((x) => x.cartaoId === c.id && !x.resgatadoEm);
+        if (porLevantar) {
+          const erro = new Error('Este cartão tem um prémio por levantar.');
+          erro.codigo = 'premio-por-levantar';
+          erro.estado = 409;
+          throw erro;
+        }
+      }
+      c.arquivadoEm = arquivado !== false ? agora() : null;
+      gravar(e);
+      return { arquivadoEm: c.arquivadoEm };
     },
 
     async cartao(clienteId, cartaoId) {
@@ -1452,6 +1517,14 @@ export const api = MODO === 'remoto'
       /* Do lado do cliente: ver a alcunha é no cartão; tirá-la é aqui. */
       largarCartao: (cartaoId) =>
         remoto.pedir(`/v1/cliente/cartoes/${cartaoId}`, { metodo: 'DELETE' }),
+      /* A ordem não é um cartão, e por isso não vive debaixo de /cartoes/ —
+         ver a nota da rota no Worker: o dia em que alguém quisesse LER a
+         ordem com um GET, o regex do cartão apanhava «ordem» como id. */
+      guardarOrdem: (_, ordem) =>
+        remoto.pedir('/v1/cliente/ordem', { metodo: 'PUT', corpo: { ordem } }),
+      arquivarCartao: (_, cartaoId, arquivado) =>
+        remoto.pedir(`/v1/cliente/cartoes/${cartaoId}/arquivo`,
+          { metodo: 'PUT', corpo: { arquivado } }),
       tirarEmail: () => remoto.pedir('/v1/cliente/email', { metodo: 'DELETE' }),
       guardarPrograma: (_, dados) => remoto.pedir('/v1/balcao/programas', { metodo: 'POST', corpo: dados }),
       guardarNegocio: (_, dados) => remoto.pedir('/v1/balcao/negocio', { metodo: 'PUT', corpo: dados }),

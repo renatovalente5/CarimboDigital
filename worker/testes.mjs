@@ -5810,6 +5810,176 @@ grupo('Entrar pelo email sem ter conta nenhuma');
     `${contados} registos`);
 }
 
+grupo('Arrumar a carteira');
+{
+  /* ESTA PROVA TEM DE VIVER AQUI, E NÃO NA BATERIA DE BROWSER.
+
+     A bateria corre inteira em `?demo=1`, que é o `criarDemo()` do
+     _fonte/js/api.js — localStorage, sem Worker nenhum por trás. Um teste de
+     browser que recarregue a página e conclua «a ordem sobreviveu, logo está
+     no servidor» estaria a provar exactamente o contrário do que afirma: em
+     demonstração, o localStorage É o servidor. A razão INTEIRA para isto ir
+     para D1 é a conta seguir a pessoa entre telemóveis — e isso só se prova
+     com duas sessões da mesma conta a falar com a base a sério, que é o que
+     este grupo faz. A bateria prova o ecrã; esta prova a promessa. */
+
+  /* TRÊS PROGRAMAS, e não três carimbos no mesmo. O `p1` tem uma hora de
+     arrefecimento: carimbar três vezes seguidas dava dois 409 e um cartão só.
+     E um cartão por programa é o que a vida real faz — a carteira enche-se de
+     sítios diferentes, não do mesmo. */
+  sql(`INSERT OR IGNORE INTO programas
+         (id, negocio_id, nome, tipo, selo, objetivo, premio, regras, arrefecimento, criado_em)
+       VALUES ('p-ord-2', 'n1', 'Cartão da tarde', 'carimbos', 'chavena', 10,
+               'Outro café', 'Um por visita.', 0, datetime('now')),
+              ('p-ord-3', 'n1', 'Cartão da noite', 'carimbos', 'chavena', 10,
+               'Mais um café', 'Um por visita.', 0, datetime('now'))`);
+
+  /* Uma conta nova, com três cartões de três programas diferentes. */
+  const reg = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const eu = reg.dados.cliente;
+  const meuSegredo = reg.dados.segredo;
+  const sessao1 = reg.dados.sessao;
+
+  /* O CÓDIGO GASTA-SE, e os três carimbos caem na mesma janela de 15
+     segundos — logo seriam o MESMO código, e o segundo uso é recusado por já
+     ter sido gasto. É a defesa a funcionar, não um defeito: limpa-se a marca
+     entre carimbos, que é o que o relógio faria se estes três cartões
+     nascessem em três visitas. */
+  const ids = [];
+  for (const prog of ['p1', 'p-ord-2', 'p-ord-3']) {
+    sql(`DELETE FROM codigos_usados`);
+    const r = await pedir('/v1/balcao/carimbar', {
+      metodo: 'POST', sessao: sessaoBalcao,
+      corpo: { codigo: codigoPara(eu.publico, meuSegredo), programaId: prog },
+    });
+    const feito = r.dados && r.dados.cartao;
+    if (feito) {
+      ids.push(feito.id);
+      /* O `ultimo_em` a NULL põe os três em pé de igualdade: sem isto, o
+         degrau da actividade decidia a ordem antes de a pessoa decidir. */
+      sql(`UPDATE cartoes SET ultimo_em = NULL WHERE id = '${feito.id}'`);
+    }
+  }
+  certo(ids.length === 3, 'três cartões para arrumar',
+    `${ids.length}`);
+
+  const carteira = async (sessao) =>
+    (await pedir('/v1/cliente/cartoes', { sessao })).dados.map((c) => c.id);
+
+  /* --- a ordem escolhida ------------------------------------------------ */
+  const aoContrario = [ids[2], ids[1], ids[0]];
+  const posto = await pedir('/v1/cliente/ordem',
+    { metodo: 'PUT', sessao: sessao1, corpo: { ordem: aoContrario } });
+  certo(posto.estado === 200, 'a ordem aceita-se', `${posto.estado}`);
+  certo(JSON.stringify(await carteira(sessao1)) === JSON.stringify(aoContrario),
+    'e a carteira sai por ela', JSON.stringify(await carteira(sessao1)));
+
+  /* --- E NOUTRO TELEMÓVEL. É esta a promessa, e é a única que a bateria
+         nunca poderia provar: outra sessão da mesma conta, outro pedido. A
+         sessão mete-se à mão, como os outros grupos já fazem — é o que a
+         recuperação por email produz, sem ter de a encenar outra vez. */
+  const testemunho2 = 'outro-aparelho-ordem-' + randomBytes(8).toString('hex');
+  sql(`INSERT INTO sessoes (resumo, sujeito, criada_em, expira_em)
+       VALUES ('${createHash('sha256').update(testemunho2).digest('hex')}',
+               'cliente:${eu.id}', datetime('now'),
+               '${new Date(Date.now() + 86400000).toISOString()}')`);
+  certo(JSON.stringify(await carteira(testemunho2)) === JSON.stringify(aoContrario),
+    'e a MESMA ordem chega a outro telemóvel da mesma conta',
+    JSON.stringify(await carteira(testemunho2)));
+
+  /* --- repetir o mesmo pedido não faz mal ------------------------------- */
+  await pedir('/v1/cliente/ordem', { metodo: 'PUT', sessao: sessao1, corpo: { ordem: aoContrario } });
+  certo(JSON.stringify(await carteira(sessao1)) === JSON.stringify(aoContrario),
+    'e enviar a mesma ordem duas vezes deixa tudo igual');
+
+  /* --- ids que não são meus não entram --------------------------------- */
+  const alheio = linhas(`SELECT id FROM cartoes WHERE cliente_id != '${eu.id}' LIMIT 1`)[0];
+  const sujo = await pedir('/v1/cliente/ordem', {
+    metodo: 'PUT', sessao: sessao1,
+    corpo: { ordem: [ids[1], alheio ? alheio.id : 'nao-existe', ids[1], ids[0], ids[2]] },
+  });
+  certo(JSON.stringify(sujo.dados.ordem) === JSON.stringify([ids[1], ids[0], ids[2]]),
+    'um id de outra pessoa e um id repetido saem da lista',
+    JSON.stringify(sujo.dados.ordem));
+
+  /* --- o prémio passa à frente, e devolve o lugar ----------------------- */
+  /* O cartão em ÚLTIMO na ordem dela ganha um prémio. Tem de subir ao topo:
+     o botão de levantar vive na tira do baralho e é o único caminho de um
+     toque. */
+  const ultimo = ids[2];
+  sql(`INSERT INTO premios (id, cartao_id, descricao, ganho_em)
+       VALUES ('px-ordem', '${ultimo}', 'Um café', '2026-01-01T00:00:00.000Z')`);
+  certo((await carteira(sessao1))[0] === ultimo,
+    'um prémio por levantar passa à frente da ordem escolhida',
+    (await carteira(sessao1))[0]);
+
+  sql(`UPDATE premios SET resgatado_em = '2026-01-02T00:00:00.000Z' WHERE id = 'px-ordem'`);
+  certo(JSON.stringify(await carteira(sessao1)) === JSON.stringify([ids[1], ids[0], ids[2]]),
+    'e levantado o prémio, o cartão devolve o lugar que ela lhe deu',
+    JSON.stringify(await carteira(sessao1)));
+
+  /* --- arquivar --------------------------------------------------------- */
+  const arq = await pedir(`/v1/cliente/cartoes/${ids[0]}/arquivo`,
+    { metodo: 'PUT', sessao: sessao1, corpo: { arquivado: true } });
+  certo(arq.estado === 200 && arq.dados.arquivadoEm, 'arquiva-se um cartão', `${arq.estado}`);
+
+  const comArquivado = await pedir('/v1/cliente/cartoes', { sessao: sessao1 });
+  certo(comArquivado.dados.length === 3,
+    'o arquivado CONTINUA a vir na resposta — uma app antiga não pode ver cartões desaparecer',
+    `${comArquivado.dados.length}`);
+  certo(comArquivado.dados[comArquivado.dados.length - 1].id === ids[0],
+    'e vem no fim', comArquivado.dados[comArquivado.dados.length - 1].id);
+  certo(comArquivado.dados.find((c) => c.id === ids[0]).arquivadoEm,
+    'com a data no campo novo');
+
+  /* --- não se arquiva um cartão com prémio por levantar ----------------- */
+  sql(`INSERT INTO premios (id, cartao_id, descricao, ganho_em)
+       VALUES ('px-arq', '${ids[1]}', 'Outro café', '2026-01-01T00:00:00.000Z')`);
+  const recusa = await pedir(`/v1/cliente/cartoes/${ids[1]}/arquivo`,
+    { metodo: 'PUT', sessao: sessao1, corpo: { arquivado: true } });
+  certo(recusa.estado === 409 && recusa.dados.codigo === 'premio-por-levantar',
+    'um cartão com prémio por levantar recusa-se a ser arquivado',
+    `${recusa.estado} ${recusa.dados.codigo}`);
+  sql(`DELETE FROM premios WHERE id = 'px-arq'`);
+
+  /* --- um carimbo desarquiva -------------------------------------------- */
+  /* O ARREFECIMENTO DO `p1` SÃO 3600 SEGUNDOS, e este cartão já foi carimbado
+     no princípio do grupo. Sem limpar o relógio e a marca do código, o que
+     esta afirmação media era o 409 do arrefecimento — e dizia «não
+     desarquivou» sobre um carimbo que nunca chegou a acontecer. */
+  sql(`DELETE FROM codigos_usados`);
+  sql(`UPDATE cartoes SET ultimo_em = NULL WHERE id = '${ids[0]}'`);
+  const carimbo = await pedir('/v1/balcao/carimbar', {
+    metodo: 'POST', sessao: sessaoBalcao,
+    corpo: { codigo: codigoPara(eu.publico, meuSegredo), programaId: 'p1' },
+  });
+  certo(carimbo.estado === 200, 'carimba o cartão arquivado', `${carimbo.estado}`);
+  certo(linhas(`SELECT arquivado_em FROM cartoes WHERE id = '${ids[0]}'`)[0].arquivado_em === null,
+    'e o carimbo desarquiva-o, sem uma escrita a mais');
+
+  /* --- desarquivar à mão ------------------------------------------------ */
+  await pedir(`/v1/cliente/cartoes/${ids[0]}/arquivo`,
+    { metodo: 'PUT', sessao: sessao1, corpo: { arquivado: true } });
+  const volta = await pedir(`/v1/cliente/cartoes/${ids[0]}/arquivo`,
+    { metodo: 'PUT', sessao: sessao1, corpo: { arquivado: false } });
+  certo(volta.estado === 200 && volta.dados.arquivadoEm === null,
+    'e traz-se de volta ao baralho', JSON.stringify(volta.dados));
+
+  /* --- o cartão de outra pessoa não se arquiva -------------------------- */
+  if (alheio) {
+    const nao = await pedir(`/v1/cliente/cartoes/${alheio.id}/arquivo`,
+      { metodo: 'PUT', sessao: sessao1, corpo: { arquivado: true } });
+    certo(nao.estado === 404, 'o cartão de outra pessoa não se arquiva', `${nao.estado}`);
+  }
+
+  /* --- quem nunca arrumou nada vê o que via ontem ----------------------- */
+  const limpo = await pedir('/v1/cliente/registar', { metodo: 'POST', corpo: {} });
+  const novoCarteira = await pedir('/v1/cliente/cartoes', { sessao: limpo.dados.sessao });
+  certo(novoCarteira.estado === 200 && Array.isArray(novoCarteira.dados),
+    'uma conta que nunca arrumou nada sai pelo mesmo ramo de sempre',
+    `${novoCarteira.estado}`);
+}
+
 console.log(`\n${passou} passaram, ${falhou} falharam.`);
 if (falhou) {
   console.log('\nFalhas:');

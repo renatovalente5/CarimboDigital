@@ -126,7 +126,24 @@ const ABRIR_APP = `
       await new Promise((r) => setTimeout(r, 100));
     }
   }
-  await new Promise(r=>setTimeout(r,1200));
+  /* E ESPERA-SE QUE A TORRADA DA ENTRADA SE VÁ EMBORA.
+
+     A entrada pela Google deixa um aviso — «Nesta demonstração não há Google
+     a sério» — que vive 2,6 segundos e se apaga em mais 0,22. O 1200 de
+     cima não chegava, e a captura saía com um balão preto por cima de dois
+     cartões. Esteve assim na «produto-carteira.png» PUBLICADA, no meio da
+     página «Como funciona», sem ninguém dar por isso: a verificação de que a
+     captura era da página certa passava — a página estava certa, era o que
+     estava por cima dela que não devia lá estar.
+
+     Espera-se pelo elemento a desaparecer e não pelo relógio: um número
+     maior resolvia hoje e voltava a partir-se no dia em que o aviso durasse
+     mais um pouco. */
+  for (let i = 0; i < 80; i++) {
+    if (!document.querySelector('.aviso')) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await new Promise(r=>setTimeout(r,600));
 `;
 
 const ECRAS = [

@@ -562,7 +562,51 @@ console.log('\nJavaScript');
       rmSync(tmp, { force: true });
     }
   }
-  if (!mal) bem(`${modulos.length} módulos de JavaScript analisam`);
+  if (!mal) bem(`${modulos.length} módulos de JavaScript publicados analisam`);
+
+  /* --- E AS FERRAMENTAS TAMBÉM ----------------------------------------
+     O `_site` só tem o que é publicado. Os scripts desta pasta e do Worker
+     não passam por aqui — e foi exactamente onde, em três ocasiões no mesmo
+     dia, uma CRASE dentro de um template literal fechou a string a meio e
+     partiu o ficheiro.
+
+     A crase é o caso particular; o geral é que estes ficheiros só se
+     descobrem partidos quando alguém os corre, e alguns correm uma vez por
+     semana. Um erro de sintaxe num deles não é uma opinião — custa dez
+     milissegundos a apanhar aqui e meia hora a apanhar no meio de uma
+     corrida.
+
+     Correm como MÓDULO, porque é o que eles são: o `--check` sem mais trata
+     o ficheiro como CommonJS e deixa passar coisas que um módulo recusa. */
+  const AQUI_TAMBEM = [join(RAIZ, 'scripts'), join(RAIZ, 'worker')];
+  const emCadeia = (pasta) => {
+    const saida = [];
+    for (const nome of readdirSync(pasta, { withFileTypes: true })) {
+      if (nome.name === 'node_modules' || nome.name.startsWith('.')) continue;
+      const caminho = join(pasta, nome.name);
+      if (nome.isDirectory()) saida.push(...emCadeia(caminho));
+      else if (/\.(mjs|js)$/.test(nome.name)) saida.push(caminho);
+    }
+    return saida;
+  };
+
+  let ferramentas = 0;
+  let malFerramenta = 0;
+  for (const pasta of AQUI_TAMBEM) {
+    if (!existsSync(pasta)) continue;
+    for (const f of emCadeia(pasta)) {
+      ferramentas++;
+      try {
+        execFileSync(process.execPath, ['--input-type=module', '--check'],
+          { input: readFileSync(f, 'utf8'), stdio: ['pipe', 'ignore', 'pipe'] });
+      } catch (erro) {
+        const razao = String(erro.stderr || '').split('\n').filter(Boolean).slice(0, 2).join(' · ');
+        falhar(`${f.slice(RAIZ.length + 1)}: não analisa — ${razao}`);
+        malFerramenta++;
+      }
+    }
+  }
+  if (!malFerramenta) bem(`${ferramentas} scripts e módulos do Worker analisam`);
 }
 
 /* --- 13. dados estruturados --------------------------------------------

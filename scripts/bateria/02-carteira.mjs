@@ -315,9 +315,16 @@ export async function correr(palco, certo) {
   certo(await palco.visivel('.faixa-premio'),
     'carteira: a faixa do prémio está à vista quando há prémio por levantar',
     `há ${comPremio} prémio(s) por levantar`);
-  const faixa = await palco.texto('.faixa-premio');
-  certo(faixa === 'Tens um prémio à espera. Mostra o código no balcão para levantar.',
+  /* A FAIXA PASSOU A NOMEAR O CAFÉ, e a afirmação tem de acompanhar. Antes
+     dizia só «Tens um prémio à espera» — o que chegava enquanto o servidor
+     punha sempre o cartão premiado em primeiro, logo por baixo dela. Desde que
+     a ordem é da pessoa, uma faixa que anuncia um prémio sem dizer ONDE manda
+     procurar às cegas. Mede-se o singular E o nome. */
+  const faixa = (await palco.texto('.faixa-premio')) || '';
+  certo(faixa.startsWith('Tens um prémio à espera em '),
     'carteira: a faixa diz quantos prémios esperam, no singular', String(faixa));
+  certo(/Tens um prémio à espera em .+\. Mostra o código no balcão para levantar\./.test(faixa),
+    'carteira: e nomeia o café onde ele está', String(faixa));
 
   /* --- a grelha contra o objectivo do programa -------------------------- */
 

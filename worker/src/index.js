@@ -515,9 +515,14 @@ async function pagarConviteDeAmigo(env, { cartao, programa, clienteId }) {
 function instrucoesDeBonus(env, cartaoId, quantos, programa, nota, quando) {
   const coluna = programa.tipo === 'pontos' ? 'pontos' : 'carimbos';
   return [
+    /* O `arquivado_em = NULL` é a mesma regra do `carimbar`, escrita no
+       SEGUNDO caminho que mexe nos carimbos de um cartão. Uma regra que só
+       vive num dos dois sítios tem um buraco que só aparece meses depois, com
+       um convite pago — e aí ninguém a liga a este ficheiro. */
     env.DB.prepare(
       `UPDATE cartoes SET ${coluna} = ${coluna} + ?,
-              total_carimbos = total_carimbos + ? WHERE id = ?`
+              total_carimbos = total_carimbos + ?, arquivado_em = NULL
+        WHERE id = ?`
     ).bind(quantos, programa.tipo === 'pontos' ? 0 : quantos, cartaoId),
     env.DB.prepare(
       `INSERT INTO movimentos (id, cartao_id, tipo, quantidade, nota, em)
@@ -648,6 +653,16 @@ function moldeDeCartao(env, cartao, p, premios) {
        que ela não pode ver é o contrário do que este produto diz ser — e o
        direito de acesso do art. 15.º não é opcional. */
     alcunha: cartao.alcunha || null,
+    /* ARRUMADO PARA FORA DA VISTA, e nada mais do que isso. Os carimbos ficam,
+       o cartão continua a receber carimbos, e o café continua a ver a pessoa
+       na lista dele — é o contrário de «Deixar de usar este cartão», que apaga
+       tudo. O campo VIAJA SEMPRE e os cartões arquivados continuam a vir na
+       resposta: uma app antiga que não conheça este nome mostra-os no baralho,
+       que é o que ela já fazia. Se o servidor os filtrasse, quem tem a PWA em
+       cache via cartões desaparecer sem explicação e sem forma de os trazer de
+       volta — e a regra desta casa é que a API acrescenta, nunca renomeia, e
+       isso vale para o SIGNIFICADO e não só para os nomes. */
+    arquivadoEm: cartao.arquivado_em || null,
     negocio: moldarNegocio(p),
     programa: moldarPrograma(p),
     porResgatar: premios.length,
@@ -993,9 +1008,19 @@ async function carimbar(env, pedido, operador) {
      ambos passam pela verificação do arrefecimento — mas só um consegue
      escrever, e o outro fica a saber que chegou tarde. Sem isto era possível
      carimbar duas vezes com dois telemóveis ao balcão. */
+  /* UM CARIMBO DESARQUIVA, e cabe na cláusula que já corre — zero escritas a
+     mais. Isto importa porque o carimbo é a operação que define o tecto do
+     plano gratuito: são 3 linhas por carimbo e 100 000 escritas por dia. Um
+     segundo UPDATE só para isto corria em TODOS os carimbos, arquivado ou não.
+
+     E a regra é uma só, sem excepções: quem está a ser carimbado ali é porque
+     voltou àquele sítio — o arquivo é que ficou velho. Vale também para o
+     bónus do «traz um amigo», que escreve no cartão por outro caminho (ver o
+     `instrucoesDeBonus`); se valesse só aqui, um cartão arquivado ganhava
+     carimbos em silêncio meses depois de um convite. */
   const escrita = await env.DB.prepare(
     `UPDATE cartoes SET carimbos = ?, pontos = ?, total_carimbos = ?,
-            premios_ganhos = ?, ultimo_em = ?
+            premios_ganhos = ?, ultimo_em = ?, arquivado_em = NULL
       WHERE id = ? AND (ultimo_em IS ? OR ultimo_em = ?)`
   ).bind(carimbos, pontos, totalCarimbos, premiosGanhos, quando,
          cartao.id, cartao.ultimo_em, cartao.ultimo_em).run();
@@ -1507,8 +1532,16 @@ async function fundirContas(env, { origem, destino, modo }) {
     if (!gemeo) {
       /* Sem colisão: muda de dono e mais nada. O `id` não se toca, senão o
          passe na carteira de alguém morre. */
+      /* SEM COLISÃO o cartão muda de dono inteiro — e vem como estava, com
+         uma excepção: se trouxer prémio por levantar, não pode chegar
+         arquivado. Vinha da conta antiga, onde estava escondido; na conta
+         nova a faixa contá-lo-ia sem haver cartão no ecrã. */
       instrucoes.push(env.DB.prepare(
-        'UPDATE cartoes SET cliente_id = ? WHERE id = ?').bind(destino, c.id));
+        `UPDATE cartoes SET cliente_id = ?, arquivado_em = CASE
+            WHEN EXISTS (SELECT 1 FROM premios
+                          WHERE cartao_id = cartoes.id AND resgatado_em IS NULL)
+            THEN NULL ELSE arquivado_em END
+          WHERE id = ?`).bind(destino, c.id));
       mudados++;
       continue;
     }
@@ -1527,6 +1560,18 @@ async function fundirContas(env, { origem, destino, modo }) {
                 premios_ganhos = premios_ganhos + ?,
                 aderiu_em = MIN(aderiu_em, ?),
                 ultimo_em = MAX(COALESCE(ultimo_em, ''), COALESCE(?, '')),
+                -- E VOLTA AO BARALHO. A linha de cima move os prémios da
+                -- origem para este cartão, e este cartão pode estar
+                -- arquivado: nascia aqui um cartão arquivado COM prémio por
+                -- levantar, que é justamente o que a rota do arquivo
+                -- recusa criar. A faixa do topo conta prémios sobre todos os
+                -- cartões e diria «tens um prémio à espera» sobre um cartão
+                -- que a app tinha filtrado do ecrã. Desarquivar sem condição
+                -- é a direcção segura e não custa escrita nenhuma: este
+                -- cartão acabou de absorver carimbos e histórico de outra
+                -- conta, portanto mudou mesmo — e quem o quiser outra vez
+                -- fora da vista arquiva-o num toque.
+                arquivado_em = NULL,
                 -- A ALCUNHA DO CARTÃO QUE MORRE NÃO SE PERDE EM SILÊNCIO. É o
                 -- café que a escreveu, e é o mesmo café dos dois lados (os
                 -- dois cartões são do mesmo programa). Fica a que o cartão que
@@ -1913,15 +1958,144 @@ rota('POST', '/v1/cliente/fundir', async (env, pedido) => {
   return { ...resultado, modo, horaDoServidor: agora() };
 });
 
+/**
+ * A ordem do baralho, em quatro degraus.
+ *
+ * Está aqui e não na app porque há duas apps — a de produção e a de
+ * demonstração — e uma regra de ordenação escrita duas vezes diverge ao
+ * primeiro degrau novo.
+ *
+ * 1. O PRÉMIO POR LEVANTAR PASSA À FRENTE DE TUDO, incluindo do que a pessoa
+ *    arrumou. Não é gosto: o botão «Levantar prémio» vive na tira do cartão do
+ *    baralho, FORA do painel que abre, e o comentário que o puseram lá diz
+ *    porquê — «com fila à espera, levantar um prémio não pode custar dois
+ *    toques». É o único caminho de um toque, e é ele que troca o prefixo do
+ *    código de `C1.` para `R1.`. Uma ordem manual que enterrasse esse cartão
+ *    punha a pessoa a mostrar o código errado ao balcão, com gente atrás.
+ *    O atropelo é TEMPORÁRIO: levantado o prémio, o cartão volta ao lugar
+ *    que ela lhe deu. Por reverter sozinho, nunca desfaz a arrumação de
+ *    ninguém — que é o que o tornava aceitável.
+ * 2. O ARQUIVADO VAI PARA O FIM, e não desaparece. Quem filtra é a app nova;
+ *    uma app antiga mostra-os onde sempre os mostrou.
+ * 3. DEPOIS, A ORDEM DELA. `ordem_cartoes` é um array JSON de ids. «Não está
+ *    na lista» é binário — não há um `0` que se confunda com «não foi dito».
+ * 4. E O RESTO pela regra de sempre: actividade mais recente primeiro. Quem
+ *    nunca arrumou nada sai por este ramo e vê exactamente o que via ontem.
+ */
+function ordenarCarteira(cartoes, ordemGuardada) {
+  /* Uma lista ilegível é um aborrecimento; um 500 é uma avaria. */
+  let lista = [];
+  try {
+    const cru = JSON.parse(ordemGuardada || '[]');
+    if (Array.isArray(cru)) lista = cru.filter((x) => typeof x === 'string');
+  } catch { lista = []; }
+
+  const posicao = new Map(lista.map((id, i) => [id, i]));
+  const quando = (c) => new Date(c.ultimoEm || c.aderiuEm).getTime() || 0;
+
+  return cartoes.slice().sort((a, b) => {
+    if (Boolean(a.porResgatar) !== Boolean(b.porResgatar)) return b.porResgatar ? 1 : -1;
+    if (Boolean(a.arquivadoEm) !== Boolean(b.arquivadoEm)) return a.arquivadoEm ? 1 : -1;
+    const pa = posicao.has(a.id) ? posicao.get(a.id) : Infinity;
+    const pb = posicao.has(b.id) ? posicao.get(b.id) : Infinity;
+    if (pa !== pb) return pa - pb;
+    return quando(b) - quando(a);
+  });
+}
+
 rota('GET', '/v1/cliente/cartoes', async (env, pedido) => {
   const clienteId = await exigirCliente(env, pedido);
-  const linhas = (await env.DB.prepare(
-    'SELECT * FROM cartoes WHERE cliente_id = ?'
-  ).bind(clienteId).all()).results;
+  const [linhas, dono] = await Promise.all([
+    env.DB.prepare('SELECT * FROM cartoes WHERE cliente_id = ?').bind(clienteId).all()
+      .then((r) => r.results),
+    env.DB.prepare('SELECT ordem_cartoes FROM clientes WHERE id = ?').bind(clienteId).first(),
+  ]);
   const cartoes = (await moldarCartoes(env, linhas)).filter(Boolean);
-  cartoes.sort((a, b) => (b.porResgatar - a.porResgatar)
-    || (new Date(b.ultimoEm || b.aderiuEm) - new Date(a.ultimoEm || a.aderiuEm)));
-  return cartoes;
+  return ordenarCarteira(cartoes, dono && dono.ordem_cartoes);
+});
+
+/**
+ * A ordem que a pessoa escolheu.
+ *
+ * Recebe a LISTA INTEIRA de ids, e não «mover o da posição 3 para a 1». Duas
+ * razões: repetir o mesmo pedido não faz mal nenhum (se a rede engasgar, o
+ * reenvio é inofensivo), e não há índices a atravessar a fronteira — a lista
+ * que a app mostra está filtrada, sem os arquivados, e mandar «posição 3»
+ * sobre uma lista filtrada é a armadilha de indexar a lista errada, que esta
+ * casa já pagou uma vez.
+ *
+ * O ENDEREÇO NÃO É `/v1/cliente/cartoes/ordem`, de propósito. O despachador
+ * filtra pelo método antes de casar o caminho, por isso hoje não haveria
+ * colisão com o `GET /v1/cliente/cartoes/:id` — mas no dia em que alguém
+ * quisesse LER a ordem com um GET, o regex do outro apanhava «ordem» como id
+ * de cartão e respondia «Cartão não encontrado». A ordem não é um cartão.
+ */
+rota('PUT', '/v1/cliente/ordem', async (env, pedido) => {
+  const clienteId = await exigirCliente(env, pedido);
+  const { ordem } = await corpoJSON(pedido);
+  if (!Array.isArray(ordem)) {
+    throw new Falha('A ordem tem de ser uma lista.', { estado: 400, codigo: 'ordem-invalida' });
+  }
+
+  /* SÓ ENTRAM IDS QUE SÃO DESTA PESSOA. Sem esta consulta, qualquer um
+     escrevia ids alheios na sua própria lista — não lhe dava acesso a nada,
+     mas enchia a linha dela de lixo que ninguém sabia de onde vinha. E
+     deduplica-se: uma lista com o mesmo id duas vezes dava duas posições ao
+     mesmo cartão e um comparador instável. */
+  const meus = new Set(((await env.DB.prepare(
+    'SELECT id FROM cartoes WHERE cliente_id = ?'
+  ).bind(clienteId).all()).results || []).map((c) => c.id));
+
+  const limpa = [];
+  const vistos = new Set();
+  for (const x of ordem) {
+    const id = String(x || '');
+    if (meus.has(id) && !vistos.has(id)) { vistos.add(id); limpa.push(id); }
+  }
+
+  const agora = new Date().toISOString();
+  await env.DB.prepare(
+    'UPDATE clientes SET ordem_cartoes = ?, ordem_em = ? WHERE id = ?'
+  ).bind(limpa.length ? JSON.stringify(limpa) : null, limpa.length ? agora : null, clienteId).run();
+
+  return { ordem: limpa, em: limpa.length ? agora : null };
+});
+
+/**
+ * Arrumar um cartão para fora da vista, ou trazê-lo de volta.
+ *
+ * NÃO SE ARQUIVA UM CARTÃO COM PRÉMIO POR LEVANTAR. A faixa do topo da
+ * carteira conta prémios sobre TODOS os cartões, inclusive os arquivados — e
+ * tem de continuar a contar, senão a app esconde um prémio que a pessoa
+ * ganhou. Mas uma faixa a dizer «tens um prémio à espera» sobre um cartão que
+ * ela própria escondeu é a app a mandar procurar uma coisa que ela tirou do
+ * ecrã. Recusa-se aqui, no servidor, porque uma regra que só vive no cliente
+ * volta pela primeira app antiga que chamar a rota.
+ */
+rota('PUT', /^\/v1\/cliente\/cartoes\/([\w-]+)\/arquivo$/, async (env, pedido, [cartaoId]) => {
+  const clienteId = await exigirCliente(env, pedido);
+  const { arquivado } = await corpoJSON(pedido);
+  const querArquivar = arquivado !== false;
+
+  const cartao = await env.DB.prepare(
+    'SELECT id FROM cartoes WHERE id = ? AND cliente_id = ?'
+  ).bind(cartaoId, clienteId).first();
+  if (!cartao) throw new Falha('Cartão não encontrado', { estado: 404, codigo: 'sem-cartao' });
+
+  if (querArquivar) {
+    const porLevantar = await env.DB.prepare(
+      'SELECT COUNT(*) n FROM premios WHERE cartao_id = ? AND resgatado_em IS NULL'
+    ).bind(cartaoId).first();
+    if (porLevantar && porLevantar.n > 0) {
+      throw new Falha('Este cartão tem um prémio por levantar.',
+        { estado: 409, codigo: 'premio-por-levantar' });
+    }
+  }
+
+  const quando = querArquivar ? new Date().toISOString() : null;
+  await env.DB.prepare('UPDATE cartoes SET arquivado_em = ? WHERE id = ? AND cliente_id = ?')
+    .bind(quando, cartaoId, clienteId).run();
+  return { arquivadoEm: quando };
 });
 
 rota('GET', /^\/v1\/cliente\/cartoes\/([\w-]+)$/, async (env, pedido, [cartaoId]) => {

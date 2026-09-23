@@ -241,10 +241,19 @@ const BARRA = `
     ? '.' + n.className.trim().split(/\\s+/).slice(0, 2).join('.') : '';
   const itens = [...barra.querySelectorAll('.barra-item')];
   const e = getComputedStyle(barra);
+  /* QUANTOS SEPARADORES FICAM DENTRO DA CÁPSULA. Não é a mesma pergunta que
+     «que largura tem a cápsula»: com «overflow: hidden», uma cápsula estreita
+     continua a medir-se bem e a esconder metade dos botões. Foi assim que a
+     barra apareceu com UM separador num iPhone enquanto media 298px aqui. */
+  const cortados = itens.filter((n) => {
+    const r = n.getBoundingClientRect();
+    return r.left < b.left - 0.5 || r.right > b.right + 0.5;
+  }).length;
   return {
     esquerda: Math.round(b.left),
     direita: Math.round(innerWidth - b.right),
     largura: Math.round(b.width),
+    cortados,
     /* A largura que o CONTEÚDO pede: os separadores mais a folga de dentro e o
        contorno. É com isto que se sabe se a cápsula se dimensionou pelo que
        tem, ou se esticou com o ecrã. */
@@ -389,6 +398,26 @@ async function medirBarra(palco, certo, onde, l) {
     certo(b.largura <= b.coluna,
       `${onde} @${l}: a cápsula não passa a coluna da app`,
       `${b.largura}px de largura, e a coluna são ${b.coluna}px`);
+
+    /* NENHUM SEPARADOR FICA DE FORA — e esta é a afirmação que faltava.
+
+       A cápsula media-se bem, os separadores mediam-se bem, e no iPhone de
+       quem usa isto todos os dias apareciam DOIS deles cortados pelo
+       `overflow: hidden`: a cápsula dimensionava-se pelo conteúdo através de
+       um flex aninhado, e o WebKit resolvia essa conta a um separador só. Aqui
+       dentro nunca se via, porque o Chromium resolve-a certa — e a pergunta
+       que se fazia («a cápsula tem a largura do conteúdo?») dava verde nos
+       dois casos. Perguntar se os botões CABEM é outra coisa. */
+    certo(b.cortados === 0,
+      `${onde} @${l}: nenhum separador fica cortado pela cápsula`,
+      `${b.cortados} de ${b.itens} fora da caixa`);
+
+    /* A LARGURA CERTA JÁ ERA MEDIDA PELA AFIRMAÇÃO DE CIMA, e mediu bem: ela
+       compara a cápsula com os separadores MAIS as folgas MAIS as bordas, e
+       foi ela que apanhou o meu `calc` a esquecer-se dos 2 px do contorno —
+       298 contra 300. Escrevi aqui uma segunda conta, sem as bordas, que só
+       podia discordar dela. Duas contas para a mesma pergunta divergem sempre,
+       e a que fica é a que já estava certa. */
   }
   return b;
 }

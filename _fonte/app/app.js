@@ -33,6 +33,19 @@ const estado = {
      novo, um prémio levantado, uma volta ao separador), e um cartão que se
      fecha sozinho a cada repintura é a app a desfazer o que a pessoa fez. */
   cartaoExpandido: null,
+  /* O MODO DE ARRUMAR. Não é um ecrã: é a mesma carteira com outra roupa —
+     o baralho desfaz-se em lista e cada linha ganha setas. Vive no estado
+     porque a carteira repinta-se por tudo, e um modo que se fecha sozinho a
+     meio de uma arrumação é a app a desfazer o que a pessoa está a fazer. */
+  organizar: false,
+  /* A ORDEM ACABADA DE ESCOLHER, ainda por confirmar pelo servidor.
+
+     O `ecraCarteira` começa SEMPRE por `recarregarCartoes()`. Sem isto, uma
+     resposta em voo — pedida antes do gesto — assentava por cima da
+     arrumação segundos depois de ela a ter feito, à frente da pessoa. É a
+     mesma lição do «reler apaga o que se escreveu». Limpa-se quando o
+     servidor confirma, e é ela que manda até lá. */
+  ordemLocal: null,
   /* Sobe a cada pintura. Serve para uma pintura lenta saber que já não é a
      que está no ecrã e desistir em silêncio, em vez de assentar por cima da
      seguinte. */
@@ -414,9 +427,31 @@ function alternarCartao(id) {
  * Sem rede, fica-se com o que se tem e diz-se que pode estar desactualizado
  * — é melhor do que um ecrã vazio ou um erro por cima dos cartões.
  */
+/**
+ * A ordem que a pessoa acabou de escolher manda sobre a que o servidor
+ * devolveu, até ele a confirmar.
+ *
+ * Os cartões que não estão na lista ficam onde o servidor os pôs, a seguir —
+ * é o caso do cartão novo que chega enquanto a app está aberta.
+ */
+function aplicarOrdemLocal(cartoes) {
+  if (!estado.ordemLocal) return cartoes;
+  const posicao = new Map(estado.ordemLocal.map((id, i) => [id, i]));
+  return cartoes.slice().sort((a, b) => {
+    /* O prémio continua a passar à frente: é a mesma regra do servidor, e
+       aqui é ainda mais importante que se mantenha — durante a arrumação é
+       quando a app está mais perto de enterrar o botão de levantar. */
+    if (Boolean(a.porResgatar) !== Boolean(b.porResgatar)) return b.porResgatar ? 1 : -1;
+    if (Boolean(a.arquivadoEm) !== Boolean(b.arquivadoEm)) return a.arquivadoEm ? 1 : -1;
+    const pa = posicao.has(a.id) ? posicao.get(a.id) : Infinity;
+    const pb = posicao.has(b.id) ? posicao.get(b.id) : Infinity;
+    return pa - pb;
+  });
+}
+
 async function recarregarCartoes() {
   try {
-    estado.cartoes = await api.cartoes(estado.cliente.id);
+    estado.cartoes = aplicarOrdemLocal(await api.cartoes(estado.cliente.id));
     return null;
   } catch (erro) {
     if (!erro.rede) throw erro;
@@ -428,9 +463,282 @@ async function recarregarCartoes() {
   }
 }
 
+/* =========================================================================
+   Arrumar a carteira
+   =========================================================================
+
+   DUAS OPERAÇÕES ATRÁS DE UMA PORTA. Mudar a ordem responde a «qual é que eu
+   quero ver primeiro»; arrumar para fora da vista responde a «este já não me
+   diz nada». São perguntas diferentes, mas o gesto de entrada é o mesmo — pôr
+   a carteira em condições — e duas portas obrigavam a adivinhar qual delas.
+
+   SETAS, E NÃO ARRASTAR. Três razões, por ordem de peso:
+   · A WCAG 2.5.7 obriga a uma alternativa de ponteiro único a qualquer coisa
+     que se opere arrastando. Ou seja: as setas teriam de existir de qualquer
+     maneira. Um gesto que se acrescenta a seguir é barato; um que se põe em
+     primeiro e depois obriga a duplicar tudo, não.
+   · O baralho encaixa 16px — os 16px de cima de cada cartão pertencem ao
+     cartão anterior, que está à frente. Uma pega nessa faixa fica com o alvo
+     cortado e com o toque ambíguo entre «abrir» e «arrastar».
+   · O arrasto nativo não é de confiar no Safari do iPhone, e o toque longo
+     abre o menu de selecção do sistema por cima do que se estava a fazer.
+   Se um dia se quiser arrastar, acrescenta-se por cima do mesmo `moverCartao`.
+
+   E NÃO ANIMA NADA. Uma animação de troca obrigaria a uma janela de
+   `pointer-events: none` para as duas linhas não se pisarem — e essa janela
+   continua a correr com movimento reduzido, onde a animação nem acontece:
+   quem carregasse depressa para subir quatro lugares perdia toques sem
+   perceber porquê. Sem animação, não há janela, não há classe de defeitos. */
+
+/** A lista inteira, na ordem de agora — visíveis primeiro, arrumados depois. */
+function ordemActual() {
+  return estado.cartoes.map((c) => c.id);
+}
+
+/**
+ * Manda a ordem para o servidor. Sem adiamento: é UMA linha escrita, e o
+ * adiamento só servia para poupar escritas que este modelo já não gasta.
+ * Enquanto não voltar, `estado.ordemLocal` é que manda.
+ */
+async function enviarOrdem() {
+  const ordem = ordemActual();
+  estado.ordemLocal = ordem;
+  try {
+    await api.guardarOrdem(estado.cliente.id, ordem);
+    estado.ordemLocal = null;
+  } catch (erro) {
+    /* NÃO SE LIMPA A ORDEM LOCAL numa falha: se a rede caiu, o que está no
+       ecrã é o que a pessoa quis, e apagá-lo era devolver-lhe a ordem velha
+       sem ela ter feito nada. Fica a valer até a próxima tentativa passar. */
+    avisar(erro.rede ? 'Sem ligação — a ordem fica guardada quando voltares.'
+                     : 'Não consegui guardar a ordem.', 'mau');
+  }
+}
+
+/** Diz uma frase a quem ouve o ecrã, sem pintar nada. */
+function anunciar(frase) {
+  const zona = document.querySelector('#anuncio-ordem');
+  if (zona) zona.textContent = frase;
+}
+
+/**
+ * Sobe ou desce um cartão um lugar, entre os que estão à vista.
+ *
+ * Move-se dentro da lista VISÍVEL e depois recompõe-se a lista inteira: os
+ * arquivados vão sempre no fim, e mexer-lhes a posição relativa não muda nada
+ * do que se vê. O que não se faz é indexar a lista completa com uma posição
+ * medida na filtrada — é a armadilha que já custou uma tarde nesta casa.
+ */
+/**
+ * Os três grupos da carteira, sempre por esta ordem.
+ *
+ * Os PREMIADOS estão em primeiro por atropelo e não por escolha, e por isso
+ * não entram na conta das setas: se entrassem, o segundo cartão podia subir
+ * por cima de um prémio e ficar à frente dele — e o atropelo voltava a
+ * empurrá-lo para baixo assim que o servidor respondesse. Uma seta que
+ * desfaz o que fez não é uma seta.
+ */
+function gruposDaCarteira() {
+  const visiveis = estado.cartoes.filter((c) => !c.arquivadoEm);
+  return {
+    fixos: visiveis.filter((c) => c.porResgatar > 0),
+    moveis: visiveis.filter((c) => !c.porResgatar),
+    arrumados: estado.cartoes.filter((c) => c.arquivadoEm),
+  };
+}
+
+function moverCartao(id, delta) {
+  const { fixos, moveis, arrumados } = gruposDaCarteira();
+  const i = moveis.findIndex((c) => c.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= moveis.length) return;
+
+  [moveis[i], moveis[j]] = [moveis[j], moveis[i]];
+  estado.cartoes = [...fixos, ...moveis, ...arrumados];
+
+  /* O ANÚNCIO DIZ A POSIÇÃO NOVA, e conta a carteira inteira à vista — quem
+     ouve precisa de saber onde o cartão ficou, não onde ficou dentro de um
+     grupo que a app inventou e que ela não vê. */
+  const cartao = moveis[j];
+  const visiveis = fixos.length + moveis.length;
+  anunciar(`${cartao.negocio.nome}, ${fixos.length + j + 1} de ${visiveis}.`);
+  enviarOrdem();
+  repintarOrganizar(id, delta > 0 ? 'descer' : 'subir');
+}
+
+/** Arruma um cartão para fora da vista, ou traz um de volta. */
+async function arquivarCartao(id, arquivar) {
+  const cartao = estado.cartoes.find((c) => c.id === id);
+  if (!cartao) return;
+  try {
+    const r = await api.arquivarCartao(estado.cliente.id, id, arquivar);
+    cartao.arquivadoEm = r.arquivadoEm;
+    /* Os arquivados vão para o fim da lista, que é onde o servidor também os
+       põe — sem isto, o ecrã e a próxima resposta discordavam por um
+       instante. */
+    estado.cartoes = [...estado.cartoes.filter((c) => !c.arquivadoEm),
+                      ...estado.cartoes.filter((c) => c.arquivadoEm)];
+    anunciar(arquivar ? `${cartao.negocio.nome} arrumado.`
+                      : `${cartao.negocio.nome} de volta à carteira.`);
+    await enviarOrdem();
+  } catch (erro) {
+    /* A RECUSA TEM MENSAGEM PRÓPRIA. «Não consegui arrumar» mandava a pessoa
+       procurar um defeito que não existe: o servidor recusou de propósito,
+       porque a faixa do topo ia contar um prémio que ela não conseguia
+       encontrar. Lê-se o CÓDIGO e não a mensagem — a mensagem muda. */
+    if (erro.codigo === 'premio-por-levantar') {
+      avisar('Tens um prémio por levantar neste cartão. Levanta-o primeiro.', 'mau');
+    } else {
+      avisar(erro.rede ? 'Sem ligação — tenta daqui a pouco.'
+                       : 'Não consegui arrumar este cartão.', 'mau');
+    }
+    return;
+  }
+  repintarOrganizar(id, 'arquivo');
+}
+
+/**
+ * Repinta só a lista, e devolve o foco ao botão de onde ele saiu.
+ *
+ * Repintar o ecrã inteiro tirava o foco para o `body` a cada seta — e quem
+ * navega por teclado perdia o sítio de cada vez que mexia um cartão. Ver a
+ * lição do `disabled` que tira o foco: aqui o problema é o mesmo por outra
+ * porta, porque o botão antigo deixa de existir.
+ */
+function repintarOrganizar(id, qual) {
+  const velha = document.querySelector('#lista-organizar');
+  if (!velha) return;
+  const nova = listaOrganizar();
+  velha.replaceWith(nova);
+  const alvo = nova.querySelector(`[data-cartao="${id}"][data-accao="${qual}"]`)
+    || nova.querySelector(`[data-cartao="${id}"]`);
+  if (alvo) {
+    /* Se a seta que se usou ficou inalcançável (chegou ao topo ou ao fundo),
+       o foco vai para a outra do mesmo cartão, e não para o vazio. */
+    const util = alvo.getAttribute('aria-disabled') === 'true'
+      ? nova.querySelector(`[data-cartao="${id}"]:not([aria-disabled="true"])`) : alvo;
+    (util || alvo).focus({ preventScroll: true });
+  }
+}
+
+/** Uma linha do modo de arrumar. */
+function linhaOrganizar(cartao, i, total) {
+  const arrumado = Boolean(cartao.arquivadoEm);
+  const premiado = cartao.porResgatar > 0;
+  const nome = cartao.negocio.nome;
+
+  /* NÃO SE USA `disabled` nas setas do topo e do fundo. Um botão desactivado
+     sai da ordem de tabulação, e quem chega ao primeiro cartão com o teclado
+     via o foco saltar para fora da lista sem explicação. Com `aria-disabled`
+     o botão continua alcançável, diz que não dá, e não faz nada. */
+  const seta = (accao, delta, rotulo, podeIr) => el('button', {
+    class: 'organizar-seta', type: 'button',
+    'data-cartao': cartao.id, 'data-accao': accao,
+    'aria-disabled': podeIr ? null : 'true',
+    'aria-label': `${rotulo} ${nome}`,
+    aoClick: () => { if (podeIr) moverCartao(cartao.id, delta); },
+  }, el('span', { class: `organizar-icone organizar-${accao}`,
+                  html: icone('seta', { tamanho: 20 }) }));
+
+  /* DUAS LINHAS, E NÃO UMA. Numa linha só não cabe: a 375px a coluna dá 335
+     úteis, e o logótipo (40) mais dois alvos de 48 mais o botão de texto (~85)
+     mais as folgas deixavam ~78px para o nome do café. Estava a sair
+     «Ge…», «Ca…», «Sal…» — cinco linhas em que não se distingue um café do
+     outro, que é precisamente o que é preciso para os arrumar. Só se viu isto
+     a conduzir a app; lido no código, a conta parecia caber. */
+  return el('li', { class: 'organizar-linha', 'data-arrumado': arrumado ? 'sim' : null },
+    el('div', { class: 'organizar-cabeca' },
+      marcaDoNegocio(cartao.negocio),
+      el('span', { class: 'organizar-nome' },
+        el('b', { texto: nome }),
+        el('span', { texto: cartao.programa.nome }))),
+    el('div', { class: 'organizar-accoes' },
+      /* O CARTÃO COM PRÉMIO NÃO SE MEXE, E DIZ PORQUÊ.
+
+         Ele está em primeiro por causa do atropelo do prémio, não por escolha
+         de ninguém. Deixá-lo descer era deixar a pessoa arrastá-lo para o
+         quinto lugar, sair do modo, e vê-lo saltar outra vez para o topo — a
+         app a desfazer à frente dela o que ela acabou de fazer, sem uma
+         palavra. E arrumá-lo o servidor recusa, pela mesma razão.
+
+         Não se esconde nada: mostra-se a frase que explica, e ela é temporária
+         como o atropelo. Só se viu isto a mexer na app; no código, a ordem
+         parecia estável. */
+      premiado
+        ? el('span', { class: 'organizar-nota', texto:
+            'Fica em primeiro até levantares o prémio.' })
+        : arrumado
+        ? el('button', {
+            class: 'btn btn-contorno btn-pequeno', type: 'button',
+            'data-cartao': cartao.id, 'data-accao': 'arquivo',
+            'aria-label': `Trazer ${nome} de volta à carteira`,
+            texto: 'Trazer de volta',
+            aoClick: () => arquivarCartao(cartao.id, false),
+          })
+        : [
+            seta('subir', -1, 'Subir', i > 0),
+            seta('descer', +1, 'Descer', i < total - 1),
+            el('button', {
+              class: 'btn btn-contorno btn-pequeno organizar-arrumar', type: 'button',
+              'data-cartao': cartao.id, 'data-accao': 'arquivo',
+              'aria-label': `Arrumar ${nome} para fora da carteira`,
+              texto: 'Arrumar',
+              aoClick: () => arquivarCartao(cartao.id, true),
+            }),
+          ]));
+}
+
+/** A lista do modo de arrumar: os que estão à vista, e depois os arrumados. */
+function listaOrganizar() {
+  const { fixos, moveis, arrumados } = gruposDaCarteira();
+
+  const caixa = el('div', { id: 'lista-organizar' });
+  caixa.append(el('ul', { class: 'organizar-lista' },
+    fixos.map((c) => linhaOrganizar(c, 0, 1)),
+    moveis.map((c, i) => linhaOrganizar(c, i, moveis.length))));
+
+  if (arrumados.length) {
+    caixa.append(el('h2', { class: 'organizar-titulo',
+      texto: arrumados.length === 1 ? 'Arrumado' : 'Arrumados' }));
+    /* A FRASE QUE EVITA O BOTÃO ERRADO. Sem ela, «Arrumar» lê-se como
+       «apagar» — e a única saída que esta app tinha até hoje para um cartão
+       de que já não se precisa é «Deixar de usar este cartão», que apaga os
+       carimbos e o histórico e não tem volta. Os dois não podem parecer o
+       mesmo, e é aqui que se diz a diferença. */
+    caixa.append(el('p', { class: 'miudo', texto:
+      'Continuam a receber carimbos e os carimbos que já tinham ficam lá. '
+      + 'Só saíram da vista.' }));
+    caixa.append(el('ul', { class: 'organizar-lista' },
+      arrumados.map((c) => linhaOrganizar(c, 0, 1))));
+  }
+  return caixa;
+}
+
 async function ecraCarteira(principal) {
   const semRede = await recarregarCartoes();
-  principal.append(el('h1', { class: 'titulo-grande', texto: 'Os meus cartões' }));
+
+  /* O BOTÃO SÓ APARECE QUANDO HÁ ALGUMA COISA PARA ARRUMAR. Com um cartão só,
+     não há ordem nem arquivo que façam sentido — é impossível de usar, não é
+     improvável, e um botão impossível é ruído permanente no ecrã de toda a
+     gente que ainda só tem um café. */
+  const podeArrumar = estado.cartoes.length >= 2;
+  const cabecalho = el('div', { class: 'carteira-topo' },
+    el('h1', { class: 'titulo-grande', texto: 'Os meus cartões' }),
+    podeArrumar ? el('button', {
+      class: 'btn btn-contorno btn-pequeno', type: 'button', id: 'botao-organizar',
+      'aria-pressed': estado.organizar ? 'true' : 'false',
+      texto: estado.organizar ? 'Pronto' : 'Organizar',
+      aoClick: async () => {
+        /* AO SAIR, DESCARREGA-SE O QUE ESTÁ POR ENVIAR ANTES DE REPINTAR. Sem
+           isto, a repintura chamava `recarregarCartoes()` e a resposta trazia
+           a ordem velha — a arrumação desaparecia à frente da pessoa no
+           instante em que ela dizia «Pronto». */
+        if (estado.organizar) await enviarOrdem();
+        estado.organizar = !estado.organizar;
+        await irPara('carteira', { historico: false });
+      },
+    }) : null);
+  principal.append(cabecalho);
   if (semRede) principal.append(semRede);
 
   /* A CARTEIRA VAZIA PASSA A SER O ECRÃ DE ENTRADA.
@@ -466,13 +774,45 @@ async function ecraCarteira(principal) {
      de distância. */
   const quantos = estado.cartoes.reduce((n, c) => n + (c.porResgatar || 0), 0);
   if (quantos) {
-    principal.append(el('div', {
-      class: 'faixa-premio',
-      html: icone('presente', { tamanho: 20 })
-        + `<span><b>${quantos === 1 ? 'Tens um prémio à espera'
-            : `Tens ${quantos} prémios à espera`}.</b> `
-        + `Mostra o código no balcão para levantar.</span>`,
-    }));
+    /* A FAIXA PASSOU A BOTÃO, E NOMEIA O CAFÉ.
+
+       Era um `<div>` que dizia «Tens um prémio à espera. Mostra o código no
+       balcão» sem dizer ONDE. Com o servidor a pôr sempre o cartão premiado
+       em primeiro, isso quase não se notava: estava logo por baixo. A partir
+       do momento em que a ordem é da pessoa, «quase» deixa de chegar — e a
+       app ficava a anunciar um prémio sem caminho até ele.
+
+       Conta sobre TODOS os cartões, arquivados incluídos. O servidor recusa
+       arquivar um cartão com prémio por levantar, mas a fusão de contas pode
+       fazer nascer um por outra porta; se a faixa contasse só os visíveis,
+       esse prémio desaparecia do ecrã sem nada o dizer. Contar sempre é a
+       rede de segurança, e por isso o toque também desarruma o cartão. */
+    const premiado = estado.cartoes.find((c) => c.porResgatar > 0);
+    const onde = premiado ? premiado.negocio.nome : null;
+    const titulo = quantos === 1 ? 'Tens um prémio à espera' : `Tens ${quantos} prémios à espera`;
+    principal.append(el('button', {
+      class: 'faixa-premio', type: 'button',
+      'aria-label': titulo + (onde ? `, em ${onde}. Ir para esse cartão.` : '.'),
+      aoClick: async () => {
+        if (!premiado) return;
+        if (premiado.arquivadoEm) {
+          /* Um prémio num cartão arrumado traz o cartão de volta: a app não
+             pode ser a razão por que alguém não levanta o que ganhou. */
+          await arquivarCartao(premiado.id, false);
+          await irPara('carteira', { historico: false });
+          return;
+        }
+        if (estado.organizar) { estado.organizar = false; await irPara('carteira', { historico: false }); }
+        alternarCartao(premiado.id);
+      },
+    },
+      el('span', { class: 'faixa-icone', html: icone('presente', { tamanho: 20 }) }),
+      el('span', { class: 'faixa-texto' },
+        el('b', { texto: onde ? `${titulo} em ` : `${titulo}.` }),
+        onde ? el('b', { texto: onde }) : null,
+        onde ? el('b', { texto: '.' }) : null,
+        ' Mostra o código no balcão para levantar.'),
+      el('span', { class: 'faixa-seta', html: icone('seta', { tamanho: 18 }) })));
   }
 
   /* O CARTÃO ABERTO PODE JÁ NÃO EXISTIR: largou-se o cartão noutro ecrã, ou o
@@ -482,8 +822,28 @@ async function ecraCarteira(principal) {
     estado.cartaoExpandido = null;
   }
 
+  /* A ZONA QUE FALA A QUEM OUVE, e que não pinta nada. O `avisar()` também
+     anuncia, mas pinta uma torrada — e uma torrada por cada seta era o ecrã
+     a piscar a cada toque. */
+  principal.append(el('p', { id: 'anuncio-ordem', class: 'so-leitor',
+    role: 'status', 'aria-live': 'polite' }));
+
+  if (estado.organizar) {
+    principal.append(el('p', { class: 'subtexto', texto:
+      'Sobe e desce os cartões para ficarem pela ordem que quiseres. '
+      + 'Os que já não usas podem sair da vista sem perder os carimbos.' }));
+    principal.append(listaOrganizar());
+    return;
+  }
+
   const lista = el('div', { class: 'pilha pilha-baralho' });
-  for (const c of estado.cartoes) lista.append(cartaoDoBaralho(c));
+  /* OS ARRUMADOS NÃO ENTRAM NO BARALHO — mas continuam a vir do servidor, e
+     continuam a contar na faixa do prémio. Filtrar aqui e não lá é o que
+     permite que uma app antiga, que não conhece o campo, continue a mostrá-los
+     onde sempre os mostrou em vez de os ver desaparecer. */
+  for (const c of estado.cartoes.filter((c) => !c.arquivadoEm)) {
+    lista.append(cartaoDoBaralho(c));
+  }
 
   /* O «juntar outro» vai DENTRO da pilha, e não a seguir a ela. Estava como
      irmão: a pilha é que tem o `gap`, por isso ele ficava colado ao último
@@ -2967,6 +3327,13 @@ function ecraFalhou(nome, erro) {
 function desenharBarra() {
   const barra = $('#barra');
   barra.innerHTML = '';
+  /* QUANTOS SÃO, ESCRITO PARA O CSS. A cápsula deixou de se medir pelo
+     conteúdo — mede-se por esta conta. Ver a nota do `.barra` no app.css: o
+     dimensionamento intrínseco através de flex aninhado deu uma barra com um
+     separador só no WebKit, com os outros dois cortados pelo recorte. Quem
+     sabe quantos são é quem os desenha. */
+  barra.closest('.barra').style.setProperty('--barra-itens',
+    String(Object.keys(ECRAS).length));
   for (const [nome, e] of Object.entries(ECRAS)) {
     const atual = nome === estado.ecra;
     const botao = el('button', {

@@ -151,7 +151,34 @@ body.app:not(.balcao) .barra {
      igual mas numa largura ímpar cai em meio pixel, e meio pixel num contorno
      de um pixel é um traço cinzento em vez de um traço. */
   inset: auto 0 var(--barra-baixo) 0;
-  width: fit-content;
+  /* A LARGURA É UMA CONTA, E NÃO `fit-content`. Esta linha custou uma barra
+     com UM separador no iPhone de quem a usa todos os dias.
+
+     O que aqui estava era `width: fit-content` numa caixa `position: fixed`
+     com `left` e `right` a zero — uma caixa sobre-restringida a pedir
+     dimensionamento intrínseco — e lá dentro OUTRO flex (`.barra-interior`)
+     que podia encolher. Dimensionamento intrínseco através de flex aninhado é
+     onde os motores divergem: no Chromium a cápsula deu os 298 pt certos, no
+     WebKit deu ~110, o interior encolheu com ela, e os separadores 2 e 3
+     saíram pelo `overflow: hidden` fora. Medido na captura: a pastilha tinha
+     94,0 pt exactos — o separador estava bem, a caixa à volta dele é que não.
+
+     A conta não tem nada de intrínseco: o número de separadores vem do
+     `desenharBarra()` em `--barra-itens`, e a largura sai de uma multiplicação
+     que qualquer motor faz igual. Se um dia a barra ganhar ou perder um
+     separador, a conta acompanha sozinha — e se o JavaScript não disser
+     quantos são, o `3` de reserva mantém a barra utilizável em vez de a
+     encolher a nada.
+
+     E A CONTA LEVA AS BORDAS. O `box-sizing: border-box` da folha faz a
+     largura declarada incluir o contorno, por isso um `calc` só com os
+     separadores e as folgas deixava o interior 2 px mais estreito do que o
+     conteúdo — e os separadores transbordavam 1 px para cada lado, para
+     dentro do mesmo `overflow: hidden` que já tinha causado o estrago. Foi a
+     guarda que já existia («a largura da cápsula é a do conteúdo») que o
+     apanhou, com 298 contra 300. */
+  width: calc(var(--barra-item) * var(--barra-itens, 3)
+              + var(--barra-folga-interna) * 2 + 2px);
   margin-inline: auto;
   padding: 0 var(--barra-folga-interna);
   border-top: 0;
@@ -225,7 +252,14 @@ body.app:not(.balcao) .barra {
   line-height: 1.25;
 }
 
-body.app:not(.balcao) .barra-interior { width: auto; max-width: none; }
+/* E O INTERIOR NÃO ENCOLHE. Como item flex, ele nascia com `flex-shrink: 1`:
+   quando a cápsula media menos do que o conteúdo, era ele que cedia primeiro e
+   empurrava os separadores para fora do recorte. Com a largura da cápsula a
+   ser uma conta isto deixa de acontecer — mas um item que não pode encolher
+   torna o defeito impossível em vez de improvável, e não custa nada. */
+body.app:not(.balcao) .barra-interior {
+  width: auto; max-width: none; flex: 0 0 auto;
+}
 body.app:not(.balcao) .barra-item {
   /* Largura fixa e não `flex: 1`: é a soma delas que dá a largura da cápsula,
      e um `flex: 1` dentro de uma caixa que se dimensiona pelo conteúdo é uma
@@ -1196,15 +1230,114 @@ body:has(#resultado) .aviso[data-saida="sim"] { animation-name: aviso-sai-cima; 
            text-underline-offset: 2px; }
 
 /* A faixa que anuncia um prémio à espera. */
+/* A FAIXA DO PRÉMIO É UM BOTÃO, e por isso precisa de tudo o que um botão
+   precisa: largura inteira, texto alinhado à esquerda, alvo de 48px e um anel
+   de foco. Era um `<div>`, e um `<div>` herda o alinhamento centrado de
+   nenhum sítio — um `<button>` herda `text-align: center` do agente do
+   utilizador, e sem a linha de baixo o texto ficava a meio da faixa. */
 .faixa-premio {
   display: flex; align-items: flex-start; gap: var(--e-3);
-  margin-bottom: var(--e-5); padding: var(--e-4);
+  width: 100%; margin-bottom: var(--e-5); padding: var(--e-4);
+  min-height: 48px;
   background: var(--marca-fundo); color: var(--marca);
-  border-radius: var(--r-3);
-  font-size: .875rem; line-height: 1.45;
+  border: none; border-radius: var(--r-3);
+  font: inherit; font-size: .875rem; line-height: 1.45;
+  text-align: left; cursor: pointer;
 }
 .faixa-premio svg { flex: 0 0 auto; margin-top: 1px; }
 .faixa-premio b { color: var(--marca); }
+.faixa-premio .faixa-texto { flex: 1 1 auto; min-width: 0; }
+/* A seta diz que isto leva a algum lado. `margin-left: auto` empurrava-a para
+   longe do texto numa faixa curta; aqui ela fica logo a seguir, e o `flex` do
+   texto é que come o espaço que sobra. */
+.faixa-premio .faixa-seta { flex: 0 0 auto; margin-top: 1px; opacity: .75; }
+.faixa-premio:hover { background: color-mix(in srgb, var(--marca-fundo) 84%, var(--marca)); }
+
+/* --- arrumar a carteira -------------------------------------------------- */
+
+/* O título e o botão na mesma linha. O botão encolhe-se ao conteúdo e o
+   título come o resto — sem o `min-width: 0`, um título comprido empurrava o
+   botão para fora do ecrã em vez de quebrar. */
+.carteira-topo {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--e-4); margin-bottom: var(--e-4);
+}
+.carteira-topo h1 { margin: 0; min-width: 0; }
+.carteira-topo .btn { flex: 0 0 auto; }
+
+/* A LISTA DESFAZ O BARALHO. Os cartões sobrepõem-se 16px — os 16px de cima de
+   cada um pertencem ao cartão anterior, que está à frente. Um botão nessa
+   faixa fica com o alvo cortado e com o toque ambíguo. Aqui não há
+   sobreposição nenhuma: cada linha é uma linha. */
+.organizar-lista {
+  list-style: none; margin: var(--e-4) 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--e-2);
+}
+.organizar-linha {
+  display: flex; flex-direction: column; gap: var(--e-2);
+  padding: var(--e-3);
+  background: var(--papel-2); border: 1px solid var(--linha);
+  border-radius: var(--r-3);
+}
+.organizar-cabeca { display: flex; align-items: center; gap: var(--e-3); min-width: 0; }
+/* As acções à direita, que é onde o polegar já está. O «Arrumar» empurra-se
+   para a ponta com `margin-left: auto` e as setas ficam juntas — duas coisas
+   que se fazem em sequência não devem estar separadas pelo ecrã todo. */
+.organizar-accoes { display: flex; align-items: center; gap: var(--e-2); }
+.organizar-arrumar { margin-left: auto; }
+/* A frase do cartão premiado ocupa o lugar dos botões — e por isso alinha-se
+   com eles, e não com o nome. */
+.organizar-nota { font-size: .8125rem; color: var(--tinta-3); line-height: 1.35; }
+.organizar-linha[data-arrumado="sim"] { opacity: .72; }
+/* O nome come o espaço que sobra e corta em reticências: os botões têm
+   medidas fixas e são eles que mandam. A 320px sobram 280 úteis, e três
+   alvos de 48 deixam ~90 para o nome — que chega para se reconhecer o café,
+   e o nome inteiro vai no `aria-label` de cada botão. */
+.organizar-nome {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column;
+  font-size: .875rem; line-height: 1.3;
+}
+.organizar-nome b, .organizar-nome span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.organizar-nome span { color: var(--tinta-3); font-size: .8125rem; }
+
+/* 48px, que é o que o núcleo promete por escrito e o que a bateria mede. */
+.organizar-seta {
+  flex: 0 0 auto;
+  width: 48px; height: 48px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--linha-campo);
+  border-radius: var(--r-2); color: var(--tinta);
+  cursor: pointer;
+}
+/* O CONTORNO É `--linha-campo` E NÃO `--linha-forte`, e a diferença é de
+   norma. O que identifica este botão é o aro — a seta lá dentro é pequena e
+   sem ele não se distingue de um ícone solto. A regra 1.4.11 da WCAG pede
+   3:1 para a informação visual que identifica um controlo, e `--linha-forte`
+   é uma linha de separação a 18% de opacidade: dá cerca de 1,2:1 sobre o
+   papel. O `--linha-campo` existe exactamente para isto, é o mesmo que o
+   `.btn-contorno` usa, e é um dos pares que a varredura de contraste do
+   auditor já mede a 3:1 — ou seja, muda com a paleta sem ninguém se lembrar
+   de vir aqui. */
+.organizar-seta:hover { background: var(--veu); }
+/* NÃO É `disabled`. Um botão desactivado sai da ordem de tabulação, e quem
+   chegasse ao primeiro cartão pelo teclado via o foco saltar para fora da
+   lista. Com `aria-disabled` ele continua alcançável, anuncia que não dá, e
+   não faz nada — e aqui só desbota. */
+.organizar-seta[aria-disabled="true"] { opacity: .35; cursor: default; }
+.organizar-seta[aria-disabled="true"]:hover { background: transparent; }
+/* A seta do núcleo aponta para a direita; estas são a mesma, rodadas. */
+.organizar-subir svg { transform: rotate(-90deg); }
+.organizar-descer svg { transform: rotate(90deg); }
+.organizar-icone { display: inline-flex; }
+
+.organizar-titulo {
+  margin: var(--e-6) 0 var(--e-2);
+  font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--tinta-3);
+}
 
 .adicionar { border-style: dashed; background: transparent; }
 
