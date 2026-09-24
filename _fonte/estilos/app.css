@@ -258,7 +258,19 @@ body.app:not(.balcao) .barra {
    ser uma conta isto deixa de acontecer — mas um item que não pode encolher
    torna o defeito impossível em vez de improvável, e não custa nada. */
 body.app:not(.balcao) .barra-interior {
-  width: auto; max-width: none; flex: 0 0 auto;
+  /* `width: 100%` E NÃO `auto`, e é a mesma lição um nível abaixo.
+
+     Pus aqui `width: auto` a pensar que o interior se mediria pelos
+     separadores. `auto` é exactamente o que pede dimensionamento intrínseco —
+     e é isso que o WebKit resolve mal dentro de flex aninhado. Medido em
+     WebKit a sério, no site publicado: a cápsula estava nos 300 px certos e o
+     interior media 108. Os três separadores de 94 saíam de x=141, e o terceiro
+     caía em 329 numa cápsula que acaba em 345 — dois à vista, um cortado.
+
+     Com a cápsula a ter largura DEFINIDA, `100%` é uma percentagem de um
+     número conhecido: não há nada para o motor inferir. Não sobra
+     dimensionamento intrínseco em lado nenhum deste caminho. */
+  width: 100%; max-width: none; flex: 0 0 auto;
 }
 body.app:not(.balcao) .barra-item {
   /* Largura fixa e não `flex: 1`: é a soma delas que dá a largura da cápsula,

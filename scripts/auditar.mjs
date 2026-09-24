@@ -394,6 +394,40 @@ console.log('\nOrigem');
   }
 }
 
+/* --- 7c. a barra da app ------------------------------------------------- */
+/* A BARRA MOSTROU UM SEPARADOR, E DEPOIS DOIS, NUM IPHONE — e três aqui.
+
+   A cápsula e o interior dela mediam-se pelo conteúdo: primeiro
+   `width: fit-content` numa caixa `position: fixed` com left e right a zero,
+   depois `width: auto` no flex de dentro. Dimensionamento intrínseco através
+   de flex aninhado é onde o WebKit e o Chromium discordam, e a bateria corre
+   em Chromium: dava verde nos dois casos. Medido em WebKit a sério, a cápsula
+   deu ~110 px em vez de 300, e depois o interior deu 108 em vez de 282.
+
+   Nenhuma bateria desta casa corre WebKit, por isso o que se proíbe aqui é o
+   CONSTRUTO: nas regras da cápsula da app do cliente, nenhuma largura pode
+   ser uma palavra que peça ao motor que a adivinhe. */
+console.log('\nA barra da app');
+{
+  const folha = readFileSync(join(RAIZ, '_fonte', 'estilos', 'app.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const INTRINSECAS = /\bwidth\s*:\s*(auto|fit-content|-webkit-fit-content|min-content|max-content)\b/;
+  let vistas = 0;
+  let mas = 0;
+  for (const m of folha.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const seletor = m[1].trim();
+    if (!/body\.app:not\(\.balcao\)\s+\.barra(-interior)?\s*$/.test(seletor)) continue;
+    vistas++;
+    const achado = m[2].match(INTRINSECAS);
+    if (achado) {
+      falhar(`«${seletor}» declara «${achado[0]}» — a cápsula não se mede pelo conteúdo`);
+      mas++;
+    }
+  }
+  if (vistas < 2) falhar(`só encontrei ${vistas} regra(s) da cápsula — a guarda deixou de ver o que devia`);
+  else if (!mas) bem(`as ${vistas} regras da cápsula têm largura definida, e nenhuma pede ao motor que a adivinhe`);
+}
+
 /* --- 8. segredos ---------------------------------------------------------*/
 /* O repositório é público. Uma chave que escape aqui escapa para sempre. */
 console.log('\nSegredos');

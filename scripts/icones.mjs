@@ -38,9 +38,31 @@ const GLIFO = (tinta) => CASAS.map(([cx, cy], i) => (i < 3
 
 const LETRA = '-apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif';
 
+/* A LARGURA INTRÍNSECA É SEMPRE ESTA, E NÃO O TAMANHO PEDIDO.
+   =========================================================================
+   O `qlmanage` não desenha um SVG na tela que se lhe pede: compõe-o numa
+   PÁGINA de 300 pt e depois reduz a página ao tamanho do `-s`. Se a largura
+   intrínseca do SVG for menor do que a página, o desenho fica com a fracção
+   `largura/300` da tela e o resto sai BRANCO.
+
+   E foi isso que esteve em produção. Medido nos ficheiros que o site servia:
+   o apple-touch-icon de 180 tinha a marca a ocupar 60,0% (180/300) e o de 192
+   ocupava 64,1% (192/300) — um selo roxo encostado ao canto superior esquerdo
+   de um quadrado branco, no ecrã inicial de quem instalou a app. Os de 512
+   saíam bem por acaso: passam dos 300, e aí a página é do tamanho do desenho.
+
+   A correcção é uma constante: emite-se sempre 1024 de largura intrínseca e
+   deixa-se o `-s` reduzir. Ensaiado antes de escrever isto — com 1024 o
+   desenho ocupa 100,0% de uma tela de 180; com 180 ocupa 60,0%.
+
+   E a guarda que faltava não era sobre o tamanho do ficheiro: a bateria já
+   confirmava «pelo menos 180×180» e passava, porque media a TELA. O que é
+   preciso perguntar é quanto da tela o desenho ocupa. */
+const INTRINSECO = 1024;
+
 /** A marca completa: quadrado de canto redondo com o carimbo lá dentro. */
 function marca(lado, { fundo = '#5A31E8', tinta = '#fff', raio = 8.5 } = {}) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${lado}" height="${lado}">`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${INTRINSECO}" height="${INTRINSECO}">`
     + `<rect width="32" height="32" rx="${raio}" fill="${fundo}"/>`
     + GLIFO(tinta) + `</svg>`;
 }
@@ -49,7 +71,7 @@ function marca(lado, { fundo = '#5A31E8', tinta = '#fff', raio = 8.5 } = {}) {
     corta em círculo, e o glifo tem de caber na zona segura (80% do lado). */
 function mascara(lado, { fundo = '#5A31E8' } = {}) {
   const escala = 0.72;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${lado}" height="${lado}">`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${INTRINSECO}" height="${INTRINSECO}">`
     + `<rect width="32" height="32" fill="${fundo}"/>`
     + `<g transform="translate(16 16) scale(${escala}) translate(-16 -16)">`
     + GLIFO('#fff') + `</g></svg>`;

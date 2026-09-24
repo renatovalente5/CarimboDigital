@@ -260,8 +260,28 @@ const analisarIcone = (palco, caminho) => palco.js(`
       if (Math.max(...[0, 1, 2].map((k) => Math.abs(p[k] - medio[k]))) > 40) pintados++;
     }
   }
+
+  /* QUANTO DA TELA O DESENHO OCUPA. O apple-touch-icon esteve em produção com
+     a marca a ocupar 60% da largura, encostada ao canto de cima, e o resto
+     branco — e a afirmação que existia («pelo menos 180×180») passava, porque
+     media a TELA. Mede-se aqui a caixa do que foi pintado: tudo o que não é
+     branco puro nem transparente. */
+  let x0 = l, x1 = -1, y0 = a, y1 = -1;
+  const salto = Math.max(1, Math.round(l / 96));
+  for (let y = 0; y < a; y += salto) {
+    for (let x = 0; x < l; x += salto) {
+      const [cr, cg, cb, ca] = px(x, y);
+      if (ca > 8 && !(cr > 248 && cg > 248 && cb > 248)) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+  }
+  const extensao = x1 < 0 ? 0 : Math.round(Math.min(
+    (x1 - x0 + salto) / l, (y1 - y0 + salto) / a) * 100);
+
   return {
-    resumo, tipo, bytes: cru.byteLength, largura: l, altura: a,
+    resumo, tipo, bytes: cru.byteLength, largura: l, altura: a, extensao,
     anelEspalha: Math.round(espalha), anelMedio: medio,
     fraccaoDesenho: miolo ? Math.round((pintados / miolo) * 100) : 0,
     alfaCantos: [px(0, 0), px(l - 1, 0), px(0, a - 1), px(l - 1, a - 1)].map((c) => c[3]),
@@ -398,6 +418,11 @@ export async function correr(palco, certo) {
       m.erro ? String(m.erro) : `${m.largura}x${m.altura}`);
     certo(!m.erro && String(m.tipo).startsWith('image/'),
       `app: o ícone ${i.src.split('/').pop()} é servido como imagem`, String(m.tipo));
+    /* O 192 esteve como o apple-touch-icon: a marca a 64% da largura, o resto
+       branco. «Tem mesmo 192x192» passava. */
+    certo(!m.erro && m.extensao >= 95,
+      `app: o desenho do ícone ${i.src.split('/').pop()} enche a tela`,
+      m.erro ? String(m.erro) : `${m.extensao}%`);
   }
 
   const mascaraApp = maskApp[0] ? medidosApp[maskApp[0].src] : null;
@@ -500,6 +525,9 @@ export async function correr(palco, certo) {
     certo(!m.erro && m.largura === l && m.altura === a,
       `balcão: o ícone ${i.src.split('/').pop()} tem mesmo ${i.sizes}`,
       m.erro ? String(m.erro) : `${m.largura}x${m.altura}`);
+    certo(!m.erro && m.extensao >= 95,
+      `balcão: o desenho do ícone ${i.src.split('/').pop()} enche a tela`,
+      m.erro ? String(m.erro) : `${m.extensao}%`);
   }
   const mascaraBal = maskBal[0] ? medidosBal[maskBal[0].src] : null;
   certo(!!mascaraBal && !mascaraBal.erro && mascaraBal.alfaMinimoAnel === 255,
@@ -538,6 +566,14 @@ export async function correr(palco, certo) {
     && appleBal.largura >= 180 && appleBal.altura >= 180,
     'ecrã inicial: os dois apple-touch-icon têm pelo menos 180×180',
     `app ${appleApp.largura}x${appleApp.altura}, balcão ${appleBal.largura}x${appleBal.altura}`);
+
+  /* E O DESENHO ENCHE A TELA. A afirmação de cima mede a tela e deixou passar,
+     semanas a fio, um ícone de 180 com a marca a ocupar 60% — o gerador
+     compunha o SVG numa página de 300 pt, e 180/300 é 0,6. Isto pergunta o
+     que falta: de ponta a ponta, o desenho chega às bordas? */
+  certo(appleApp.extensao >= 95 && appleBal.extensao >= 95,
+    'ecrã inicial: o desenho dos dois apple-touch-icon enche a tela',
+    `app ${appleApp.extensao}%, balcão ${appleBal.extensao}%`);
 
   /* O nome por baixo do ícone também tem de os separar. */
   certo(manApp.appleTitulo !== manBalcao.appleTitulo
